@@ -518,7 +518,7 @@ button {
 .note .mask > span {
   display: block;
 }
-.note-meta {
+.note .mask > .note-meta {
   display: flex;
   justify-content: space-between;
   gap: 16px;

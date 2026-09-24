@@ -37,6 +37,7 @@ const IDLE = 0.13; // rad/s, about 7.5 degrees per second
 const FOCUS_Z = 3.2;
 const FOCUS_H = 0.7;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 /** The resident's plane in CSS px at depth 0, and its phone size. */
 const RESIDENT_PX = { w: 120, h: 140 };
 const RESIDENT_PX_PHONE = { w: 88, h: 104 };
@@ -342,7 +343,8 @@ export class CloudScene {
 
   /** The pointer yaws the cloud; with a y it also sets the resident's gaze. */
   setPointer(clientX: number, clientY?: number) {
-    this.targetYaw = (clientX / this.width - 0.5) * 0.6;
+    // A held piece keeps the cloud where it is.
+    if (!this.focused) this.targetYaw = (clientX / this.width - 0.5) * 0.6;
     if (clientY !== undefined) this.resident.setPointer(clientX / this.width, clientY / this.height);
   }
 
@@ -383,7 +385,9 @@ export class CloudScene {
   // ---------------------------------------------------------------- focus (spec 6.5)
 
   private applyFocusTransform(it: CloudItem, duration: number) {
-    const local = this.group.worldToLocal(new THREE.Vector3(0, this.overview ? this.unitsPerPx(FOCUS_Z) * this.height * 0.1 : 0, FOCUS_Z));
+    // The seat in group space once the yaw has settled, so the piece lands centred and stays there.
+    const world = new THREE.Vector3(0, this.overview ? this.unitsPerPx(FOCUS_Z) * this.height * 0.1 : 0, FOCUS_Z);
+    const local = world.applyAxisAngle(Y_AXIS, -(this.angle + this.targetYaw * this.rotFactor)).divideScalar(this.group.scale.x || 1);
     const visibleH = this.visibleHeightAt(FOCUS_Z);
     const visibleW = visibleH * this.camera.aspect;
     // 70% of the viewport height, unless the piece would run past the sides (16px margin each).
