@@ -1,2 +1,8 @@
 # eigengrau
-Personal site. 
+
+Personal site.
+
+```
+npm install
+npm run dev
+```
