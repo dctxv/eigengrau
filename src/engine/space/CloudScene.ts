@@ -21,6 +21,10 @@ export type CloudItem = {
   t: number;
   start: THREE.Vector3;
   startScale: THREE.Vector2;
+  /** The fade at rest: 1 for his pieces, lower for the records. */
+  restFade: number;
+  /** Fading out to be disposed: the other fades leave it alone. */
+  leaving?: boolean;
 };
 
 export type CloudOptions = {
@@ -110,6 +114,10 @@ export class CloudScene {
 
   focused: CloudItem | null = null;
   overview = false;
+  /** The room is dimmed for the game: still, and deaf to the pointer's yaw. */
+  private dimmed = false;
+  /** How far above the centre the resident sits, in CSS px (the game's stack). */
+  private liftPx = 0;
   private width = 1;
   private height = 1;
   private tmpQ = new THREE.Quaternion();
@@ -153,17 +161,8 @@ export class CloudScene {
     let ringSlot = 0;
     this.sources.forEach((source, i) => {
       const l = loaded[i];
-      const y = 1 - (i / (n - 1)) * 2; // fibonacci sphere: even spread, no clumps
-      const r = Math.sqrt(Math.max(0, 1 - y * y));
-      const t = GOLDEN * i;
-      const home = new THREE.Vector3(Math.cos(t) * r * SPHERE.rx, y * SPHERE.ry, Math.sin(t) * r * SPHERE.rz);
-      const mat = new THREE.ShaderMaterial({
-        uniforms: { uMap: { value: l.texture }, uFade: { value: 1 }, uBlur: { value: 0 } },
-        vertexShader: vert,
-        fragmentShader: frag,
-        transparent: true,
-        depthWrite: false,
-      });
+      const home = this.homeAt(i, n);
+      const mat = this.makeMaterial(l.texture);
       const mesh = new THREE.Mesh(this.geo, mat);
       const variation = 0.85 + ((i * 7919) % 100) / 100 * 0.4; // deterministic 0.85 .. 1.25
       const base = BASE * variation;
@@ -176,6 +175,7 @@ export class CloudScene {
         source, mesh, mat, aspect, base, home, loaded: l,
         ring: ringIndices.has(i) ? ringSlot++ : -1,
         t: 0, start: new THREE.Vector3(), startScale: new THREE.Vector2(),
+        restFade: 1,
       });
     });
     upload(this.renderer, loaded);
@@ -183,6 +183,24 @@ export class CloudScene {
     this.renderer.compile(this.scene, this.camera);
     this.loaded = true;
     this.playVideos(true);
+  }
+
+  /** Fibonacci sphere: slot k of `total`, an even spread with no clumps. */
+  private homeAt(k: number, total: number) {
+    const y = 1 - (k / (total - 1)) * 2;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const t = GOLDEN * k;
+    return new THREE.Vector3(Math.cos(t) * r * SPHERE.rx, y * SPHERE.ry, Math.sin(t) * r * SPHERE.rz);
+  }
+
+  private makeMaterial(texture: THREE.Texture) {
+    return new THREE.ShaderMaterial({
+      uniforms: { uMap: { value: texture }, uFade: { value: 1 }, uBlur: { value: 0 } },
+      vertexShader: vert,
+      fragmentShader: frag,
+      transparent: true,
+      depthWrite: false,
+    });
   }
 
   private playVideos(on: boolean) {
@@ -224,10 +242,26 @@ export class CloudScene {
     const fit = THREE.MathUtils.clamp((visibleW * 0.8) / (2 * SPHERE.rx + 0.5), 0.35, 1);
     this.group.scale.setScalar(fit);
     this.residentGroup.scale.setScalar(fit);
-    const px = w <= PHONE ? RESIDENT_PX_PHONE : RESIDENT_PX;
+    const px = this.width <= PHONE ? RESIDENT_PX_PHONE : RESIDENT_PX;
     const u = this.unitsPerPx(0);
     this.resident.base.set(px.w * u, px.h * u);
+    if (this.liftPx) {
+      gsap.killTweensOf(this.resident.mesh.position);
+      this.resident.mesh.position.y = this.liftUnits(this.liftPx);
+    }
     if (this.focused) this.applyFocusTransform(this.focused, 0);
+  }
+
+  /** The resident's plane as drawn, in CSS px: its room carries the cloud's fit scale. */
+  get residentSize() {
+    const px = this.width <= PHONE ? RESIDENT_PX_PHONE : RESIDENT_PX;
+    const fit = this.residentGroup.scale.x || 1;
+    return { w: px.w * fit, h: px.h * fit };
+  }
+
+  /** A height in CSS px as a local y in the resident's group, which carries the fit scale. */
+  private liftUnits(px: number) {
+    return (px * this.unitsPerPx(0)) / (this.residentGroup.scale.x || 1);
   }
 
   // ---------------------------------------------------------------- intro phases (spec 6.2, 6.3)
@@ -287,12 +321,13 @@ export class CloudScene {
     this.state = "exploded";
     this.rotFactor = this.opts.reducedMotion ? 0 : 1;
     this.items.forEach((it) => {
+      if (it.leaving) return;
       it.t = 1;
       it.mesh.visible = true;
       it.mesh.position.copy(it.home);
       this.setScale(it, it.base);
       it.mat.uniforms.uFade.value = 0;
-      gsap.to(it.mat.uniforms.uFade, { value: 1, duration: 0.6, ease: "power2.out" });
+      gsap.to(it.mat.uniforms.uFade, { value: it.restFade, duration: 0.6, ease: "power2.out" });
     });
     this.showResident(0.6);
   }
@@ -311,12 +346,30 @@ export class CloudScene {
     this.resident.fadeIn(this.opts.reducedMotion ? 0 : fadeSeconds);
   }
 
-  /** The room dims for the game: every piece to a low fade and a full blur, and back. */
+  /**
+   * The room dims for the game: every piece to a low fade and a full blur,
+   * the turning stops and the pointer stops yawing the cloud; and back.
+   */
   dim(on: boolean) {
+    this.dimmed = on;
+    this.rotating = !on;
+    if (on) this.vel = 0;
     this.items.forEach((it) => {
-      gsap.to(it.mat.uniforms.uFade, { value: on ? DIM_FADE : 1, duration: 0.6, ease: "power2.out", overwrite: true });
+      if (it.leaving) return;
+      gsap.to(it.mat.uniforms.uFade, { value: on ? DIM_FADE : it.restFade, duration: 0.6, ease: "power2.out", overwrite: true });
       gsap.to(it.mat.uniforms.uBlur, { value: on ? 1 : 0, duration: 0.6, ease: "power2.out", overwrite: true });
     });
+  }
+
+  /** The resident rises `px` above the centre (0 brings it back), for the game's stack. */
+  liftResident(px: number, duration: number) {
+    this.liftPx = px;
+    gsap.to(this.resident.mesh.position, { y: this.liftUnits(px), duration, ease: "power3.inOut", overwrite: true });
+  }
+
+  /** On a short viewport the resident dims with the room instead of rising. */
+  dimResident(on: boolean) {
+    this.resident.fade(on ? DIM_FADE : 1, 0.6, on ? 0 : 0.2);
   }
 
   /** Whether the pointer is on the resident's silhouette; only meaningful once pick() found no piece. */
@@ -336,20 +389,21 @@ export class CloudScene {
     const w = this.resident.mesh.scale.x * fit;
     const h = this.resident.mesh.scale.y * fit;
     if (w <= 0 || h <= 0) return false;
-    return this.resident.hitTest(x / w + 0.5, y / h + 0.5);
+    const cy = this.resident.mesh.position.y * fit;
+    return this.resident.hitTest(x / w + 0.5, (y - cy) / h + 0.5);
   }
 
   // ---------------------------------------------------------------- interaction (spec 6.4)
 
   /** The pointer yaws the cloud; with a y it also sets the resident's gaze. */
   setPointer(clientX: number, clientY?: number) {
-    // A held piece keeps the cloud where it is.
-    if (!this.focused) this.targetYaw = (clientX / this.width - 0.5) * 0.6;
+    // A held piece and a dimmed room both keep the cloud where it is.
+    if (!this.dimmed && !this.focused) this.targetYaw = (clientX / this.width - 0.5) * 0.6;
     if (clientY !== undefined) this.resident.setPointer(clientX / this.width, clientY / this.height);
   }
 
   scrub(deltaY: number) {
-    if (this.focused) return;
+    if (this.focused || this.dimmed) return;
     this.vel += deltaY * 0.0009;
   }
 
@@ -358,7 +412,7 @@ export class CloudScene {
     const rect = this.canvas.getBoundingClientRect();
     this.ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.ray.setFromCamera(this.ndc, this.camera);
-    const meshes = this.items.filter((it) => it.mesh.visible && it.mat.uniforms.uFade.value > 0.5).map((it) => it.mesh);
+    const meshes = this.items.filter((it) => it.mesh.visible && !it.leaving && it.mat.uniforms.uFade.value > 0.5).map((it) => it.mesh);
     const hits = this.ray.intersectObjects(meshes, false);
     if (!hits.length) return null;
     const hit = hits[0].object;
@@ -407,7 +461,7 @@ export class CloudScene {
     sel.mesh.renderOrder = 10;
     this.applyFocusTransform(sel, 0.9);
     this.items.forEach((it) => {
-      if (it === sel) return;
+      if (it === sel || it.leaving) return;
       gsap.to(it.mat.uniforms.uFade, { value: 0, duration: 0.6, ease: "power2.out", overwrite: true });
       gsap.to(it.mat.uniforms.uBlur, { value: 1, duration: 0.6, ease: "power2.out", overwrite: true });
     });
@@ -433,12 +487,12 @@ export class CloudScene {
       x: sel.base * sel.aspect, y: sel.base, duration: 0.9, ease: "power3.inOut", overwrite: true,
       onComplete: () => {
         sel.mesh.renderOrder = 0;
-        this.rotating = true;
+        this.rotating = !this.dimmed;
       },
     });
     this.items.forEach((it) => {
-      if (it === sel) return;
-      gsap.to(it.mat.uniforms.uFade, { value: 1, duration: 0.6, ease: "power2.out", delay: 0.2, overwrite: true });
+      if (it === sel || it.leaving) return;
+      gsap.to(it.mat.uniforms.uFade, { value: it.restFade, duration: 0.6, ease: "power2.out", delay: 0.2, overwrite: true });
       gsap.to(it.mat.uniforms.uBlur, { value: 0, duration: 0.6, ease: "power2.out", delay: 0.2, overwrite: true });
     });
     this.resident.fade(1, 0.6, 0.2);
@@ -512,6 +566,7 @@ export class CloudScene {
       it.loaded.dispose();
     });
     gsap.killTweensOf(this);
+    gsap.killTweensOf(this.resident.mesh.position);
     this.resident.dispose();
     this.geo.dispose();
     this.renderer.dispose();

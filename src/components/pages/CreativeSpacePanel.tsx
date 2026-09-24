@@ -1,23 +1,46 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
+import { sfx } from "@/audio/sfx";
 import { MONOGRAM, NAME, RESIDENT_LINES, ROLE, SPACE_ITEMS } from "@/content/site";
 import { CloudScene, type CloudItem } from "@/engine/space/CloudScene";
 import { runIntro } from "@/engine/space/intro";
 import { CursorLabel } from "@/components/CursorLabel";
 import { MaskedChars, MaskedWords } from "@/components/Mask";
+import { Threshold } from "@/components/pages/Threshold";
 import { setFlag } from "@/lib/flags";
-import { isCompact, prefersReducedMotion } from "@/lib/motion";
+import { DUR, isCompact, prefersReducedMotion } from "@/lib/motion";
+import { readResult, resultCaption, todayUTC, writeResult } from "@/lib/threshold";
 
 /** What the caption says over the resident: "Quiet" over one of his lines, or "Listening" over a track. */
 export type ResidentCaption = { label: string; line: string };
 
+/** The game's door and its stack: the resident, a gap, the plate. */
+const GAME_HASH = "#threshold";
+const PLATE_MAX = 480;
+const PLATE_MARGIN = 32;
+const STACK_GAP = 24;
+/** Below this height the resident dims with the room instead of rising above the plate. */
+const STACK_MIN_H = 620;
+/** Seconds the result caption holds the slot before the hover caption may return. */
+const RESULT_DWELL = 4;
+
+/** The scene's side of the game, reachable from the board's React handlers. */
+type Game = {
+  correct(): void;
+  miss(): void;
+  end(result: number): void;
+  closed(abandoned: boolean): void;
+  pointer(clientX: number, clientY: number, onPlate: boolean): void;
+  leave(): void;
+};
+
 /**
- * Creative Space (spec 6): one canvas, the intro overlays, the caption, the
+ * Space (spec 6): one canvas, the intro overlays, the caption, the
  * description, the cursor label and the mobile "View Case" button. The
- * resident sits at the centre: hovering it raises the caption, clicking it is
- * the game's door.
+ * resident sits at the centre: hovering it raises the caption, clicking it
+ * opens Threshold, which is DOM beside the stage so it stays accessible.
  */
 export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   const stage = useRef<HTMLElement>(null);
@@ -29,21 +52,26 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   const desc = useRef<HTMLDivElement>(null);
   const label = useRef<HTMLDivElement>(null);
   const viewCase = useRef<HTMLButtonElement>(null);
-  const playIntro = intro && !prefersReducedMotion();
+  const live = useRef<HTMLParagraphElement>(null);
+  const reducedMotion = prefersReducedMotion();
   // One of his lines, chosen once per mount (in the effect). setResidentCaption swaps it (the now-playing wiring).
   const residentCaption = useRef<ResidentCaption>({ label: "Quiet", line: RESIDENT_LINES[0] });
   const setResidentCaption = useRef<(c: ResidentCaption) => void>((c) => {
     residentCaption.current = c;
   });
-  // The game's hook: called on a click or tap of the resident when no piece was hit.
-  const onResidentClick = useRef<(() => void) | null>(null);
+  const game = useRef<Game | null>(null);
+  /** The board is up: the day it plays and how far the plate sits below the centre. */
+  const [board, setBoard] = useState<{ date: string; drop: number } | null>(null);
 
   useEffect(() => {
     const stageEl = stage.current!;
-    const cloud = new CloudScene(canvas.current!, SPACE_ITEMS, { reducedMotion: prefersReducedMotion() });
+    const hashGame = window.location.hash === GAME_HASH;
+    const playIntro = intro && !reducedMotion && !hashGame;
+    const cloud = new CloudScene(canvas.current!, SPACE_ITEMS, { reducedMotion });
     const cursor = new CursorLabel(label.current!, stageEl);
     Object.assign(stageEl, { __cloud: cloud }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
+    let openTimer: gsap.core.Tween | null = null;
 
     if (playIntro) {
       stopIntro = runIntro(
@@ -59,7 +87,10 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       cloud.load().then(() => {
         cloud.showSettled();
         setFlag("loadingComplete", true);
+        setFlag("exploded", true);
         setFlag("pageReady", true);
+        // Arriving at the door: the board opens once the chrome has landed.
+        if (hashGame) openTimer = gsap.delayedCall(DUR.drop + 0.2, () => openGame());
       });
     }
 
@@ -76,7 +107,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       desc.current!.innerHTML = it.source.description
         .map((line) => `<p><span class="mask"><span>${line.replace(/</g, "&lt;")}</span></span></p>`)
         .join("");
-      gsap.set(gsap.utils.toArray<HTMLElement>(".mask > span", desc.current!), { yPercent: 100, opacity: 0 });
+      const lines = gsap.utils.toArray<HTMLElement>(".mask > span", desc.current!);
+      if (lines.length) gsap.set(lines, { yPercent: 100, opacity: 0 });
       raiseCaption(it.source.title, it.source.category, 0.35);
       if (isCompact()) gsap.fromTo(viewCase.current, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out", delay: 0.4, overwrite: true });
     };
@@ -87,25 +119,112 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       gsap.to(viewCase.current, { opacity: 0, y: 10, duration: 0.3, overwrite: true });
     };
 
-    // ---- the resident: hover raises his line, leaving drops it
+    // ---- the resident: hover raises his line, leaving drops it; a result caption outranks both while it shows
     residentCaption.current = { label: "Quiet", line: RESIDENT_LINES[Math.floor(Math.random() * RESIDENT_LINES.length)] };
     let overResident = false;
+    let resultShown = false;
+    let resultTimer: gsap.core.Tween | null = null;
     const showResidentCaption = () => raiseCaption(residentCaption.current.label, residentCaption.current.line, 0);
     const setOverResident = (on: boolean) => {
       if (on === overResident) return;
       overResident = on;
       cursor.set(on ? "Threshold" : null);
+      if (resultShown) return;
       if (on) showResidentCaption();
       else hideCaption();
     };
     setResidentCaption.current = (c) => {
       residentCaption.current = c;
-      if (overResident) showResidentCaption();
+      if (overResident && !resultShown) showResidentCaption();
     };
     const showDesc = (on: boolean) => {
       const lines = gsap.utils.toArray<HTMLElement>(".mask > span", desc.current!);
+      if (!lines.length) return;
       if (on) gsap.fromTo(lines, { yPercent: 100, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.7, ease: "power3.out", stagger: 0.06, delay: 0.2, overwrite: true });
       else gsap.to(lines, { yPercent: -100, opacity: 0, duration: 0.35, ease: "power3.out", stagger: 0.03, overwrite: true });
+    };
+
+    // ---- Threshold: the door, the stack, the result
+    let gameOpen = false;
+    /** The day the open run belongs to, so a run across UTC midnight still scores that day. */
+    let gameDate = todayUTC();
+    /** The run's result, shown once the board has left. */
+    let pending: number | null = null;
+    const stackFits = () => window.innerHeight >= STACK_MIN_H;
+    const plateSize = () => Math.min(PLATE_MAX, window.innerWidth - PLATE_MARGIN, window.innerHeight - PLATE_MARGIN);
+    /** The resident, a gap and the plate form one centred stack; returns the plate's drop below the centre. */
+    const stack = (duration: number) => {
+      const fits = stackFits();
+      cloud.liftResident(fits ? (STACK_GAP + plateSize()) / 2 : 0, duration);
+      cloud.dimResident(!fits);
+      return fits ? (cloud.residentSize.h + STACK_GAP) / 2 : 0;
+    };
+    const showResult = (date: string, result: number) => {
+      const { title, line } = resultCaption(date, result);
+      resultShown = true;
+      resultTimer?.kill();
+      raiseCaption(title, line, 0.2);
+      if (live.current) live.current.textContent = `${title}. ${line}`;
+      resultTimer = gsap.delayedCall(RESULT_DWELL, () => {
+        resultShown = false;
+        if (overResident) showResidentCaption();
+        else hideCaption();
+      });
+    };
+    const dropHash = () => {
+      if (window.location.hash === GAME_HASH) window.history.replaceState(null, "", window.location.pathname);
+    };
+    const openGame = () => {
+      if (gameOpen || cloud.state !== "exploded" || cloud.focused) return;
+      const date = todayUTC();
+      const played = readResult(date);
+      // A second knock the same day shows the result instead of a new run.
+      if (played !== null) {
+        dropHash();
+        showResult(date, played);
+        return;
+      }
+      gameOpen = true;
+      gameDate = date;
+      pending = null;
+      overResident = false;
+      cursor.set(null);
+      resultTimer?.kill();
+      resultShown = false;
+      hideCaption();
+      cloud.dim(true);
+      setBoard({ date, drop: stack(reducedMotion ? 0 : 0.9) });
+    };
+    const closeGame = (abandoned: boolean) => {
+      gameOpen = false;
+      setBoard(null);
+      cloud.dim(false);
+      cloud.liftResident(0, reducedMotion ? 0 : 0.9);
+      cloud.dimResident(false);
+      cursor.set(null);
+      dropHash();
+      if (!abandoned && pending !== null) showResult(gameDate, pending);
+      pending = null;
+    };
+    game.current = {
+      correct: () => {
+        sfx.play("tick");
+        cloud.resident.blinkSlow();
+      },
+      miss: () => {
+        sfx.play("close");
+        cloud.resident.glanceAside();
+      },
+      end: (result) => {
+        writeResult(gameDate, result);
+        pending = result;
+      },
+      closed: closeGame,
+      pointer: (x, y, onPlate) => {
+        cloud.setPointer(x, y);
+        cursor.set(onPlate ? null : "Close");
+      },
+      leave: () => cursor.set(null),
     };
 
     // ---- pointer, wheel, touch, keyboard (spec 6.4, 6.5)
@@ -153,7 +272,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         showCaption(hit);
         cursor.set("Overview");
       } else if (cloud.residentHit(e.clientX, e.clientY)) {
-        onResidentClick.current?.();
+        openGame();
       }
     };
     const onWheel = (e: WheelEvent) => {
@@ -161,6 +280,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       cloud.scrub(e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY);
     };
     const onKey = (e: KeyboardEvent) => {
+      if (gameOpen) return;
       if (e.key === "ArrowLeft") cloud.scrub(-120);
       else if (e.key === "ArrowRight") cloud.scrub(120);
       else if (e.key === "Escape" && cloud.focused) {
@@ -182,7 +302,13 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       cloud.setOverview(on);
       showDesc(on);
     };
-    const onResize = () => cloud.resize();
+    const onResize = () => {
+      cloud.resize();
+      if (gameOpen) {
+        const drop = stack(0);
+        setBoard((b) => b && { ...b, drop });
+      }
+    };
     const onVis = () => cloud.setVisible(document.visibilityState === "visible");
 
     stageEl.addEventListener("pointermove", onMove);
@@ -198,6 +324,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
 
     return () => {
       stopIntro?.();
+      openTimer?.kill();
+      resultTimer?.kill();
+      game.current = null;
       stageEl.removeEventListener("pointermove", onMove);
       stageEl.removeEventListener("pointerleave", onLeave);
       stageEl.removeEventListener("pointerdown", onDown);
@@ -214,39 +343,57 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   }, []);
 
   return (
-    <section ref={stage} className="stage stage-space" aria-hidden="true">
-      <canvas ref={canvas} />
+    <div className="space-panel">
+      <section ref={stage} className="stage stage-space" aria-hidden="true">
+        <canvas ref={canvas} />
 
-      {/* Intro overlays (spec 5.1). Hidden without JS-driven reveal on non-intro loads. */}
-      <div ref={side} className="intro-side">
-        <MaskedWords text={NAME} className="intro-name" />
-        <MaskedWords text={ROLE} className="intro-role" />
-      </div>
-      <div ref={monogram} className="intro-monogram">
-        <MaskedChars text={MONOGRAM} />
-      </div>
-      <div ref={counter} className="intro-counter mask">
-        <span>001</span>
-      </div>
+        {/* Intro overlays (spec 5.1). Hidden without JS-driven reveal on non-intro loads. */}
+        <div ref={side} className="intro-side">
+          <MaskedWords text={NAME} className="intro-name" />
+          <MaskedWords text={ROLE} className="intro-role" />
+        </div>
+        <div ref={monogram} className="intro-monogram">
+          <MaskedChars text={MONOGRAM} />
+        </div>
+        <div ref={counter} className="intro-counter mask">
+          <span>001</span>
+        </div>
 
-      {/* Focus overlays (spec 6.5) */}
-      <div ref={caption} className="space-caption">
-        <h3>
-          <span className="mask">
-            <span />
-          </span>
-        </h3>
-        <p>
-          <span className="mask">
-            <span />
-          </span>
-        </p>
-      </div>
-      <div ref={desc} className="space-desc" />
-      <button ref={viewCase} type="button" className="view-case">
-        View Case
-      </button>
-      <div ref={label} className="cursor-label" />
-    </section>
+        {/* Focus overlays (spec 6.5) */}
+        <div ref={caption} className="space-caption">
+          <h3>
+            <span className="mask">
+              <span />
+            </span>
+          </h3>
+          <p>
+            <span className="mask">
+              <span />
+            </span>
+          </p>
+        </div>
+        <div ref={desc} className="space-desc" />
+        <button ref={viewCase} type="button" className="view-case" tabIndex={-1}>
+          View Case
+        </button>
+        <div ref={label} className="cursor-label" />
+      </section>
+
+      {/* The game, beside the stage rather than inside it, so it is not aria-hidden; its result is read out here. */}
+      <p ref={live} className="sr-only" aria-live="polite" />
+      {board && (
+        <Threshold
+          date={board.date}
+          drop={board.drop}
+          reducedMotion={reducedMotion}
+          onCorrect={() => game.current?.correct()}
+          onMiss={() => game.current?.miss()}
+          onEnd={(result) => game.current?.end(result)}
+          onClosed={(abandoned) => game.current?.closed(abandoned)}
+          onPointer={(x, y, onPlate) => game.current?.pointer(x, y, onPlate)}
+          onLeave={() => game.current?.leave()}
+        />
+      )}
+    </div>
   );
 }
