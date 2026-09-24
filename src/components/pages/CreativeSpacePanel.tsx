@@ -9,13 +9,9 @@ import { runIntro } from "@/engine/space/intro";
 import { CursorLabel } from "@/components/CursorLabel";
 import { MaskedChars, MaskedWords } from "@/components/Mask";
 import { Threshold } from "@/components/pages/Threshold";
-import { getFlags, onFlags, setFlag } from "@/lib/flags";
+import { setFlag } from "@/lib/flags";
 import { DUR, isCompact, prefersReducedMotion } from "@/lib/motion";
-import { pollNow } from "@/lib/now";
 import { readResult, resultCaption, todayUTC, writeResult } from "@/lib/threshold";
-
-/** What the caption says over the resident: "Quiet" over one of his lines, or "Listening" over a track. */
-export type ResidentCaption = { label: string; line: string };
 
 /** The game's door and its stack: the resident, a gap, the plate. */
 const GAME_HASH = "#threshold";
@@ -55,11 +51,6 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   const viewCase = useRef<HTMLButtonElement>(null);
   const live = useRef<HTMLParagraphElement>(null);
   const reducedMotion = prefersReducedMotion();
-  // One of his lines, chosen once per mount (in the effect). setResidentCaption swaps it (the now-playing wiring).
-  const residentCaption = useRef<ResidentCaption>({ label: "Quiet", line: RESIDENT_LINES[0] });
-  const setResidentCaption = useRef<(c: ResidentCaption) => void>((c) => {
-    residentCaption.current = c;
-  });
   const game = useRef<Game | null>(null);
   /** The board is up: the day it plays and how far the plate sits below the centre. */
   const [board, setBoard] = useState<{ date: string; drop: number } | null>(null);
@@ -111,7 +102,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       const lines = gsap.utils.toArray<HTMLElement>(".mask > span", desc.current!);
       if (lines.length) gsap.set(lines, { yPercent: 100, opacity: 0 });
       raiseCaption(it.source.title, it.source.category, 0.35);
-      if (isCompact() && it.kind === "piece") gsap.fromTo(viewCase.current, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out", delay: 0.4, overwrite: true });
+      if (isCompact()) gsap.fromTo(viewCase.current, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out", delay: 0.4, overwrite: true });
     };
     const hideCaption = () => {
       gsap.to(captionMasks(), { yPercent: -100, opacity: 0, duration: 0.4, ease: "power3.out", stagger: 0.04, overwrite: true });
@@ -121,11 +112,12 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     };
 
     // ---- the resident: hover raises his line, leaving drops it; a result caption outranks both while it shows
-    residentCaption.current = { label: "Quiet", line: RESIDENT_LINES[Math.floor(Math.random() * RESIDENT_LINES.length)] };
+    // One of his lines, chosen once per visit.
+    const line = RESIDENT_LINES[Math.floor(Math.random() * RESIDENT_LINES.length)];
     let overResident = false;
     let resultShown = false;
     let resultTimer: gsap.core.Tween | null = null;
-    const showResidentCaption = () => raiseCaption(residentCaption.current.label, residentCaption.current.line, 0);
+    const showResidentCaption = () => raiseCaption("Quiet", line, 0);
     const setOverResident = (on: boolean) => {
       if (on === overResident) return;
       overResident = on;
@@ -133,10 +125,6 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (resultShown) return;
       if (on) showResidentCaption();
       else hideCaption();
-    };
-    setResidentCaption.current = (c) => {
-      residentCaption.current = c;
-      if (overResident && !resultShown) showResidentCaption();
     };
     const showDesc = (on: boolean) => {
       const lines = gsap.utils.toArray<HTMLElement>(".mask > span", desc.current!);
@@ -228,25 +216,6 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       leave: () => cursor.set(null),
     };
 
-    // ---- the records: the week's albums join the cloud once his pieces are in; a scrobbling track speaks through the resident
-    const quiet = residentCaption.current;
-    let stopNow: (() => void) | null = null;
-    const startNow = () => {
-      stopNow ??= pollNow((r) => {
-        cloud.setRecords(r.top.filter((a) => a.coverId).map((a) => ({ id: a.id, title: a.album, category: a.artist, src: `/api/cover/${a.coverId}` })));
-        setResidentCaption.current(r.now ? { label: "Listening", line: `${r.now.title}, ${r.now.artist}` } : quiet);
-      });
-    };
-    const offFlags = onFlags((f) => {
-      if (!f.loadingComplete) return;
-      startNow();
-      offFlags();
-    });
-    if (getFlags().loadingComplete) {
-      startNow();
-      offFlags();
-    }
-
     // ---- pointer, wheel, touch, keyboard (spec 6.4, 6.5)
     let down = { x: 0, y: 0, t: 0 };
     let lastTouchY = 0;
@@ -260,7 +229,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         return;
       }
       const hit = cloud.pick(e.clientX, e.clientY);
-      cursor.set(hit === cloud.focused && cloud.focused.kind === "piece" ? "Overview" : "Close");
+      cursor.set(hit === cloud.focused ? "Overview" : "Close");
     };
     const onLeave = () => setOverResident(false);
     const onDown = (e: PointerEvent) => {
@@ -277,8 +246,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (cloud.state !== "exploded") return;
       const hit = cloud.pick(e.clientX, e.clientY);
       if (cloud.focused) {
-        // A piece steps back for its overview; a record, which has none, simply closes.
-        if (hit === cloud.focused && cloud.focused.kind === "piece") {
+        if (hit === cloud.focused) {
           const on = !cloud.overview;
           cloud.setOverview(on);
           showDesc(on);
@@ -291,7 +259,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         overResident = false;
         cloud.focus(hit);
         showCaption(hit);
-        cursor.set(hit.kind === "piece" ? "Overview" : "Close");
+        cursor.set("Overview");
       } else if (cloud.residentHit(e.clientX, e.clientY)) {
         openGame();
       }
@@ -318,7 +286,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       }
     };
     const onViewCase = () => {
-      if (!cloud.focused || cloud.focused.kind !== "piece") return;
+      if (!cloud.focused) return;
       const on = !cloud.overview;
       cloud.setOverview(on);
       showDesc(on);
@@ -347,8 +315,6 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       stopIntro?.();
       openTimer?.kill();
       resultTimer?.kill();
-      stopNow?.();
-      offFlags();
       game.current = null;
       stageEl.removeEventListener("pointermove", onMove);
       stageEl.removeEventListener("pointerleave", onLeave);
