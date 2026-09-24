@@ -17,6 +17,7 @@ import { SoundChip } from "./chrome/SoundChip";
 const CreativeSpacePanel = dynamic(() => import("./pages/CreativeSpacePanel").then((m) => m.CreativeSpacePanel), { ssr: false });
 const ProjectsPanel = dynamic(() => import("./pages/ProjectsPanel").then((m) => m.ProjectsPanel), { ssr: false });
 const NotesPanel = dynamic(() => import("./pages/NotesPanel").then((m) => m.NotesPanel), { ssr: false });
+const MusicPanel = dynamic(() => import("./pages/MusicPanel").then((m) => m.MusicPanel), { ssr: false });
 const AboutPanel = dynamic(() => import("./pages/AboutPanel").then((m) => m.AboutPanel), { ssr: false });
 
 type Panel = { key: number; path: string; intro: boolean };
@@ -25,6 +26,7 @@ function Stage({ path, intro }: { path: string; intro: boolean }) {
   if (path === "/") return <CreativeSpacePanel intro={intro} />;
   if (path === "/projects") return <ProjectsPanel />;
   if (path === "/notes") return <NotesPanel />;
+  if (path === "/music") return <MusicPanel />;
   if (path === "/about") return <AboutPanel />;
   return null;
 }

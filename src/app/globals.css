@@ -538,8 +538,9 @@ button {
   white-space: pre-wrap;
   margin: 0;
 }
-/* The rims: the pill's material, masked so text dissolves as it leaves. */
-.notes-rim {
+/* The rims: the pill's material, masked so text dissolves as it leaves. Music wears them too. */
+.notes-rim,
+.music-rim {
   position: absolute;
   left: 0;
   right: 0;
@@ -550,16 +551,218 @@ button {
   pointer-events: none;
   z-index: 3;
 }
-.notes-rim-top {
+.notes-rim-top,
+.music-rim-top {
   top: 0;
   -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent);
   mask-image: linear-gradient(to bottom, #000 30%, transparent);
 }
-.notes-rim-bottom {
+.notes-rim-bottom,
+.music-rim-bottom {
   bottom: 0;
   height: 50px;
   -webkit-mask-image: linear-gradient(to top, #000 30%, transparent);
   mask-image: linear-gradient(to top, #000 30%, transparent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Music (plain DOM). A sleeve for what is playing, and beside it the   */
+/* week's songs in one stack, each as loud as it was played: size and   */
+/* opacity follow the play count, so the quiet ones sink toward         */
+/* eigengrau. The count rides each title like a tab's number.           */
+/* ------------------------------------------------------------------ */
+.stage-music {
+  cursor: auto;
+}
+.music-scroll {
+  position: relative;
+  height: var(--app-h);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.music-scroll::-webkit-scrollbar {
+  display: none;
+}
+.music {
+  display: grid;
+  justify-items: center;
+  padding: 196px 16px calc(var(--bottom-ui) + 64px);
+}
+/* The heading sits on the projects heading's line, in its two faces. */
+.music-heading {
+  font: 400 16px/20px var(--font-serif);
+  text-align: center;
+  margin: 0;
+}
+.music-lead {
+  font: 500 16px/20px var(--font-grotesk);
+  letter-spacing: -0.02em;
+  margin-right: 0.28em;
+}
+/* The sleeve and the stack centre as one group, on the width the songs actually take. */
+.music-body {
+  display: grid;
+  grid-template-columns: clamp(160px, 20vw, 280px) fit-content(600px);
+  column-gap: clamp(32px, 4.5vw, 72px);
+  align-items: start;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 72px;
+}
+.music-sleeve {
+  position: relative;
+  aspect-ratio: 1;
+}
+/* An empty sleeve is a hairline; a cover fades in over it. */
+.music-sleeve::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.music-sleeve img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 250ms var(--ease-ui);
+}
+.music-sleeve img[data-on][data-loaded] {
+  opacity: 1;
+}
+.music-now {
+  margin-top: 20px;
+}
+.music-now .mask {
+  display: block;
+}
+.music-state {
+  font: 500 11px/140% var(--font-grotesk);
+  margin: 0;
+}
+.music-state > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Playing: a dot that breathes like an alive project's tick. Not playing: a ring, as paused. */
+.music-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink);
+  animation: music-breathe 2.4s ease-in-out infinite;
+}
+.music-dot[data-still] {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--ink);
+  animation: none;
+}
+.music-title {
+  font: 400 22px/1.2 var(--font-serif);
+  margin: 12px 0 0;
+}
+.music-by {
+  font: 400 14px/1.3 var(--font-serif);
+  opacity: 0.6;
+  margin: 4px 0 0;
+}
+.music-list {
+  --vol-max: clamp(34px, min(4.4vw, 7.2vh), 64px);
+  list-style: none;
+  padding: 0;
+  /* The loudest line's capitals meet the sleeve's top edge. */
+  margin: calc(-0.2 * var(--vol-max) * var(--vol-fit, 1)) 0 0;
+}
+.music-list li {
+  --size: calc((16px + (var(--vol-max) - 16px) * var(--k)) * var(--vol-fit, 1));
+  font: 400 var(--size)/1.12 var(--font-serif);
+}
+.music-list a {
+  display: inline-block;
+  opacity: var(--level);
+  transition: opacity 250ms var(--ease-ui);
+}
+.music-list[data-active] a {
+  opacity: calc(var(--level) * 0.3);
+}
+.music-list[data-active] a[data-on] {
+  opacity: 1;
+}
+/* Room for descenders inside the clip, without spacing the lines apart. */
+.music-list .mask {
+  padding-bottom: 0.14em;
+  margin-bottom: -0.14em;
+}
+.music-list .mask > span {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.08em;
+}
+.music-plays {
+  font: 500 11px/1 var(--font-grotesk);
+  margin-top: calc(var(--size) * 0.2);
+}
+/* With no hover to name them, the artists sit under their songs. */
+.music-artist {
+  display: none;
+}
+@media (hover: none) {
+  .music-artist {
+    display: block;
+    font: 500 11px/140% var(--font-grotesk);
+    opacity: 0.6;
+    margin: 0 0 10px;
+  }
+}
+.music .mask > span {
+  animation: music-rise 0.9s cubic-bezier(0.23, 1, 0.32, 1) var(--d, 0.05s) both;
+}
+.music-now .mask > span {
+  animation-duration: 0.6s;
+}
+.music-now .music-title > span {
+  animation-delay: 0.1s;
+}
+.music-now .music-by > span {
+  animation-delay: 0.16s;
+}
+/* power4.out, the site's reveal, as a curve CSS can run on remount */
+@keyframes music-rise {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+@keyframes music-breathe {
+  50% {
+    transform: scale(1.4);
+    opacity: 0.55;
+  }
+}
+/* A phone reads one column, flush left from the heading down. */
+@media (max-width: 640px) {
+  .music {
+    justify-items: start;
+  }
+  .music-heading {
+    text-align: left;
+  }
+  .music-body {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 48px;
+    width: 100%;
+  }
+  .music-sleeve {
+    width: min(240px, 64vw);
+  }
+  .music-list {
+    --vol-max: 40px;
+    margin-top: 0;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -614,5 +817,9 @@ button {
   }
   .elsewhere a {
     transition: none;
+  }
+  .music .mask > span,
+  .music-dot {
+    animation: none;
   }
 }

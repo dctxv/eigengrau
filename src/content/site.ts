@@ -25,7 +25,8 @@ export const TABS = [
   { href: "/", label: "Space", n: 1 },
   { href: "/projects", label: "Projects", n: 2 },
   { href: "/notes", label: "Notes", n: 3 },
-  { href: "/about", label: "About", n: 4 },
+  { href: "/music", label: "Music", n: 4 },
+  { href: "/about", label: "About", n: 5 },
 ] as const;
 
 export type TabHref = (typeof TABS)[number]["href"];
@@ -138,7 +139,8 @@ export function statusWord(p: Pick<Project, "status" | "year">): string {
 }
 
 const NUMBER_WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"];
-const numberWord = (n: number) => NUMBER_WORDS[n] ?? String(n);
+/** A count as the site writes it: "No", "One" … "Twelve", then digits. */
+export const numberWord = (n: number) => NUMBER_WORDS[n] ?? String(n);
 
 /** The bottom line on Projects, derived from the data so it is never stale: "Six projects since 2021. Two alive." */
 export function projectsLine(projects: readonly Project[] = PROJECTS): string {

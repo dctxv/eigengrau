@@ -1,13 +1,16 @@
 /**
- * What he is listening to, as /api/now reports it: the scrobbling track, if
- * any, and the week's most-played albums. Shared by the route handler and the
- * Space panel, which polls it while the page is visible.
+ * What he is listening to, as /api/now reports it: the track scrobbling now,
+ * the last one that finished, and the week (plays, most-played artist, the
+ * ten most-played songs). Shared by the route handler and the Music panel,
+ * which polls it while the page is visible.
  */
-export type NowPlaying = { title: string; artist: string; album: string; coverId: string | null };
-export type TopAlbum = { id: string; album: string; artist: string; playcount: number; coverId: string | null };
-export type NowResponse = { now: NowPlaying | null; top: TopAlbum[] };
+export type Track = { title: string; artist: string; album: string | null; coverId: string | null; url: string | null };
+export type Played = Track & { at: number };
+export type WeekTrack = Track & { plays: number };
+export type Week = { plays: number; artist: string | null; tracks: WeekTrack[] };
+export type NowResponse = { now: Track | null; last: Played | null; week: Week };
 
-export const EMPTY_NOW: NowResponse = { now: null, top: [] };
+export const EMPTY_NOW: NowResponse = { now: null, last: null, week: { plays: 0, artist: null, tracks: [] } };
 
 /** GET /api/now. Any failure is the empty shape, so the page shows nothing rather than an error. */
 export async function fetchNow(signal?: AbortSignal): Promise<NowResponse> {
@@ -15,7 +18,16 @@ export async function fetchNow(signal?: AbortSignal): Promise<NowResponse> {
     const res = await fetch("/api/now", { signal, cache: "no-store" });
     if (!res.ok) return EMPTY_NOW;
     const body = (await res.json()) as Partial<NowResponse>;
-    return { now: body.now ?? null, top: Array.isArray(body.top) ? body.top : [] };
+    const week = body.week;
+    return {
+      now: body.now ?? null,
+      last: body.last ?? null,
+      week: {
+        plays: typeof week?.plays === "number" ? week.plays : 0,
+        artist: week?.artist ?? null,
+        tracks: Array.isArray(week?.tracks) ? week.tracks : [],
+      },
+    };
   } catch {
     return EMPTY_NOW;
   }
