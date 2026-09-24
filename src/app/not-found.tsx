@@ -19,6 +19,7 @@ export default function NotFound() {
       </header>
       <Link
         href="/"
+        transitionTypes={["nav-back"]}
         className="mt-16 inline-block text-[15px] text-text-2 underline decoration-line underline-offset-4 hover:text-text-1"
       >
         Back to the space

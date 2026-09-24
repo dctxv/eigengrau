@@ -2,18 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion } from "motion/react";
 import { Frame } from "@/components/Frame";
 import { cn } from "@/lib/cn";
-import { ROUTES, SITE_NAME } from "@/lib/routes";
+import { ROUTES, SITE_NAME, slideDirection } from "@/lib/routes";
 import { useDigitNavigation } from "./useDigitNavigation";
 
 const LINK = "inline-flex h-8.5 items-center leading-none focus-visible:-outline-offset-3";
 
 /**
  * Fixed pill at the top centre: brand, a hairline, then the six routes.
- * Labels collapse to their serif digits on phones. Digits 1 to 6 navigate
- * unless that has been turned off in the colophon.
+ * Only the current route shows its label; the others are their serif digits.
+ * The label and marker animate in and out through the nav-* classes in
+ * globals.css. Digits 1 to 6 navigate unless turned off in the colophon.
  *
  * Active state is an exact pathname match. Prefix matching would disagree
  * between the prerendered 404 page and the client; when nested routes arrive,
@@ -21,7 +21,7 @@ const LINK = "inline-flex h-8.5 items-center leading-none focus-visible:-outline
  */
 export function PillNav() {
   const pathname = usePathname();
-  const shortcuts = useDigitNavigation();
+  const shortcuts = useDigitNavigation(pathname);
 
   return (
     <nav
@@ -29,9 +29,13 @@ export function PillNav() {
       className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center"
     >
       <Frame className="pointer-events-auto" innerClassName="bg-surface-1/85 px-2 backdrop-blur-md">
-        <ul className="flex items-center text-[13px] tracking-[-0.01em]">
+        <ul className="nav-list flex items-center text-[13px] tracking-[-0.01em]">
           <li>
-            <Link href="/" className={cn(LINK, "px-3 font-medium text-text-1")}>
+            <Link
+              href="/"
+              transitionTypes={[slideDirection(pathname, "/")]}
+              className={cn(LINK, "px-3 font-semibold text-text-1")}
+            >
               {SITE_NAME}
             </Link>
           </li>
@@ -42,28 +46,23 @@ export function PillNav() {
               <li key={route.href}>
                 <Link
                   href={route.href}
+                  transitionTypes={[slideDirection(pathname, route.href)]}
                   aria-label={`${route.label} ${route.digit}`}
                   aria-current={active ? "page" : undefined}
                   aria-keyshortcuts={shortcuts ? String(route.digit) : undefined}
                   className={cn(
                     LINK,
-                    "relative px-2.5 transition-colors duration-150",
+                    "relative px-2.5 transition-colors",
                     active ? "text-text-1" : "text-text-2 hover:text-text-1",
                   )}
                 >
-                  <span className="sr-only sm:not-sr-only">{route.label}</span>
-                  <span
-                    aria-hidden="true"
-                    className="font-serif text-[14px] tracking-normal sm:relative sm:-top-[0.5em] sm:ml-0.5 sm:text-[0.72em]"
-                  >
+                  <span className="nav-label">
+                    <span>{route.label}</span>
+                  </span>
+                  <span aria-hidden="true" className="nav-digit font-serif tracking-normal">
                     {route.digit}
                   </span>
-                  {active && (
-                    <motion.span
-                      layoutId="nav-active"
-                      className="absolute inset-x-1.5 bottom-0 h-px bg-facet sm:inset-x-2.5"
-                    />
-                  )}
+                  <span aria-hidden="true" className="nav-mark absolute inset-x-2.5 bottom-0 h-px bg-facet" />
                 </Link>
               </li>
             );

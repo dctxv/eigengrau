@@ -16,3 +16,16 @@ export const ROUTES: readonly SiteRoute[] = [
 
 export const SITE_NAME = "Clay";
 export const SITE_LINE = "A portfolio, sort of";
+
+/** Transition types read by the page slide. Forward slides left, back slides right. */
+export type SlideDirection = "nav-forward" | "nav-back";
+
+/** Position of a path in the site's left-to-right order. Anything unlisted sits after Log. */
+export function routeIndex(pathname: string): number {
+  const i = ROUTES.findIndex((route) => route.href === pathname);
+  return i === -1 ? ROUTES.length : i;
+}
+
+export function slideDirection(from: string, to: string): SlideDirection {
+  return routeIndex(to) < routeIndex(from) ? "nav-back" : "nav-forward";
+}
