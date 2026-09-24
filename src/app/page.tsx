@@ -28,6 +28,7 @@ export default function Home() {
           </p>
           <Link
             href="/colophon"
+            transitionTypes={["nav-forward"]}
             className="mt-2 inline-block text-text-2 underline decoration-line underline-offset-4 hover:text-text-1"
           >
             Colophon

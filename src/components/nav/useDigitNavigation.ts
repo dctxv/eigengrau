@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ROUTES } from "@/lib/routes";
+import { ROUTES, slideDirection } from "@/lib/routes";
 import { useDigitShortcutsEnabled } from "./digitShortcuts";
 
 const TYPING_TARGETS =
@@ -15,7 +15,7 @@ function isTyping(target: EventTarget | null) {
  * Digits 1 to 6 jump to the matching route, unless the user is typing, holding
  * a modifier, or has turned the shortcuts off. Returns whether they are on.
  */
-export function useDigitNavigation() {
+export function useDigitNavigation(pathname: string) {
   const router = useRouter();
   const enabled = useDigitShortcutsEnabled();
 
@@ -26,11 +26,13 @@ export function useDigitNavigation() {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTyping(event.target)) return;
       const route = ROUTES.find((r) => String(r.digit) === event.key);
-      if (route) router.push(route.href);
+      if (route) {
+        router.push(route.href, { transitionTypes: [slideDirection(pathname, route.href)] });
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [router, enabled]);
+  }, [router, enabled, pathname]);
 
   return enabled;
 }

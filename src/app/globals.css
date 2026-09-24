@@ -22,7 +22,8 @@
   /* No border radius anywhere. */
   --radius-*: initial;
 
-  --default-transition-duration: 180ms;
+  --default-transition-duration: 320ms;
+  --default-transition-timing-function: var(--ease-io);
 }
 
 :root {
@@ -32,6 +33,11 @@
   --facet-bright: linear-gradient(100deg, #8a5560 0%, #6a628f 50%, #5e7c5b 100%);
   /* Clipped top-right corner size for frames. */
   --corner: 12px;
+  /* Every movement: slow in, fast through, slow out. */
+  --ease-io: cubic-bezier(0.76, 0, 0.24, 1);
+  --slide-ms: 560ms;
+  /* Band at the top of the viewport the page slide never paints over (the nav lives there). */
+  --nav-band: 4rem;
 }
 
 /* ------------------------------------------------------------------ */
@@ -168,5 +174,115 @@
   &:focus-visible {
     transform: none;
     outline-offset: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Pill nav: the current route shows its label, the rest are digits.   */
+/* ------------------------------------------------------------------ */
+/* Unhinted glyph advances: hinted Inter Tight at 13px opens a gap after "a". */
+.nav-list {
+  text-rendering: geometricPrecision;
+}
+.nav-label {
+  display: grid;
+  grid-template-columns: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-columns var(--default-transition-duration) var(--ease-io),
+    opacity 200ms var(--ease-io);
+}
+.nav-label > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.nav-digit {
+  display: inline-block;
+  font-size: 14px;
+  transition:
+    font-size var(--default-transition-duration) var(--ease-io),
+    translate var(--default-transition-duration) var(--ease-io),
+    margin-left var(--default-transition-duration) var(--ease-io);
+}
+.nav-mark {
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--default-transition-duration) var(--ease-io);
+}
+[aria-current="page"] .nav-label {
+  grid-template-columns: 1fr;
+  opacity: 1;
+}
+[aria-current="page"] .nav-digit {
+  margin-left: 2px;
+  font-size: 0.72em;
+  translate: 0 -0.5em;
+}
+[aria-current="page"] .nav-mark {
+  transform: scaleX(1);
+}
+
+/* ------------------------------------------------------------------ */
+/* Route changes: the page slides sideways. The nav and floor stay.    */
+/* ------------------------------------------------------------------ */
+:root {
+  /* Only the page takes part, so the nav stays live and clickable throughout. */
+  view-transition-name: none;
+}
+::view-transition {
+  pointer-events: none;
+}
+::view-transition-group(.page-forward),
+::view-transition-group(.page-back) {
+  animation: none;
+  clip-path: inset(var(--nav-band) 0 0 0);
+}
+::view-transition-old(.page-forward),
+::view-transition-new(.page-forward),
+::view-transition-old(.page-back),
+::view-transition-new(.page-back) {
+  animation-duration: var(--slide-ms);
+  animation-timing-function: var(--ease-io);
+  animation-fill-mode: both;
+}
+::view-transition-old(.page-forward) {
+  animation-name: slide-out-left;
+}
+::view-transition-new(.page-forward) {
+  animation-name: slide-in-right;
+}
+::view-transition-old(.page-back) {
+  animation-name: slide-out-right;
+}
+::view-transition-new(.page-back) {
+  animation-name: slide-in-left;
+}
+@keyframes slide-out-left {
+  to {
+    translate: -100vw 0;
+  }
+}
+@keyframes slide-in-right {
+  from {
+    translate: 100vw 0;
+  }
+}
+@keyframes slide-out-right {
+  to {
+    translate: 100vw 0;
+  }
+}
+@keyframes slide-in-left {
+  from {
+    translate: -100vw 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
   }
 }
