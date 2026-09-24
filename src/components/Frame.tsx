@@ -5,7 +5,7 @@ type FrameProps<T extends ElementType> = {
   as?: T;
   /** Outer layer: sizing, position, layout. */
   className?: string;
-  /** Inner layer: background, padding. Defaults to surface-1. */
+  /** Inner layer: background, padding. Pass the surface colour here. */
   innerClassName?: string;
   children?: ReactNode;
 } & Omit<ComponentPropsWithoutRef<T>, "as" | "className" | "children">;
@@ -24,7 +24,7 @@ export function Frame<T extends ElementType = "div">({
   const Tag = (as ?? "div") as ElementType;
   return (
     <Tag className={cn("clip-corner bg-line p-px", className)} {...rest}>
-      <div className={cn("clip-corner-inner h-full w-full bg-surface-1", innerClassName)}>
+      <div className={cn("clip-corner-inner h-full w-full", innerClassName)}>
         {children}
       </div>
     </Tag>
