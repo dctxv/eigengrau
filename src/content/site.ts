@@ -3,9 +3,9 @@
  * with your own name, work and words; the rest of the site is the system.
  */
 
-export const MONOGRAM = "C . E";
-export const NAME = "Clay Eigengrau";
-export const ROLE = "Creative Developer";
+export const MONOGRAM = "D . T";
+export const NAME = "Darius Tan";
+export const ROLE = "Basic Human";
 export const TAGLINE = "Interfaces, motion and small tools, built with care.";
 export const SITE_URL = "https://eigengrau.example";
 export const YEAR = 2026;
@@ -18,30 +18,54 @@ export const STATEMENT = [
 ];
 /** The word in STATEMENT that carries the little superscript mark (optional). */
 export const STATEMENT_MARK = { line: 2, after: "things." };
-export const CURRENT = "Currently at Studio Eigengrau, Berlin";
+/** One line about now, under the statement. Change it whenever. */
+export const STATUS = "Busy putting a hole in spacetime";
 
 export const TABS = [
-  { href: "/", label: "Creative Space", n: 1 },
+  { href: "/", label: "Space", n: 1 },
   { href: "/projects", label: "Projects", n: 2 },
-  { href: "/about", label: "About", n: 3 },
+  { href: "/notes", label: "Notes", n: 3 },
+  { href: "/about", label: "About", n: 4 },
 ] as const;
 
 export type TabHref = (typeof TABS)[number]["href"];
 
-/** Projects page heading: grotesk lead-in, then a serif noun phrase. */
-export const PROJECTS_HEADING = { lead: "Selected", tail: "work in interface and motion" };
+/** Elsewhere: three words under the statement on About. Email copies, the others open. */
+export const ELSEWHERE = [
+  { label: "GitHub", href: "https://github.com/dctxv" }, // TODO(darius): confirm
+  { label: "Instagram", href: "https://www.instagram.com/dctxv/" },
+  { label: "Email", href: "mailto:dctxvv@gmail.com", copy: "dctxvv@gmail.com" }, // TODO(darius): confirm
+] as const;
+
+/**
+ * The owner's lines about the resident, shown as the hover caption on Space
+ * when nothing is playing. His voice, never the creature's; no exclamation
+ * marks; at most 48 characters. One is chosen per visit.
+ */
+export const RESIDENT_LINES = [
+  "It keeps the place while I am out.",
+  "It has never asked for anything.",
+  "It watches the pointer. So do I.",
+  "Chrome, two holes, and a lot of patience.",
+  "It does not know it is the mascot.",
+];
 
 export type Media =
   | { kind: "image"; src: string }
   | { kind: "video"; src: string; poster: string };
 
+export type Status = "alive" | "paused" | "dead" | "shipped";
+
 export type Project = {
   slug: string;
   title: string;
-  categories: string[];
+  status: Status;
+  /** The one year the status word needs: since when for alive and paused, when for dead and shipped. */
+  year: number;
+  /** The one honest line under the title, in place of categories. About 70 characters at most. */
+  why: string;
   cover: string;
   hover: Media;
-  comingSoon?: boolean;
   summary: string;
 };
 
@@ -49,7 +73,9 @@ export const PROJECTS: Project[] = [
   {
     slug: "meridian",
     title: "Meridian",
-    categories: ["Art Direction", "Web Design"],
+    status: "shipped",
+    year: 2023,
+    why: "Shipped and handed over. There is nothing left for me to do.",
     cover: "/work/p01.webp",
     hover: { kind: "image", src: "/work/p01-alt.webp" },
     summary: "A reading app that gets out of the way. Typography first, chrome last.",
@@ -57,7 +83,9 @@ export const PROJECTS: Project[] = [
   {
     slug: "nocturne",
     title: "Nocturne",
-    categories: ["Identity", "Motion"],
+    status: "alive",
+    year: 2024,
+    why: "Still on air, so the dot still moves.",
     cover: "/work/p02.webp",
     hover: { kind: "video", src: "/work/p02-alt.webm", poster: "/work/p02-alt.webp" },
     summary: "Identity system for a late-night radio programme, built around a single moving dot.",
@@ -65,7 +93,9 @@ export const PROJECTS: Project[] = [
   {
     slug: "halo",
     title: "Halo",
-    categories: ["Web Design", "Development"],
+    status: "shipped",
+    year: 2021,
+    why: "One page, one object. It did what it was for.",
     cover: "/work/p03.webp",
     hover: { kind: "image", src: "/work/p03-alt.webp" },
     summary: "Product site for a pair of headphones. One long scroll, one object, nothing else.",
@@ -73,16 +103,19 @@ export const PROJECTS: Project[] = [
   {
     slug: "sundial",
     title: "Sundial",
-    categories: ["Interaction", "Prototyping"],
+    status: "paused",
+    year: 2025,
+    why: "Waiting on hardware that may not get made.",
     cover: "/work/p04.webp",
     hover: { kind: "video", src: "/work/p04-alt.webm", poster: "/work/p04-alt.webp" },
-    comingSoon: true,
     summary: "A clock that tells time with light. Prototype for a small hardware studio.",
   },
   {
     slug: "atlas",
     title: "Atlas",
-    categories: ["Editorial", "Web Design"],
+    status: "dead",
+    year: 2023,
+    why: "Died because nobody, including me, opened it twice.",
     cover: "/work/p05.webp",
     hover: { kind: "image", src: "/work/p05-alt.webp" },
     summary: "Editorial platform for a travel journal. Slow pages, big photographs.",
@@ -90,12 +123,52 @@ export const PROJECTS: Project[] = [
   {
     slug: "lattice",
     title: "Lattice",
-    categories: ["Tooling", "Development"],
+    status: "alive",
+    year: 2025,
+    why: "Used by four people every day. That is the whole audience.",
     cover: "/work/p06.webp",
     hover: { kind: "video", src: "/work/p06-alt.webm", poster: "/work/p06-alt.webp" },
-    comingSoon: true,
     summary: "An internal grid and type tool for a design team.",
   },
+];
+
+/** The status word with its one year: "alive since 2025", "dead 2023". */
+export function statusWord(p: Pick<Project, "status" | "year">): string {
+  return p.status === "alive" || p.status === "paused" ? `${p.status} since ${p.year}` : `${p.status} ${p.year}`;
+}
+
+const NUMBER_WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"];
+const numberWord = (n: number) => NUMBER_WORDS[n] ?? String(n);
+
+/** The bottom line on Projects, derived from the data so it is never stale: "Six projects since 2021. Two alive." */
+export function projectsLine(projects: readonly Project[] = PROJECTS): string {
+  const since = Math.min(...projects.map((p) => p.year));
+  const alive = projects.filter((p) => p.status === "alive").length;
+  return `${numberWord(projects.length)} projects since ${since}. ${numberWord(alive)} alive.`;
+}
+
+export type Note = {
+  /** The date plus a short slug, so two entries on one day stay distinct. */
+  id: string;
+  /** YYYY-MM-DD. Also the entry's hash anchor on /notes. */
+  date: string;
+  /** note: his, set in serif. log: the site's own line, set in grotesk. */
+  kind: "note" | "log";
+  tags: string[];
+  body: string;
+};
+
+/** The notes column, any order; the page sorts newest first. Log lines carry the tag "site". */
+export const NOTES: Note[] = [
+  { id: "2026-09-24-eigengrau", date: "2026-09-24", kind: "log", tags: ["site"], body: "Eigengrau replaces white. Sound arrives." },
+  { id: "2026-09-21-cache", date: "2026-09-21", kind: "note", tags: ["psychology", "ai"], body: "Most of what people call intuition is a cached decision. The interesting part is not that the cache exists but how rarely anyone invalidates it. Models do the same thing; they are only more honest about it." },
+  { id: "2026-09-14-kettle", date: "2026-09-14", kind: "note", tags: ["random"], body: "Bought a kettle with one button. It boils. I have not thought about it since, which is the highest praise I have for an object." },
+  { id: "2026-09-10-nav", date: "2026-09-10", kind: "log", tags: ["site"], body: "Four tabs. The nav shows only the current label; pages slide between routes." },
+  { id: "2026-09-06-unsure", date: "2026-09-06", kind: "note", tags: ["ai"], body: "A model that says it does not know costs its maker nothing and saves its user an afternoon. That so few of them say it tells you who the product is for." },
+  { id: "2026-08-29-threshold", date: "2026-08-29", kind: "note", tags: ["psychology"], body: "The threshold for noticing a thing is lower than the threshold for saying so. Most rooms are full of people who have already noticed." },
+  { id: "2026-08-22-rebuild", date: "2026-08-22", kind: "log", tags: ["site"], body: "Rebuilt as one canvas per tab. The intro plays once, on a hard load of the front page." },
+  { id: "2026-08-17-door", date: "2026-08-17", kind: "note", tags: ["random", "psychology"], body: "Walked the same route for a year before I saw the second door. Attention is not a resource. It is a habit, and habits have edges." },
+  { id: "2026-08-03-confidence", date: "2026-08-03", kind: "note", tags: ["ai", "random"], body: "Asked three assistants the same question and got three confident answers, none of them the same. Confidence is a tone, not a signal." },
 ];
 
 export type SpaceItem = {

@@ -1,17 +1,22 @@
 import * as THREE from "three";
 
+/** Which pair of edges bends: "y" for the top and bottom rims, "x" for the left and right. */
+export type GlassAxis = "y" | "x";
+
 /**
  * The "liquid glass" rims (spec 9): the scene is rendered to a target, then a
- * full-screen quad stretches the top and bottom bands toward the edge, folds
- * the mapping at the lip into vertical streaks and splits the channels.
+ * full-screen quad stretches the two edge bands toward their edge, folds the
+ * mapping at the lip into streaks along the axis and splits the channels.
+ * The axis is a uniform, so the horizon can turn the rims to its sides.
  */
 const frag = /* glsl */ `
 precision highp float;
 uniform sampler2D tScene;
 uniform vec2  uRes;
 uniform float uDpr;
-uniform float uTop;
-uniform float uBottom;
+uniform float uA;
+uniform float uB;
+uniform float uAxis;
 uniform float uStrength;
 uniform float uDispersion;
 uniform float uVelocity;
@@ -21,29 +26,32 @@ out vec4 fragColor;
 float band(float distPx, float size) { return clamp(1.0 - distPx / size, 0.0, 1.0); }
 
 void main() {
-  float H    = uRes.y / uDpr;
-  float py   = vUv.y * H;
-  float tTop = band(H - py, uTop);
-  float tBot = band(py, uBottom);
+  // uAxis 0: the bands are the top (A) and bottom (B); 1: the left (A) and right (B).
+  vec2  ax = mix(vec2(0.0, 1.0), vec2(1.0, 0.0), uAxis);
+  float L  = dot(uRes, ax) / uDpr;
+  float p  = dot(vUv, ax) * L;
+  float dA = mix(L - p, p, uAxis);
+  float dB = mix(p, L - p, uAxis);
 
-  float kTop = pow(tTop, 2.4);
-  float kBot = pow(tBot, 2.4);
+  float kA = pow(band(dA, uA), 2.4);
+  float kB = pow(band(dB, uB), 2.4);
   float bend = uStrength * (1.0 + 0.5 * uVelocity);
 
-  float offTop = -kTop * bend * (uTop / H);
-  float offBot =  kBot * bend * (uBottom / H);
-  vec2  d      = vec2(0.0, offTop + offBot);
-  float k      = max(kTop, kBot);
+  // the sample moves away from its edge, so the band stretches toward it
+  float offA = kA * bend * (uA / L) * mix(-1.0, 1.0, uAxis);
+  float offB = kB * bend * (uB / L) * mix(1.0, -1.0, uAxis);
+  vec2  d    = ax * (offA + offB);
+  float k    = max(kA, kB);
 
-  // a whisper of vertical blur inside the band keeps the streaks from looking crisp
-  float blur = k * 2.0 * uDpr / uRes.y;
+  // a whisper of blur along the axis inside the band keeps the streaks from looking crisp
+  vec2 blur = ax * (k * 2.0 * uDpr / dot(uRes, ax));
   float split = uDispersion * k;
   vec2 uvR = vUv + d * (1.0 + split);
   vec2 uvG = vUv + d;
   vec2 uvB = vUv + d * (1.0 - split);
-  float r = (texture(tScene, uvR).r + texture(tScene, uvR + vec2(0.0, blur)).r + texture(tScene, uvR - vec2(0.0, blur)).r) / 3.0;
-  float g = (texture(tScene, uvG).g + texture(tScene, uvG + vec2(0.0, blur)).g + texture(tScene, uvG - vec2(0.0, blur)).g) / 3.0;
-  float b = (texture(tScene, uvB).b + texture(tScene, uvB + vec2(0.0, blur)).b + texture(tScene, uvB - vec2(0.0, blur)).b) / 3.0;
+  float r = (texture(tScene, uvR).r + texture(tScene, uvR + blur).r + texture(tScene, uvR - blur).r) / 3.0;
+  float g = (texture(tScene, uvG).g + texture(tScene, uvG + blur).g + texture(tScene, uvG - blur).g) / 3.0;
+  float b = (texture(tScene, uvB).b + texture(tScene, uvB + blur).b + texture(tScene, uvB - blur).b) / 3.0;
   fragColor = vec4(r, g, b, 1.0);
 }`;
 
@@ -61,7 +69,8 @@ export class EdgeGlass {
   private material: THREE.ShaderMaterial;
   enabled = true;
 
-  constructor(private renderer: THREE.WebGLRenderer, top = 60, bottom = 50) {
+  /** `a` is the top (or left) band in px, `b` the bottom (or right). */
+  constructor(private renderer: THREE.WebGLRenderer, a = 60, b = 50, axis: GlassAxis = "y") {
     const size = renderer.getSize(new THREE.Vector2());
     const dpr = renderer.getPixelRatio();
     this.target = new THREE.WebGLRenderTarget(Math.max(1, size.x * dpr), Math.max(1, size.y * dpr), {
@@ -75,8 +84,9 @@ export class EdgeGlass {
         tScene: { value: this.target.texture },
         uRes: { value: new THREE.Vector2(size.x * dpr, size.y * dpr) },
         uDpr: { value: dpr },
-        uTop: { value: top },
-        uBottom: { value: bottom },
+        uA: { value: a },
+        uB: { value: b },
+        uAxis: { value: axis === "x" ? 1 : 0 },
         uStrength: { value: 1.0 },
         uDispersion: { value: 0.35 },
         uVelocity: { value: 0 },
@@ -97,6 +107,10 @@ export class EdgeGlass {
     this.target.setSize(Math.max(1, Math.round(size.x * dpr)), Math.max(1, Math.round(size.y * dpr)));
     this.material.uniforms.uRes.value.set(size.x * dpr, size.y * dpr);
     this.material.uniforms.uDpr.value = dpr;
+  }
+
+  setAxis(axis: GlassAxis) {
+    this.material.uniforms.uAxis.value = axis === "x" ? 1 : 0;
   }
 
   setVelocity(v: number) {

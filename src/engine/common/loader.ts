@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Media } from "@/content/site";
+import { GL } from "@/engine/common/color";
 
 export type Loaded = {
   texture: THREE.Texture;
@@ -106,7 +107,10 @@ export async function loadAll(list: Media[], onProgress?: (p: number) => void): 
 export function makeRenderer(canvas: HTMLCanvasElement, alpha = false) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setClearColor(0xffffff, alpha ? 0 : 1);
+  // Raw output, like the textures: a colour lands on screen as written, whether the
+  // scene draws straight to the canvas or through a render target (the edge glass).
+  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  renderer.setClearColor(GL.bg, alpha ? 0 : 1);
   return renderer;
 }
 

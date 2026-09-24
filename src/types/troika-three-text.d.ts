@@ -1,6 +1,6 @@
 /** Minimal typings for the parts of troika-three-text this site uses. */
 declare module "troika-three-text" {
-  import type { BufferGeometry, Material, Mesh, Object3DEventMap } from "three";
+  import type { BufferGeometry, Color, Material, Mesh, Object3DEventMap } from "three";
 
   export interface TextEventMap extends Object3DEventMap {
     syncstart: object;
@@ -16,7 +16,7 @@ declare module "troika-three-text" {
     text: string;
     font: string | null;
     fontSize: number;
-    color: number | string;
+    color: number | string | Color;
     anchorX: number | string;
     anchorY: number | string;
     letterSpacing: number;

@@ -1,4 +1,6 @@
+import type * as THREE from "three";
 import { Text, preloadFont } from "troika-three-text";
+import { GL } from "@/engine/common/color";
 
 export const FONT = {
   grotesk: "/fonts/grotesk-500.woff",
@@ -18,7 +20,8 @@ export function preloadFonts(chars: string): Promise<void> {
 export type TextOpts = {
   font: string;
   size: number;
-  color?: number;
+  /** A raw colour (see rawColor); defaults to the ink token. */
+  color?: THREE.Color;
   anchorX?: "left" | "center" | "right";
   anchorY?: "top" | "middle" | "bottom" | "top-baseline" | "bottom-baseline";
   letterSpacing?: number;
@@ -27,13 +30,13 @@ export type TextOpts = {
   align?: "left" | "center" | "right";
 };
 
-/** A troika Text with the site defaults: black ink, no anti-aliasing surprises. */
+/** A troika Text with the site defaults: ink colour, no anti-aliasing surprises. */
 export function makeText(content: string, o: TextOpts): Text {
   const t = new Text();
   t.text = content;
   t.font = o.font;
   t.fontSize = o.size;
-  t.color = o.color ?? 0x000000;
+  t.color = o.color ?? GL.ink;
   t.anchorX = o.anchorX ?? "left";
   t.anchorY = o.anchorY ?? "top";
   t.letterSpacing = o.letterSpacing ?? 0;

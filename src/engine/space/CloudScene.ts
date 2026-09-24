@@ -2,6 +2,7 @@ import * as THREE from "three";
 import gsap from "gsap";
 import type { SpaceItem } from "@/content/site";
 import { loadAll, makeRenderer, upload, type Loaded } from "@/engine/common/loader";
+import { Resident } from "@/engine/common/resident";
 import { sfx } from "@/audio/sfx";
 
 /** One flat, unlit, billboarded plane per piece (spec 6.1). */
@@ -36,6 +37,11 @@ const IDLE = 0.13; // rad/s, about 7.5 degrees per second
 const FOCUS_Z = 3.2;
 const FOCUS_H = 0.7;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+/** The resident's plane in CSS px at depth 0, and its phone size. */
+const RESIDENT_PX = { w: 120, h: 140 };
+const RESIDENT_PX_PHONE = { w: 88, h: 104 };
+const PHONE = 640;
+const DIM_FADE = 0.15;
 
 const vert = /* glsl */ `
 varying vec2 vUv;
@@ -76,6 +82,9 @@ export class CloudScene {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly group = new THREE.Group();
+  /** At the origin, never rotates, copies the cloud's fit scale: the resident's room. */
+  readonly residentGroup = new THREE.Group();
+  readonly resident: Resident;
   readonly items: CloudItem[] = [];
   private geo = new THREE.PlaneGeometry(1, 1);
   private ray = new THREE.Raycaster();
@@ -113,6 +122,12 @@ export class CloudScene {
     this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 100);
     this.camera.position.z = CAMERA_Z;
     this.scene.add(this.group);
+    // Depth mode: the body writes gl_FragDepth so pieces sort in front of and behind it.
+    this.resident = new Resident({ aspect: RESIDENT_PX.w / RESIDENT_PX.h, steps: 48, depth: true, reducedMotion: opts.reducedMotion });
+    this.resident.uniforms.uProj.value = this.camera.projectionMatrix;
+    this.resident.mesh.renderOrder = 0;
+    this.residentGroup.add(this.resident.mesh);
+    this.scene.add(this.residentGroup);
     this.resize();
     this.tick = (_t, dtMs) => this.frame(Math.min(dtMs, 64) / 1000);
     gsap.ticker.add(this.tick);
@@ -207,6 +222,10 @@ export class CloudScene {
     const visibleW = this.visibleHeightAt(0) * this.camera.aspect;
     const fit = THREE.MathUtils.clamp((visibleW * 0.8) / (2 * SPHERE.rx + 0.5), 0.35, 1);
     this.group.scale.setScalar(fit);
+    this.residentGroup.scale.setScalar(fit);
+    const px = w <= PHONE ? RESIDENT_PX_PHONE : RESIDENT_PX;
+    const u = this.unitsPerPx(0);
+    this.resident.base.set(px.w * u, px.h * u);
     if (this.focused) this.applyFocusTransform(this.focused, 0);
   }
 
@@ -274,12 +293,57 @@ export class CloudScene {
       it.mat.uniforms.uFade.value = 0;
       gsap.to(it.mat.uniforms.uFade, { value: 1, duration: 0.6, ease: "power2.out" });
     });
+    this.showResident(0.6);
+  }
+
+  // ---------------------------------------------------------------- the resident
+
+  /** The intro's handoff: scale in at the centre from nothing, eyes closed until openEyes(). */
+  startResident() {
+    this.resident.closeEyes();
+    this.resident.scaleIn(1.1);
+  }
+
+  /** No intro: full size, eyes open, fading in with the pieces. */
+  showResident(fadeSeconds: number) {
+    this.resident.openEyes(0);
+    this.resident.fadeIn(this.opts.reducedMotion ? 0 : fadeSeconds);
+  }
+
+  /** The room dims for the game: every piece to a low fade and a full blur, and back. */
+  dim(on: boolean) {
+    this.items.forEach((it) => {
+      gsap.to(it.mat.uniforms.uFade, { value: on ? DIM_FADE : 1, duration: 0.6, ease: "power2.out", overwrite: true });
+      gsap.to(it.mat.uniforms.uBlur, { value: on ? 1 : 0, duration: 0.6, ease: "power2.out", overwrite: true });
+    });
+  }
+
+  /** Whether the pointer is on the resident's silhouette; only meaningful once pick() found no piece. */
+  residentHit(clientX: number, clientY: number): boolean {
+    if (this.state !== "exploded" || this.focused) return false;
+    if (this.resident.appear < 0.5 || this.resident.uniforms.uFade.value < 0.5) return false;
+    const rect = this.canvas.getBoundingClientRect();
+    this.ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.ray.setFromCamera(this.ndc, this.camera);
+    const { origin, direction } = this.ray.ray;
+    if (Math.abs(direction.z) < 1e-6) return false;
+    // The plane sits at z 0 facing the camera: solve the ray for it.
+    const t = -origin.z / direction.z;
+    const x = origin.x + direction.x * t;
+    const y = origin.y + direction.y * t;
+    const fit = this.residentGroup.scale.x;
+    const w = this.resident.mesh.scale.x * fit;
+    const h = this.resident.mesh.scale.y * fit;
+    if (w <= 0 || h <= 0) return false;
+    return this.resident.hitTest(x / w + 0.5, y / h + 0.5);
   }
 
   // ---------------------------------------------------------------- interaction (spec 6.4)
 
-  setPointer(clientX: number) {
+  /** The pointer yaws the cloud; with a y it also sets the resident's gaze. */
+  setPointer(clientX: number, clientY?: number) {
     this.targetYaw = (clientX / this.width - 0.5) * 0.6;
+    if (clientY !== undefined) this.resident.setPointer(clientX / this.width, clientY / this.height);
   }
 
   scrub(deltaY: number) {
@@ -343,6 +407,8 @@ export class CloudScene {
       gsap.to(it.mat.uniforms.uFade, { value: 0, duration: 0.6, ease: "power2.out", overwrite: true });
       gsap.to(it.mat.uniforms.uBlur, { value: 1, duration: 0.6, ease: "power2.out", overwrite: true });
     });
+    // A 70%-height piece covers the centre anyway: the resident dims with the room.
+    this.resident.fade(DIM_FADE, 0.6);
     sfx.play("focus");
   }
 
@@ -371,6 +437,7 @@ export class CloudScene {
       gsap.to(it.mat.uniforms.uFade, { value: 1, duration: 0.6, ease: "power2.out", delay: 0.2, overwrite: true });
       gsap.to(it.mat.uniforms.uBlur, { value: 0, duration: 0.6, ease: "power2.out", delay: 0.2, overwrite: true });
     });
+    this.resident.fade(1, 0.6, 0.2);
     sfx.play("close");
   }
 
@@ -419,6 +486,7 @@ export class CloudScene {
     this.tmpQ.copy(this.group.quaternion).invert().multiply(this.camera.quaternion);
     this.items.forEach((it) => it.mesh.quaternion.copy(this.tmpQ));
 
+    this.resident.update(dt);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -440,6 +508,7 @@ export class CloudScene {
       it.loaded.dispose();
     });
     gsap.killTweensOf(this);
+    this.resident.dispose();
     this.geo.dispose();
     this.renderer.dispose();
   }

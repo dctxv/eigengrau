@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { CURRENT, NAME, ROLE, STATEMENT } from "@/content/site";
+import { ELSEWHERE, NAME, ROLE, STATEMENT, STATUS } from "@/content/site";
 
 export const metadata: Metadata = { title: "About" };
 
@@ -11,7 +11,15 @@ export default function AboutPage() {
         {NAME} - {ROLE}
       </h1>
       <p>{STATEMENT.join(" ")}</p>
-      <p>{CURRENT}</p>
+      <p>{STATUS}</p>
+      <h2>Elsewhere</h2>
+      <ul>
+        {ELSEWHERE.map((l) => (
+          <li key={l.label}>
+            <a href={l.href}>{l.label}</a>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

@@ -20,11 +20,12 @@
 
 /* ------------------------------------------------------------------ */
 /* Tokens (spec 3). Two colours, one grey glass, one radius, one gutter */
+/* Eigengrau ground, its inverse as ink. Mirrored in src/lib/color.ts.  */
 /* ------------------------------------------------------------------ */
 @theme {
   --color-*: initial;
-  --color-white: #ffffff;
-  --color-black: #000000;
+  --color-eigengrau: #16161d;
+  --color-ink: #e9e9e2;
   --font-grotesk: "Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Serif", ui-serif, Georgia, serif;
   --radius-*: initial;
@@ -33,11 +34,11 @@
 }
 
 :root {
-  --bg: #fff;
-  --ink: #000;
-  --glass-bg: rgba(237, 237, 237, 0.5);
+  --bg: #16161d;
+  --ink: #e9e9e2;
+  --glass-bg: rgba(40, 40, 47, 0.5);
   --glass-blur: 40px;
-  --tag-bg: rgba(240, 240, 240, 0.9);
+  --tag-bg: rgba(37, 37, 44, 0.9);
   --r: 4px;
   --gutter: 8px;
   --ease-ui: cubic-bezier(0.4, 0, 0.2, 1);
@@ -440,9 +441,14 @@ button {
   font: 500 12px/140% var(--font-grotesk);
   margin: 0;
 }
-.case .case-cat {
-  font: 400 13px/1.4 var(--font-serif);
+.case .case-status {
+  font: 500 12px/140% var(--font-grotesk);
   margin: 8px 0 0;
+}
+.case .case-why {
+  font: 400 14px/1.3 var(--font-serif);
+  max-width: 450px;
+  margin: 8px auto 0;
 }
 .case .case-text {
   font: 400 14px/1.3 var(--font-serif);
@@ -454,9 +460,114 @@ button {
   font: 500 12px/1 var(--font-grotesk);
 }
 
+/* ------------------------------------------------------------------ */
+/* Elsewhere: three words at the foot of About, beside the canvas.     */
+/* ------------------------------------------------------------------ */
+.about-panel {
+  position: relative;
+  height: var(--app-h);
+}
+.elsewhere {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--bottom-ui);
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  font: 500 12px/140% var(--font-grotesk);
+  z-index: 4;
+}
+.elsewhere a {
+  display: inline-block;
+  transition: transform 150ms var(--ease-ui);
+}
+.elsewhere a:hover {
+  transform: translateY(-1px);
+}
+
+/* ------------------------------------------------------------------ */
+/* Notes (plain DOM). One centred column in a scroll container; the    */
+/* first entry sits on the line the projects heading used. Two voices: */
+/* his in serif, the site's log lines in grotesk. No rules between.    */
+/* ------------------------------------------------------------------ */
+.stage-notes {
+  cursor: auto;
+}
+.notes-scroll {
+  position: relative;
+  height: var(--app-h);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.notes-scroll::-webkit-scrollbar {
+  display: none;
+}
+.notes-column {
+  width: min(450px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 206px 0 calc(var(--bottom-ui) + 120px);
+}
+.note + .note {
+  margin-top: 56px;
+}
+.note .mask {
+  display: block;
+}
+.note .mask > span {
+  display: block;
+}
+.note-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font: 500 11px/140% var(--font-grotesk);
+  white-space: pre;
+}
+.note-date {
+  font-variant-numeric: tabular-nums;
+}
+.note-body {
+  font: 400 16px/1.4 var(--font-serif);
+  margin: 20px 0 0;
+}
+.note-log p {
+  font: 500 12px/1.4 var(--font-grotesk);
+  font-variant-numeric: tabular-nums;
+  white-space: pre-wrap;
+  margin: 0;
+}
+/* The rims: the pill's material, masked so text dissolves as it leaves. */
+.notes-rim {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+  z-index: 3;
+}
+.notes-rim-top {
+  top: 0;
+  -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent);
+  mask-image: linear-gradient(to bottom, #000 30%, transparent);
+}
+.notes-rim-bottom {
+  bottom: 0;
+  height: 50px;
+  -webkit-mask-image: linear-gradient(to top, #000 30%, transparent);
+  mask-image: linear-gradient(to top, #000 30%, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .mask > span {
     transform: none !important;
     opacity: 1 !important;
+  }
+  .elsewhere a {
+    transition: none;
   }
 }

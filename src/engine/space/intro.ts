@@ -1,6 +1,7 @@
 import gsap from "gsap";
 import { sfx } from "@/audio/sfx";
 import { setFlag } from "@/lib/flags";
+import { DUR } from "@/lib/motion";
 import type { CloudScene } from "./CloudScene";
 
 export type IntroRefs = {
@@ -23,6 +24,7 @@ export function runIntro(refs: IntroRefs, cloud: CloudScene): () => void {
   let counterDone = false;
   let counting = false;
   let killed = false;
+  let eyes: gsap.core.Tween | null = null;
 
   gsap.set([...words, ...letters], { yPercent: 100, opacity: 0 });
   gsap.set(counterInner, { yPercent: 100 });
@@ -75,9 +77,15 @@ export function runIntro(refs: IntroRefs, cloud: CloudScene): () => void {
           if (killed) return;
           setFlag("exploded", true);
           setFlag("pageReady", true);
+          // The chrome drops on this flag (Shell); the eyes open once it has landed.
+          eyes = gsap.delayedCall(DUR.drop + 0.3, () => {
+            if (!killed) cloud.resident.openEyes(0.35);
+          });
         });
       }, 2.75)
-      .to(letters, { opacity: 0, duration: 0.4, ease: "power2.out" }, 2.75);
+      .to(letters, { opacity: 0, duration: 0.4, ease: "power2.out" }, 2.75)
+      // The monogram hands over: the resident scales in at the centre, eyes closed.
+      .add(() => cloud.startResident(), 2.95);
   }
 
   cloud
@@ -102,6 +110,7 @@ export function runIntro(refs: IntroRefs, cloud: CloudScene): () => void {
   return () => {
     killed = true;
     window.clearTimeout(safety);
+    eyes?.kill();
     gsap.ticker.remove(counterTick);
     tlA.kill();
   };
