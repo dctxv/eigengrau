@@ -10,8 +10,8 @@ import { prefersReducedMotion } from "@/lib/motion";
 const COPIED_MS = 1200;
 
 /**
- * About (spec 10): the statement, the current line and the chrome object, all
- * in one canvas, with the Elsewhere row as real links beside it so it stays
+ * About (spec 10): the statement, the status line and Urchi, all in one
+ * canvas, with the Elsewhere row as real links beside it so it stays
  * reachable while the canvas is hidden from assistive tech.
  */
 export function AboutPanel() {
@@ -27,13 +27,11 @@ export function AboutPanel() {
       current: STATUS,
       reducedMotion: prefersReducedMotion(),
     });
+    Object.assign(canvas.current!.parentElement!, { __scene: scene }); // handy for debugging and headless QA
     scene.load().then(() => setFlag("pageReady", true));
-    const onMove = (e: PointerEvent) => scene.pointer(e.clientX, e.clientY);
     const onResize = () => scene.resize();
-    window.addEventListener("pointermove", onMove);
     window.addEventListener("resize", onResize);
     return () => {
-      window.removeEventListener("pointermove", onMove);
       window.removeEventListener("resize", onResize);
       scene.dispose();
       if (copiedTimer.current) clearTimeout(copiedTimer.current);

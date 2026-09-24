@@ -4,11 +4,11 @@ A minimal WebGL portfolio: five "pages" that behave like one app.
 
 | Tab | Route | What it is |
 |---|---|---|
-| Space `1` | `/` | A slowly orbiting 3D cloud of small pieces on eigengrau, with the resident at its centre. Click a piece to bring it forward; click the resident for Threshold, the daily game. |
+| Space `1` | `/` | A slowly orbiting 3D cloud of small pieces on eigengrau, with Urchi, the mascot, at its centre. Click a piece to bring it forward; click Urchi for Threshold, the daily game. |
 | Projects `2` | `/projects` | The horizon: one line across the viewport, each project a mark on it at its year, with a status word and one honest line. |
 | Notes `3` | `/notes` | One column of plain text, newest first: his notes in serif, the site's own log lines in grotesk. |
 | Music `4` | `/music` | From Last.fm: a sleeve for what is playing, or what played last, and the week's ten most-played songs in one stack, each set as loud as it was played. |
-| About `5` | `/about` | One large serif statement with a chrome object sitting over it, and three words beneath for elsewhere. |
+| About `5` | `/about` | One large serif statement with Urchi sitting over it, and three words beneath for elsewhere. |
 
 A persistent chrome layer (monogram, pill tabs, sound chip) floats above page
 panels that slide horizontally when you change tab. The intro (name, role,
@@ -38,10 +38,22 @@ follow its play count, so the ones played least sink toward eigengrau, and
 hovering one turns the sleeve to its album. It refreshes every minute while
 the tab is open.
 
-Threshold is the game behind the resident: five rounds of squares, one of
+Threshold is the game behind Urchi: five rounds of squares, one of
 them lighter than eigengrau by 10, 6, 4, 2, then 1 of 255, two boards a round.
 Everyone gets the same boards on the same UTC day; the result stays in
 localStorage until tomorrow. `/threshold` opens it directly.
+
+Urchi, the mascot, keeps its own page in `urchi/`: open `urchi/index.html`
+(the query-string knobs at the top of its script work on the site too, e.g.
+`/?col=denim` or `/about?still`). Its head is traced from `urchi/ref/` and
+baked by its tools; after rebuilding it, copy the mesh into the site:
+
+```
+node urchi/tools/build-mascot.mjs && npm run urchi:sync
+```
+
+The behaviour is ported line for line into `src/engine/urchi/character.ts`,
+so a change to the script in `urchi/index.html` wants the same change there.
 
 The placeholder artwork in `public/work/` is generated, not photographed:
 
@@ -63,10 +75,11 @@ src/app/threshold/       redirects to /#threshold, the game's door
 src/components/Shell.tsx chrome + the horizontal page slider
 src/components/chrome/   Nav, Tab (pill morph), FloatingLogo (exclusion blend), SoundChip
 src/components/pages/    one client panel per tab: canvas + DOM overlays; NotesPanel and MusicPanel are plain DOM; Threshold is the game's board
-src/engine/space/        the cloud (CloudScene, with the resident's room) and the intro timeline
+src/engine/space/        the cloud (CloudScene, with Urchi at its centre) and the intro timeline
 src/engine/projects/     the horizon, its travel and hover preview, edge-glass post pass
-src/engine/about/        statement text, with the resident over it
-src/engine/common/       the resident (raymarched chrome with two eye holes), colour, loader and text helpers
+src/engine/about/        statement text, with Urchi over it
+src/engine/urchi/        Urchi in the site: character.ts ports urchi/index.html, Urchi.ts shows its canvas in a scene, mesh.json is its head
+src/engine/common/       colour, loader and text helpers
 src/lib/                 colour tokens, flags, motion, routes, viewport, the Last.fm poller (now.ts) and the game's rules (threshold.ts)
 src/audio/sfx.ts         sound: the click and ambient bed from public/audio, plus synthesised cues (off by default, remembered in localStorage)
 ```

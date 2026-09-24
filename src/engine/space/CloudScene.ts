@@ -2,7 +2,7 @@ import * as THREE from "three";
 import gsap from "gsap";
 import type { SpaceItem } from "@/content/site";
 import { loadAll, makeRenderer, upload, type Loaded } from "@/engine/common/loader";
-import { Resident } from "@/engine/common/resident";
+import { Urchi } from "@/engine/urchi/Urchi";
 import { sfx } from "@/audio/sfx";
 
 /** One flat, unlit, billboarded plane per piece (spec 6.1). */
@@ -38,10 +38,9 @@ const FOCUS_Z = 3.2;
 const FOCUS_H = 0.7;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
-/** The resident's plane in CSS px at depth 0, and its phone size. */
-const RESIDENT_PX = { w: 120, h: 140 };
-const RESIDENT_PX_PHONE = { w: 88, h: 104 };
-const PHONE = 640;
+/** Urchi's box width in CSS px at depth 0: this with the whole cloud in view, never below the minimum. */
+const URCHI_PX = 180;
+const URCHI_MIN_PX = 112;
 const DIM_FADE = 0.15;
 
 const vert = /* glsl */ `
@@ -83,9 +82,8 @@ export class CloudScene {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly group = new THREE.Group();
-  /** At the origin, never rotates, copies the cloud's fit scale: the resident's room. */
-  readonly residentGroup = new THREE.Group();
-  readonly resident: Resident;
+  /** At the centre of the sphere, in the scene rather than the turning group: Urchi never orbits. */
+  readonly urchi: Urchi;
   readonly items: CloudItem[] = [];
   private geo = new THREE.PlaneGeometry(1, 1);
   private ray = new THREE.Raycaster();
@@ -112,8 +110,10 @@ export class CloudScene {
   overview = false;
   /** The room is dimmed for the game: still, and deaf to the pointer's yaw. */
   private dimmed = false;
-  /** How far above the centre the resident sits, in CSS px (the game's stack). */
+  /** How far above the centre Urchi sits, in CSS px (the game's stack). */
   private liftPx = 0;
+  /** The cloud's fit scale on this viewport. */
+  private fit = 1;
   private width = 1;
   private height = 1;
   private tmpQ = new THREE.Quaternion();
@@ -128,11 +128,10 @@ export class CloudScene {
     this.camera.position.z = CAMERA_Z;
     this.scene.add(this.group);
     // Depth mode: the body writes gl_FragDepth so pieces sort in front of and behind it.
-    this.resident = new Resident({ aspect: RESIDENT_PX.w / RESIDENT_PX.h, steps: 48, depth: true, reducedMotion: opts.reducedMotion });
-    this.resident.uniforms.uProj.value = this.camera.projectionMatrix;
-    this.resident.mesh.renderOrder = 0;
-    this.residentGroup.add(this.resident.mesh);
-    this.scene.add(this.residentGroup);
+    // Depth mode: pieces sort in front of and behind it as they pass the centre.
+    this.urchi = new Urchi({ depth: true, reducedMotion: opts.reducedMotion });
+    this.urchi.mesh.renderOrder = 0;
+    this.scene.add(this.urchi.mesh);
     this.resize();
     this.tick = (_t, dtMs) => this.frame(Math.min(dtMs, 64) / 1000);
     gsap.ticker.add(this.tick);
@@ -236,27 +235,24 @@ export class CloudScene {
     const visibleW = this.visibleHeightAt(0) * this.camera.aspect;
     const fit = THREE.MathUtils.clamp((visibleW * 0.8) / (2 * SPHERE.rx + 0.5), 0.35, 1);
     this.group.scale.setScalar(fit);
-    this.residentGroup.scale.setScalar(fit);
-    const px = this.width <= PHONE ? RESIDENT_PX_PHONE : RESIDENT_PX;
-    const u = this.unitsPerPx(0);
-    this.resident.base.set(px.w * u, px.h * u);
+    this.fit = fit;
+    this.urchi.width = this.urchiSize.w * this.unitsPerPx(0);
     if (this.liftPx) {
-      gsap.killTweensOf(this.resident.mesh.position);
-      this.resident.mesh.position.y = this.liftUnits(this.liftPx);
+      gsap.killTweensOf(this.urchi.mesh.position);
+      this.urchi.mesh.position.y = this.liftUnits(this.liftPx);
     }
     if (this.focused) this.applyFocusTransform(this.focused, 0);
   }
 
-  /** The resident's plane as drawn, in CSS px: its room carries the cloud's fit scale. */
-  get residentSize() {
-    const px = this.width <= PHONE ? RESIDENT_PX_PHONE : RESIDENT_PX;
-    const fit = this.residentGroup.scale.x || 1;
-    return { w: px.w * fit, h: px.h * fit };
+  /** Urchi as drawn, in CSS px: its box width, and the head's height from ear tips to chin. */
+  get urchiSize() {
+    const w = Math.max(URCHI_MIN_PX, URCHI_PX * this.fit);
+    return { w, h: (this.urchi.headHeight / (this.urchi.width || 1)) * w };
   }
 
-  /** A height in CSS px as a local y in the resident's group, which carries the fit scale. */
+  /** A height in CSS px as a world y at depth 0. */
   private liftUnits(px: number) {
-    return (px * this.unitsPerPx(0)) / (this.residentGroup.scale.x || 1);
+    return px * this.unitsPerPx(0);
   }
 
   // ---------------------------------------------------------------- intro phases (spec 6.2, 6.3)
@@ -323,21 +319,21 @@ export class CloudScene {
       it.mat.uniforms.uFade.value = 0;
       gsap.to(it.mat.uniforms.uFade, { value: 1, duration: 0.6, ease: "power2.out" });
     });
-    this.showResident(0.6);
+    this.showUrchi(0.6);
   }
 
-  // ---------------------------------------------------------------- the resident
+  // ---------------------------------------------------------------- Urchi
 
   /** The intro's handoff: scale in at the centre from nothing, eyes closed until openEyes(). */
-  startResident() {
-    this.resident.closeEyes();
-    this.resident.scaleIn(1.1);
+  startUrchi() {
+    this.urchi.closeEyes();
+    this.urchi.scaleIn(1.1);
   }
 
   /** No intro: full size, eyes open, fading in with the pieces. */
-  showResident(fadeSeconds: number) {
-    this.resident.openEyes(0);
-    this.resident.fadeIn(this.opts.reducedMotion ? 0 : fadeSeconds);
+  showUrchi(fadeSeconds: number) {
+    this.urchi.openEyes(0);
+    this.urchi.fadeIn(this.opts.reducedMotion ? 0 : fadeSeconds);
   }
 
   /**
@@ -348,27 +344,30 @@ export class CloudScene {
     this.dimmed = on;
     this.rotating = !on;
     if (on) this.vel = 0;
+    // For the game Urchi sits clear of the room: drawn over it, not sorted through it.
+    this.urchi.mesh.renderOrder = on ? 20 : 0;
+    this.urchi.mesh.material.depthTest = !on;
     this.items.forEach((it) => {
       gsap.to(it.mat.uniforms.uFade, { value: on ? DIM_FADE : 1, duration: 0.6, ease: "power2.out", overwrite: true });
       gsap.to(it.mat.uniforms.uBlur, { value: on ? 1 : 0, duration: 0.6, ease: "power2.out", overwrite: true });
     });
   }
 
-  /** The resident rises `px` above the centre (0 brings it back), for the game's stack. */
-  liftResident(px: number, duration: number) {
+  /** Urchi rises `px` above the centre (0 brings it back), for the game's stack. */
+  liftUrchi(px: number, duration: number) {
     this.liftPx = px;
-    gsap.to(this.resident.mesh.position, { y: this.liftUnits(px), duration, ease: "power3.inOut", overwrite: true });
+    gsap.to(this.urchi.mesh.position, { y: this.liftUnits(px), duration, ease: "power3.inOut", overwrite: true });
   }
 
-  /** On a short viewport the resident dims with the room instead of rising. */
-  dimResident(on: boolean) {
-    this.resident.fade(on ? DIM_FADE : 1, 0.6, on ? 0 : 0.2);
+  /** On a short viewport Urchi dims with the room instead of rising. */
+  dimUrchi(on: boolean) {
+    this.urchi.fade(on ? DIM_FADE : 1, 0.6, on ? 0 : 0.2);
   }
 
-  /** Whether the pointer is on the resident's silhouette; only meaningful once pick() found no piece. */
-  residentHit(clientX: number, clientY: number): boolean {
+  /** Whether the pointer is on Urchi (its drawn pixels, rim included); only meaningful once pick() found no piece. */
+  urchiHit(clientX: number, clientY: number): boolean {
     if (this.state !== "exploded" || this.focused) return false;
-    if (this.resident.appear < 0.5 || this.resident.uniforms.uFade.value < 0.5) return false;
+    if (this.urchi.appear < 0.5 || this.urchi.uniforms.uFade.value < 0.5) return false;
     const rect = this.canvas.getBoundingClientRect();
     this.ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.ray.setFromCamera(this.ndc, this.camera);
@@ -378,21 +377,15 @@ export class CloudScene {
     const t = -origin.z / direction.z;
     const x = origin.x + direction.x * t;
     const y = origin.y + direction.y * t;
-    const fit = this.residentGroup.scale.x;
-    const w = this.resident.mesh.scale.x * fit;
-    const h = this.resident.mesh.scale.y * fit;
-    if (w <= 0 || h <= 0) return false;
-    const cy = this.resident.mesh.position.y * fit;
-    return this.resident.hitTest(x / w + 0.5, (y - cy) / h + 0.5);
+    return this.urchi.hit(x, y);
   }
 
   // ---------------------------------------------------------------- interaction (spec 6.4)
 
-  /** The pointer yaws the cloud; with a y it also sets the resident's gaze. */
-  setPointer(clientX: number, clientY?: number) {
+  /** The pointer yaws the cloud. Urchi follows the pointer on its own. */
+  setPointer(clientX: number) {
     // A held piece and a dimmed room both keep the cloud where it is.
     if (!this.dimmed && !this.focused) this.targetYaw = (clientX / this.width - 0.5) * 0.6;
-    if (clientY !== undefined) this.resident.setPointer(clientX / this.width, clientY / this.height);
   }
 
   scrub(deltaY: number) {
@@ -458,8 +451,8 @@ export class CloudScene {
       gsap.to(it.mat.uniforms.uFade, { value: 0, duration: 0.6, ease: "power2.out", overwrite: true });
       gsap.to(it.mat.uniforms.uBlur, { value: 1, duration: 0.6, ease: "power2.out", overwrite: true });
     });
-    // A 70%-height piece covers the centre anyway: the resident dims with the room.
-    this.resident.fade(DIM_FADE, 0.6);
+    // A 70%-height piece covers the centre anyway: Urchi dims with the room.
+    this.urchi.fade(DIM_FADE, 0.6);
     sfx.play("focus");
   }
 
@@ -488,7 +481,7 @@ export class CloudScene {
       gsap.to(it.mat.uniforms.uFade, { value: 1, duration: 0.6, ease: "power2.out", delay: 0.2, overwrite: true });
       gsap.to(it.mat.uniforms.uBlur, { value: 0, duration: 0.6, ease: "power2.out", delay: 0.2, overwrite: true });
     });
-    this.resident.fade(1, 0.6, 0.2);
+    this.urchi.fade(1, 0.6, 0.2);
     sfx.play("close");
   }
 
@@ -537,7 +530,7 @@ export class CloudScene {
     this.tmpQ.copy(this.group.quaternion).invert().multiply(this.camera.quaternion);
     this.items.forEach((it) => it.mesh.quaternion.copy(this.tmpQ));
 
-    this.resident.update(dt);
+    this.urchi.update(dt);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -559,8 +552,8 @@ export class CloudScene {
       it.loaded.dispose();
     });
     gsap.killTweensOf(this);
-    gsap.killTweensOf(this.resident.mesh.position);
-    this.resident.dispose();
+    gsap.killTweensOf(this.urchi.mesh.position);
+    this.urchi.dispose();
     this.geo.dispose();
     this.renderer.dispose();
   }
