@@ -1,288 +1,462 @@
 @import "tailwindcss";
 
 /* ------------------------------------------------------------------ */
-/* Tokens. Locked. Do not add colours.                                 */
+/* Fonts. Grotesk 500 only; serif 300 and 400 (one variable file).     */
+/* ------------------------------------------------------------------ */
+@font-face {
+  font-family: "Grotesk";
+  src: url(/fonts/grotesk-500.woff2) format("woff2"), url(/fonts/grotesk-500.woff) format("woff");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Serif";
+  src: url(/fonts/serif.woff2) format("woff2"), url(/fonts/serif-400.woff) format("woff");
+  font-weight: 300 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tokens (spec 3). Two colours, one grey glass, one radius, one gutter */
 /* ------------------------------------------------------------------ */
 @theme {
   --color-*: initial;
-  --color-bg: #16161d;
-  --color-surface-1: #1b1b24;
-  --color-surface-2: #22222c;
-  --color-line: #2a2a35;
-  --color-text-1: #e8e8ec;
-  --color-text-2: #9a9aa6;
-  --color-text-3: #5c5c68;
-  /* Mascot only: flat black head, white eyes. Also the index line on the chart. */
-  --color-black: #000000;
   --color-white: #ffffff;
-
-  --font-sans: var(--font-inter-tight), system-ui, sans-serif;
-  --font-serif: var(--font-newsreader), Georgia, serif;
-
-  /* No border radius anywhere. */
+  --color-black: #000000;
+  --font-grotesk: "Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Serif", ui-serif, Georgia, serif;
   --radius-*: initial;
-
-  --default-transition-duration: 320ms;
-  --default-transition-timing-function: var(--ease-io);
+  --radius-chip: 4px;
+  --spacing: 0.25rem;
 }
 
 :root {
-  color-scheme: dark;
-  /* The only colour: a facet gradient taken from the mascot. */
-  --facet: linear-gradient(100deg, #6b4046 0%, #4a4468 50%, #40553f 100%);
-  --facet-bright: linear-gradient(100deg, #8a5560 0%, #6a628f 50%, #5e7c5b 100%);
-  /* Clipped top-right corner size for frames. */
-  --corner: 12px;
-  /* Every movement: slow in, fast through, slow out. */
-  --ease-io: cubic-bezier(0.76, 0, 0.24, 1);
-  --slide-ms: 560ms;
-  /* Band at the top of the viewport the page slide never paints over (the nav lives there). */
-  --nav-band: 4rem;
+  --bg: #fff;
+  --ink: #000;
+  --glass-bg: rgba(237, 237, 237, 0.5);
+  --glass-blur: 40px;
+  --tag-bg: rgba(240, 240, 240, 0.9);
+  --r: 4px;
+  --gutter: 8px;
+  --ease-ui: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+  --app-h: 100dvh; /* overwritten by JS with innerHeight in px */
+  --vv-bottom-inset: 0px; /* overwritten by JS from visualViewport */
+  --bottom-ui: 20px;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --bottom-ui: calc(2rem + env(safe-area-inset-bottom));
+  }
 }
 
 /* ------------------------------------------------------------------ */
 /* Base                                                                */
 /* ------------------------------------------------------------------ */
-@layer base {
-  html {
-    background: var(--color-bg);
-    color: var(--color-text-1);
-    -webkit-text-size-adjust: 100%;
-  }
-
-  body {
-    min-height: 100dvh;
-    font-family: var(--font-sans);
-    font-feature-settings: "ss01", "cv11";
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    overflow-x: clip;
-  }
-
-  button,
-  input,
-  select,
-  textarea {
-    border-radius: 0;
-    font: inherit;
-  }
-
-  ::selection {
-    background: var(--color-text-1);
-    color: var(--color-bg);
-  }
-
-  :focus-visible {
-    outline: 1px solid var(--color-text-1);
-    outline-offset: 3px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
-      scroll-behavior: auto !important;
-    }
-  }
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100%;
 }
 
-/* ------------------------------------------------------------------ */
-/* Utilities                                                           */
-/* ------------------------------------------------------------------ */
-
-/* One clipped top-right corner. Frames never get a border radius. */
-@utility clip-corner {
-  clip-path: polygon(
-    0 0,
-    calc(100% - var(--corner)) 0,
-    100% var(--corner),
-    100% 100%,
-    0 100%
-  );
-}
-
-/* Inner layer of a 1px-bordered frame: the corner shrinks so the
-   diagonal keeps a uniform 1px line (offset 1px at 45deg = corner - 0.59px). */
-@utility clip-corner-inner {
-  clip-path: polygon(
-    0 0,
-    calc(100% - var(--corner) + 0.59px) 0,
-    100% calc(var(--corner) - 0.59px),
-    100% 100%,
-    0 100%
-  );
-}
-
-/* Model-sheet caption: small grotesk caps, placed below the element.
-   text-2, not text-3: text-3 on the background is 2.7:1 and fails contrast. */
-@utility caption {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  line-height: 1;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--color-text-2);
-  font-feature-settings: "tnum";
-}
-
-@utility bg-facet {
-  background-image: var(--facet);
-}
-
-@utility bg-facet-bright {
-  background-image: var(--facet-bright);
-}
-
-@utility text-facet {
-  background-image: var(--facet-bright);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-@utility tabular {
-  font-variant-numeric: tabular-nums;
-}
-
-/* Page column for the inner routes. Clears the fixed nav. */
-@utility page {
-  margin-inline: auto;
-  width: 100%;
-  max-width: 64rem;
-  padding-inline: 1.25rem;
-  padding-top: 7rem;
-  padding-bottom: 10rem;
-  @media (min-width: 40rem) {
-    padding-inline: 2rem;
-  }
-}
-
-/* Skip link: hidden until focused. */
-@utility skip-link {
-  position: fixed;
-  top: 0.75rem;
-  left: 0.75rem;
-  z-index: 100;
-  padding: 0.5rem 0.75rem;
-  background: var(--color-text-1);
-  color: var(--color-bg);
-  font-size: 13px;
-  transform: translateY(-200%);
-  &:focus-visible {
-    transform: none;
-    outline-offset: 0;
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* Pill nav: the current route shows its label, the rest are digits.   */
-/* ------------------------------------------------------------------ */
-/* Unhinted glyph advances: hinted Inter Tight at 13px opens a gap after "a". */
-.nav-list {
-  text-rendering: geometricPrecision;
-}
-.nav-label {
-  display: grid;
-  grid-template-columns: 0fr;
-  opacity: 0;
-  transition:
-    grid-template-columns var(--default-transition-duration) var(--ease-io),
-    opacity 200ms var(--ease-io);
-}
-.nav-label > span {
-  min-width: 0;
+body {
+  font-family: var(--font-grotesk);
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  border-radius: var(--r);
+}
+
+/* Word and line clip for every text entrance and exit. */
+.mask {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: top;
+}
+.mask > span {
+  display: inline-block;
+  will-change: transform, opacity;
+}
+
+/* ------------------------------------------------------------------ */
+/* Persistent chrome (spec 4)                                          */
+/* ------------------------------------------------------------------ */
+.nav {
+  position: fixed;
+  top: 8px;
+  left: 0;
+  width: 100%;
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+  font-size: 12px;
+  visibility: hidden; /* shown by JS (or by the noscript style in the layout) */
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.logo-slot {
+  font: 500 14px/20px var(--font-grotesk);
+  visibility: hidden;
+}
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tab {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  align-self: stretch;
+  overflow: hidden;
+  padding: 6px 7px;
+  color: var(--ink);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 150ms var(--ease-ui);
+}
+.tab-spacer {
+  display: block;
+  height: 9px;
+  width: 0;
+}
+.tab-label {
+  position: absolute;
+  top: 6px;
+  left: 12px;
+  white-space: nowrap;
+  font: 400 15px/110% var(--font-serif);
+}
+.tab-num {
+  display: inline-block;
+  font: 500 11px/140% var(--font-grotesk);
+  transform: translateY(2px);
+  vertical-align: baseline;
+  line-height: 140%;
+}
+/* Before JS measures the labels: a static layout that reads right without script. */
+.nav:not([data-ready]) .tab[aria-current="page"] {
+  padding: 6px 12px;
+}
+.nav:not([data-ready]) .tab[aria-current="page"] .tab-label {
+  position: static;
+  margin-right: 3px;
+}
+.nav:not([data-ready]) .tab:not([aria-current="page"]) .tab-label {
+  display: none;
+}
+
+.floating-logo {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  font: 500 14px/20px var(--font-grotesk);
+  color: #fff;
+  mix-blend-mode: exclusion;
+  will-change: transform;
+  visibility: hidden;
   white-space: nowrap;
 }
-.nav-digit {
-  display: inline-block;
-  font-size: 14px;
-  transition:
-    font-size var(--default-transition-duration) var(--ease-io),
-    translate var(--default-transition-duration) var(--ease-io),
-    margin-left var(--default-transition-duration) var(--ease-io);
+
+.sound-chip {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 9999;
+  width: 28px;
+  height: 24px;
+  padding: 6px 8px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r);
 }
-.nav-mark {
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform var(--default-transition-duration) var(--ease-io);
+.sound-chip > * {
+  grid-area: 1 / 1;
 }
-[aria-current="page"] .nav-label {
-  grid-template-columns: 1fr;
+.sound-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+.sound-ring {
+  width: 12px;
+  height: 12px;
+  display: block;
+  overflow: visible;
+  opacity: 0;
+}
+.sound-ring circle {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+.sound-chip[aria-pressed="true"] .sound-ring {
   opacity: 1;
 }
-[aria-current="page"] .nav-digit {
-  margin-left: 2px;
-  font-size: 0.72em;
-  translate: 0 -0.5em;
+@media (max-width: 1024px) {
+  .sound-chip {
+    display: none;
+  }
 }
-[aria-current="page"] .nav-mark {
-  transform: scaleX(1);
+
+/* Cursor labels (spec 4.5): white + difference, 32px down-right of the pointer. */
+.cursor-label {
+  position: absolute;
+  top: 32px;
+  left: 32px;
+  font: 500 13px/120% var(--font-grotesk);
+  color: #fff;
+  mix-blend-mode: difference;
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform;
+  white-space: nowrap;
+  z-index: 50;
+}
+.stage-space .cursor-label {
+  z-index: 2150;
+}
+@media (max-width: 1024px), (hover: none) {
+  .cursor-label {
+    display: none;
+  }
 }
 
 /* ------------------------------------------------------------------ */
-/* Route changes: the page slides sideways. The nav and floor stay.    */
+/* Page panels (spec 2)                                                */
 /* ------------------------------------------------------------------ */
-:root {
-  /* Only the page takes part, so the nav stays live and clickable throughout. */
-  view-transition-name: none;
+.page-viewport {
+  position: relative;
+  width: 100%;
+  height: var(--app-h);
+  overflow: hidden;
 }
-::view-transition {
+.page-row {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  will-change: transform;
+}
+.panel {
+  flex: 0 0 100vw;
+  height: 100%;
+  transform: translateZ(0);
+}
+.body-wrapper {
+  overflow-x: hidden;
+  background: var(--bg);
+  height: 100%;
+}
+.stage {
+  position: relative;
+  background: var(--bg);
+  overflow: hidden;
+  height: var(--app-h);
+  cursor: default;
+}
+.stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.stage-projects {
+  touch-action: none;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Intro and Creative Space overlays (spec 5, 6)                       */
+/* ------------------------------------------------------------------ */
+.intro-side {
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  translate: 0 -50%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-inline: 9%;
   pointer-events: none;
+  z-index: 3;
 }
-::view-transition-group(.page-forward),
-::view-transition-group(.page-back) {
-  animation: none;
-  clip-path: inset(var(--nav-band) 0 0 0);
+.intro-name {
+  font: 500 14px/1.4 var(--font-grotesk);
+  word-spacing: 0.3em;
 }
-::view-transition-old(.page-forward),
-::view-transition-new(.page-forward),
-::view-transition-old(.page-back),
-::view-transition-new(.page-back) {
-  animation-duration: var(--slide-ms);
-  animation-timing-function: var(--ease-io);
-  animation-fill-mode: both;
+.intro-role {
+  font: 400 14px/1.4 var(--font-serif);
+  word-spacing: 0.3em;
 }
-::view-transition-old(.page-forward) {
-  animation-name: slide-out-left;
+.intro-name .mask + .mask,
+.intro-role .mask + .mask {
+  margin-left: 0.3em;
 }
-::view-transition-new(.page-forward) {
-  animation-name: slide-in-right;
-}
-::view-transition-old(.page-back) {
-  animation-name: slide-out-right;
-}
-::view-transition-new(.page-back) {
-  animation-name: slide-in-left;
-}
-@keyframes slide-out-left {
-  to {
-    translate: -100vw 0;
+@media (max-width: 1025px) {
+  .intro-side {
+    display: none;
   }
 }
-@keyframes slide-in-right {
-  from {
-    translate: 100vw 0;
+.intro-monogram {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  font: 500 14px/20px var(--font-grotesk);
+  white-space: pre;
+  pointer-events: none;
+  z-index: 3;
+}
+.intro-counter {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  translate: -50% 0;
+  font: 400 16px/1 var(--font-serif);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.space-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--bottom-ui);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  pointer-events: none;
+  z-index: 4;
+}
+.space-caption h3 {
+  font: 500 12px/140% var(--font-grotesk);
+  margin: 0;
+}
+.space-caption p {
+  font: 400 13px/1.4 var(--font-serif);
+  margin: 8px 0 0;
+}
+.space-desc {
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  bottom: calc(var(--bottom-ui) + 64px);
+  width: min(450px, calc(100% - 32px));
+  text-align: center;
+  pointer-events: none;
+  z-index: 4;
+}
+@media (max-width: 640px) {
+  .space-desc {
+    width: min(390px, calc(100% - 32px));
   }
 }
-@keyframes slide-out-right {
-  to {
-    translate: 100vw 0;
+.space-desc p {
+  font: 400 14px/1.3 var(--font-serif);
+  margin: 0;
+}
+.view-case {
+  position: absolute;
+  left: 50%;
+  bottom: var(--bottom-ui);
+  translate: -50% 0;
+  font: 500 12px/1 var(--font-grotesk);
+  text-align: center;
+  opacity: 0;
+  z-index: 5;
+  display: none;
+}
+@media (max-width: 1024px) {
+  .view-case {
+    display: block;
+  }
+  .space-caption {
+    bottom: calc(var(--bottom-ui) + 28px);
   }
 }
-@keyframes slide-in-left {
-  from {
-    translate: -100vw 0;
-  }
+
+/* ------------------------------------------------------------------ */
+/* Case pages: plain DOM in the same language.                         */
+/* ------------------------------------------------------------------ */
+.case {
+  height: var(--app-h);
+  overflow-y: auto;
+  padding: 96px var(--gutter) 64px;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
 }
+.case img {
+  width: min(100%, 497px);
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  display: block;
+}
+.case h1 {
+  font: 500 12px/140% var(--font-grotesk);
+  margin: 0;
+}
+.case .case-cat {
+  font: 400 13px/1.4 var(--font-serif);
+  margin: 8px 0 0;
+}
+.case .case-text {
+  font: 400 14px/1.3 var(--font-serif);
+  max-width: 450px;
+  text-align: center;
+  margin: 0;
+}
+.case .case-back {
+  font: 500 12px/1 var(--font-grotesk);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-old(*),
-  ::view-transition-new(*),
-  ::view-transition-group(*) {
-    animation-duration: 0s !important;
-    animation-delay: 0s !important;
+  .mask > span {
+    transform: none !important;
+    opacity: 1 !important;
   }
 }

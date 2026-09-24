@@ -1,35 +1,49 @@
 import type { Metadata, Viewport } from "next";
-import { grotesk, serif } from "./fonts";
-import { SITE_LINE, SITE_NAME } from "@/lib/routes";
-import { MotionProvider } from "@/components/MotionProvider";
-import { PillNav } from "@/components/nav/PillNav";
-import { Floor } from "@/components/Floor";
+import { Shell } from "@/components/Shell";
+import { NAME, PROJECTS, ROLE, SITE_URL, TAGLINE } from "@/content/site";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: SITE_NAME, template: `%s · ${SITE_NAME}` },
-  description: `${SITE_LINE}.`,
+  metadataBase: new URL(SITE_URL),
+  title: { default: `${NAME} - ${ROLE}`, template: `%s - ${NAME}` },
+  description: TAGLINE,
 };
 
 export const viewport: Viewport = {
-  themeColor: "#16161d",
-  colorScheme: "dark",
+  themeColor: "#ffffff",
+  colorScheme: "light",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "Person", name: NAME, jobTitle: ROLE, url: SITE_URL },
+    ...PROJECTS.map((p) => ({
+      "@type": "CreativeWork",
+      name: p.title,
+      genre: p.categories.join(", "),
+      url: `${SITE_URL}/projects/${p.slug}`,
+      author: { "@type": "Person", name: NAME },
+    })),
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${grotesk.variable} ${serif.variable}`}>
-      <body className="relative min-h-dvh bg-bg font-sans text-text-1">
-        <a href="#main" className="skip-link">
-          Skip to content
-        </a>
-        <Floor />
-        <MotionProvider>
-          <header>
-            <PillNav />
-          </header>
-          <div className="relative z-10">{children}</div>
-        </MotionProvider>
+    <html lang="en" style={{ "--vv-bottom-inset": "0px" } as React.CSSProperties}>
+      <head>
+        <link rel="preload" href="/fonts/grotesk-500.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        <link rel="preload" href="/fonts/serif.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+      </head>
+      <body className="bg-white">
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+        <noscript>
+          <style>{`nav[data-navbar]{visibility:visible}`}</style>
+        </noscript>
+        <Shell>{children}</Shell>
       </body>
     </html>
   );
