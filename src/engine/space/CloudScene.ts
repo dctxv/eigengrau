@@ -1,13 +1,15 @@
 import * as THREE from "three";
 import gsap from "gsap";
 import type { SpaceItem } from "@/content/site";
-import { loadAll, makeRenderer, upload, type Loaded } from "@/engine/common/loader";
+import { loadAll, loadImage, makeRenderer, upload, type Loaded } from "@/engine/common/loader";
 import { Resident } from "@/engine/common/resident";
 import { sfx } from "@/audio/sfx";
 
 /** One flat, unlit, billboarded plane per piece (spec 6.1). */
 export type CloudItem = {
   source: SpaceItem;
+  /** One of his pieces, or one of the week's records: smaller, dimmer, without an overview. */
+  kind: "piece" | "record";
   mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   mat: THREE.ShaderMaterial;
   aspect: number;
@@ -31,6 +33,9 @@ export type CloudOptions = {
   reducedMotion?: boolean;
 };
 
+/** A record for the cloud: the album as title, the artist as category, the cover proxied same-origin. */
+export type RecordSource = { id: string; title: string; category: string; src: string };
+
 const FOV = 35;
 const CAMERA_Z = 6;
 const BASE = 0.34; // rest height, world units: about 80px at depth 0 on the reference viewport
@@ -47,6 +52,12 @@ const RESIDENT_PX = { w: 120, h: 140 };
 const RESIDENT_PX_PHONE = { w: 88, h: 104 };
 const PHONE = 640;
 const DIM_FADE = 0.15;
+/** The week's records: five slots kept free on the sphere, at 0.7 of a piece, resting dimmer. */
+const RECORD_SLOTS = 5;
+const RECORD_SCALE = 0.7;
+const RECORD_FADE = 0.6;
+/** Slot j of the records, spread evenly over the sphere's `total` slots. */
+const recordSlot = (j: number, total: number) => Math.floor(((j + 0.5) * total) / RECORD_SLOTS);
 
 const vert = /* glsl */ `
 varying vec2 vUv;
@@ -91,6 +102,8 @@ export class CloudScene {
   readonly residentGroup = new THREE.Group();
   readonly resident: Resident;
   readonly items: CloudItem[] = [];
+  /** The records' slots: an id claims one while its cover loads, the item follows. */
+  private records: ({ id: string; item: CloudItem | null } | null)[] = Array.from({ length: RECORD_SLOTS }, () => null);
   private geo = new THREE.PlaneGeometry(1, 1);
   private ray = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
@@ -159,9 +172,13 @@ export class CloudScene {
     const ringIndices = new Set<number>();
     for (let k = 0; k < RING_COUNT; k++) ringIndices.add(Math.round(k * ringStride) % n);
     let ringSlot = 0;
+    // His pieces take every slot on the sphere but the records', which wait for the week's albums.
+    const total = n + RECORD_SLOTS;
+    const taken = new Set(Array.from({ length: RECORD_SLOTS }, (_, j) => recordSlot(j, total)));
+    const pieceSlots = Array.from({ length: total }, (_, k) => k).filter((k) => !taken.has(k));
     this.sources.forEach((source, i) => {
       const l = loaded[i];
-      const home = this.homeAt(i, n);
+      const home = this.homeAt(pieceSlots[i], total);
       const mat = this.makeMaterial(l.texture);
       const mesh = new THREE.Mesh(this.geo, mat);
       const variation = 0.85 + ((i * 7919) % 100) / 100 * 0.4; // deterministic 0.85 .. 1.25
@@ -172,7 +189,7 @@ export class CloudScene {
       mesh.visible = false;
       this.group.add(mesh);
       this.items.push({
-        source, mesh, mat, aspect, base, home, loaded: l,
+        source, kind: "piece", mesh, mat, aspect, base, home, loaded: l,
         ring: ringIndices.has(i) ? ringSlot++ : -1,
         t: 0, start: new THREE.Vector3(), startScale: new THREE.Vector2(),
         restFade: 1,
@@ -200,6 +217,91 @@ export class CloudScene {
       fragmentShader: frag,
       transparent: true,
       depthWrite: false,
+    });
+  }
+
+  // ---------------------------------------------------------------- the records
+
+  /**
+   * This week's albums, at most one per slot. Diffed by id, so a later poll
+   * only moves what changed: a record that left fades out and is disposed, a
+   * new one loads on its own and is skipped if its cover fails. Never in the
+   * intro ring, never on the counter's path.
+   */
+  setRecords(records: RecordSource[]) {
+    if (this.disposed) return;
+    const wanted = records.slice(0, RECORD_SLOTS);
+    const ids = new Set(wanted.map((r) => r.id));
+    this.records.forEach((slot, k) => {
+      if (!slot || ids.has(slot.id)) return;
+      if (slot.item && slot.item === this.focused) return; // still in hand; the next poll takes it
+      this.records[k] = null;
+      if (slot.item) this.removeItem(slot.item);
+    });
+    wanted.forEach((r) => {
+      if (this.records.some((slot) => slot?.id === r.id)) return;
+      const k = this.records.findIndex((slot) => !slot);
+      if (k < 0) return;
+      const slot = { id: r.id, item: null as CloudItem | null };
+      this.records[k] = slot;
+      loadImage(r.src).then(
+        (l) => {
+          if (this.disposed || this.records[k] !== slot) {
+            l.dispose();
+            return;
+          }
+          slot.item = this.addRecord(r, l, k);
+        },
+        () => {
+          if (this.records[k] === slot) this.records[k] = null;
+        },
+      );
+    });
+  }
+
+  /** A record joins the cloud in slot k: hidden until the explode, or fading in at home when the room is already open. */
+  private addRecord(r: RecordSource, l: Loaded, k: number): CloudItem {
+    const source: SpaceItem = { id: r.id, title: r.title, category: r.category, aspect: 1, media: { kind: "image", src: r.src }, description: [] };
+    const home = this.homeAt(recordSlot(k, this.sources.length + RECORD_SLOTS), this.sources.length + RECORD_SLOTS);
+    const mat = this.makeMaterial(l.texture);
+    const mesh = new THREE.Mesh(this.geo, mat);
+    mesh.scale.set(0, 0, 1);
+    mesh.position.copy(home);
+    mesh.visible = false;
+    this.group.add(mesh);
+    const it: CloudItem = {
+      source, kind: "record", mesh, mat, aspect: l.aspect || 1, base: BASE * RECORD_SCALE, home, loaded: l,
+      ring: -1, t: 0, start: new THREE.Vector3(), startScale: new THREE.Vector2(), restFade: RECORD_FADE,
+    };
+    this.items.push(it);
+    upload(this.renderer, [l]);
+    // At rest from the start, so the explode brings it in already at its own fade.
+    mat.uniforms.uFade.value = it.restFade;
+    if (this.state === "exploded") {
+      it.t = 1;
+      it.mesh.visible = true;
+      this.setScale(it, it.base);
+      const hidden = !!this.focused;
+      mat.uniforms.uFade.value = 0;
+      mat.uniforms.uBlur.value = hidden || this.dimmed ? 1 : 0;
+      gsap.to(mat.uniforms.uFade, { value: hidden ? 0 : this.dimmed ? DIM_FADE : it.restFade, duration: 0.6, ease: "power2.out" });
+    }
+    return it;
+  }
+
+  /** Fades a piece out and disposes it; it stays billboarded until it has gone. */
+  private removeItem(it: CloudItem) {
+    it.leaving = true;
+    gsap.killTweensOf([it, it.mesh.position, it.mesh.scale, it.mat.uniforms.uBlur]);
+    gsap.to(it.mat.uniforms.uFade, {
+      value: 0, duration: 0.4, ease: "power2.out", overwrite: true,
+      onComplete: () => {
+        const i = this.items.indexOf(it);
+        if (i >= 0) this.items.splice(i, 1);
+        this.group.remove(it.mesh);
+        it.mat.dispose();
+        it.loaded.dispose();
+      },
     });
   }
 
@@ -460,6 +562,8 @@ export class CloudScene {
     this.vel = 0;
     sel.mesh.renderOrder = 10;
     this.applyFocusTransform(sel, 0.9);
+    // Held, it is fully opaque whatever it rests at: nothing behind shows through.
+    gsap.to(sel.mat.uniforms.uFade, { value: 1, duration: 0.6, ease: "power2.out", overwrite: true });
     this.items.forEach((it) => {
       if (it === sel || it.leaving) return;
       gsap.to(it.mat.uniforms.uFade, { value: 0, duration: 0.6, ease: "power2.out", overwrite: true });
@@ -490,6 +594,7 @@ export class CloudScene {
         this.rotating = !this.dimmed;
       },
     });
+    gsap.to(sel.mat.uniforms.uFade, { value: sel.restFade, duration: 0.6, ease: "power2.out", delay: 0.3, overwrite: true });
     this.items.forEach((it) => {
       if (it === sel || it.leaving) return;
       gsap.to(it.mat.uniforms.uFade, { value: it.restFade, duration: 0.6, ease: "power2.out", delay: 0.2, overwrite: true });

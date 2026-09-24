@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { NowResponse } from "@/lib/now";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,10 +8,6 @@ const API = "https://ws.audioscrobbler.com/2.0/";
 /** Last.fm's "no art" image, which it serves under a fixed hash. */
 const PLACEHOLDER = "2a96cbd8b46e442fc41c2b86b821562f";
 const TOP_LIMIT = 5;
-
-export type NowPlaying = { title: string; artist: string; album: string; coverId: string | null };
-export type TopAlbum = { id: string; album: string; artist: string; playcount: number; coverId: string | null };
-export type NowResponse = { now: NowPlaying | null; top: TopAlbum[] };
 
 type Image = { size: string; "#text": string };
 type RecentTrack = {
