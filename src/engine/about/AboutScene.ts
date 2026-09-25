@@ -2,7 +2,7 @@ import * as THREE from "three";
 import gsap from "gsap";
 import type { Text } from "troika-three-text";
 import { makeRenderer } from "@/engine/common/loader";
-import { Resident } from "@/engine/common/resident";
+import { Urchi } from "@/engine/urchi/Urchi";
 import { FONT, makeText, syncText } from "@/engine/common/text";
 
 export type AboutOptions = {
@@ -12,9 +12,8 @@ export type AboutOptions = {
   reducedMotion?: boolean;
 };
 
-/** The resident's plane, in CSS px: about 150 x 220 on the reference. */
-const BLOB_W = 170;
-const BLOB_H = 240;
+/** Urchi's box width in CSS px over the statement, on a window 900px wide or more: about the old object's footprint. */
+const URCHI_PX = 180;
 
 export class AboutScene {
   readonly renderer: THREE.WebGLRenderer;
@@ -23,12 +22,10 @@ export class AboutScene {
   private lines: Text[] = [];
   private mark: Text | null = null;
   private current: Text | null = null;
-  /** The chrome object over the statement: the resident, eyes and all. */
-  readonly resident: Resident;
+  /** Urchi, sitting over the statement and following the pointer on its own. */
+  readonly urchi: Urchi;
   private width = 1;
   private height = 1;
-  private tilt: THREE.Vector2;
-  private targetTilt = new THREE.Vector2();
   private tick: (t: number, dt: number) => void;
   private disposed = false;
   private ready = false;
@@ -37,11 +34,10 @@ export class AboutScene {
     this.renderer = makeRenderer(canvas);
     this.camera = new THREE.OrthographicCamera(0, 1, 0, -1, -1000, 1000);
     this.camera.position.z = 10;
-    this.resident = new Resident({ aspect: BLOB_W / BLOB_H, steps: 72, reducedMotion: opts.reducedMotion });
-    this.tilt = this.resident.tilt;
-    this.resident.mesh.renderOrder = 5;
-    this.resident.mesh.visible = false;
-    this.scene.add(this.resident.mesh);
+    this.urchi = new Urchi({ reducedMotion: opts.reducedMotion });
+    this.urchi.mesh.renderOrder = 5;
+    this.urchi.mesh.visible = false;
+    this.scene.add(this.urchi.mesh);
     this.measure();
     this.tick = (_t, dtMs) => this.frame(Math.min(dtMs, 64) / 1000);
     gsap.ticker.add(this.tick);
@@ -78,7 +74,7 @@ export class AboutScene {
     if (this.disposed) return;
     this.layout();
     this.ready = true;
-    this.resident.mesh.visible = true;
+    this.urchi.mesh.visible = true;
     this.reveal();
   }
 
@@ -104,10 +100,9 @@ export class AboutScene {
       this.mark.position.set(this.width / 2 + w / 2 + 3, -(this.lineY(this.opts.mark.line) - size * 0.32), 1);
     }
     if (this.current) this.current.position.set(this.width / 2, -(this.lineY(this.lines.length - 1) + 70 + 12), 0);
-    // The object sits over the middle of the paragraph, a touch right of centre.
-    this.resident.mesh.position.set(this.width / 2 + size * 0.9, -(this.lineY(1) + pitch * 0.15), 2);
-    const s = Math.min(1, this.width / 900);
-    this.resident.base.set(BLOB_W * s, BLOB_H * s);
+    // Urchi sits over the middle of the paragraph, a touch right of centre.
+    this.urchi.mesh.position.set(this.width / 2 + size * 0.9, -(this.lineY(1) + pitch * 0.15), 2);
+    this.urchi.width = URCHI_PX * Math.min(1, this.width / 900);
   }
 
   /** Lines rise out of their own masks: clipRect follows the offset so the box stays put. */
@@ -130,12 +125,7 @@ export class AboutScene {
       this.mark.material.transparent = true;
       gsap.to(this.mark.material, { opacity: 1, duration: 0.5, delay: 0.9 });
     }
-    this.resident.scaleIn(this.opts.reducedMotion ? 0 : 1.1, 0.4);
-  }
-
-  pointer(clientX: number, clientY: number) {
-    this.targetTilt.set((clientX / this.width - 0.5) * 0.25, (clientY / this.height - 0.5) * 0.18);
-    this.resident.setPointer(clientX / this.width, clientY / this.height);
+    this.urchi.scaleIn(this.opts.reducedMotion ? 0 : 1.1, 0.4);
   }
 
   resize() {
@@ -151,8 +141,7 @@ export class AboutScene {
 
   private frame(dt: number) {
     if (this.disposed) return;
-    this.tilt.lerp(this.targetTilt, 1 - Math.pow(0.05, dt));
-    this.resident.update(dt);
+    this.urchi.update(dt);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -162,7 +151,7 @@ export class AboutScene {
     this.lines.forEach((l) => l.dispose());
     this.mark?.dispose();
     this.current?.dispose();
-    this.resident.dispose();
+    this.urchi.dispose();
     this.renderer.dispose();
   }
 }

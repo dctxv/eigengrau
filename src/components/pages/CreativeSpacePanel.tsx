@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { sfx } from "@/audio/sfx";
-import { MONOGRAM, NAME, RESIDENT_LINES, ROLE, SPACE_ITEMS } from "@/content/site";
+import { MONOGRAM, NAME, ROLE, SPACE_ITEMS, URCHI_LINES } from "@/content/site";
 import { CloudScene, type CloudItem } from "@/engine/space/CloudScene";
 import { runIntro } from "@/engine/space/intro";
 import { CursorLabel } from "@/components/CursorLabel";
@@ -13,13 +13,15 @@ import { setFlag } from "@/lib/flags";
 import { DUR, isCompact, prefersReducedMotion } from "@/lib/motion";
 import { readResult, resultCaption, todayUTC, writeResult } from "@/lib/threshold";
 
-/** The game's door and its stack: the resident, a gap, the plate. */
+/** The game's door and its stack: Urchi, a gap, the plate. */
 const GAME_HASH = "#threshold";
 const PLATE_MAX = 480;
 const PLATE_MARGIN = 32;
 const STACK_GAP = 24;
-/** Below this height the resident dims with the room instead of rising above the plate. */
-const STACK_MIN_H = 620;
+/** Room the stack keeps above and below it: clear of the nav, off the bottom edge. */
+const STACK_CLEAR = 48;
+/** Urchi shrinks to fit above the plate; below this head height it dims with the room instead. */
+const STACK_MIN_HEAD = 96;
 /** Seconds the result caption holds the slot before the hover caption may return. */
 const RESULT_DWELL = 4;
 
@@ -35,9 +37,9 @@ type Game = {
 
 /**
  * Space (spec 6): one canvas, the intro overlays, the caption, the
- * description, the cursor label and the mobile "View Case" button. The
- * resident sits at the centre: hovering it raises the caption, clicking it
- * opens Threshold, which is DOM beside the stage so it stays accessible.
+ * description, the cursor label and the mobile "View Case" button. Urchi
+ * sits at the centre: hovering it raises the caption, clicking it opens
+ * Threshold, which is DOM beside the stage so it stays accessible.
  */
 export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   const stage = useRef<HTMLElement>(null);
@@ -111,19 +113,19 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       gsap.to(viewCase.current, { opacity: 0, y: 10, duration: 0.3, overwrite: true });
     };
 
-    // ---- the resident: hover raises his line, leaving drops it; a result caption outranks both while it shows
+    // ---- Urchi: hover raises its name over one of his lines, leaving drops it; a result caption outranks both while it shows
     // One of his lines, chosen once per visit.
-    const line = RESIDENT_LINES[Math.floor(Math.random() * RESIDENT_LINES.length)];
-    let overResident = false;
+    const line = URCHI_LINES[Math.floor(Math.random() * URCHI_LINES.length)];
+    let overUrchi = false;
     let resultShown = false;
     let resultTimer: gsap.core.Tween | null = null;
-    const showResidentCaption = () => raiseCaption("Quiet", line, 0);
-    const setOverResident = (on: boolean) => {
-      if (on === overResident) return;
-      overResident = on;
+    const showUrchiCaption = () => raiseCaption("Urchi", line, 0);
+    const setOverUrchi = (on: boolean) => {
+      if (on === overUrchi) return;
+      overUrchi = on;
       cursor.set(on ? "Threshold" : null);
       if (resultShown) return;
-      if (on) showResidentCaption();
+      if (on) showUrchiCaption();
       else hideCaption();
     };
     const showDesc = (on: boolean) => {
@@ -139,14 +141,16 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let gameDate = todayUTC();
     /** The run's result, shown once the board has left. */
     let pending: number | null = null;
-    const stackFits = () => window.innerHeight >= STACK_MIN_H;
     const plateSize = () => Math.min(PLATE_MAX, window.innerWidth - PLATE_MARGIN, window.innerHeight - PLATE_MARGIN);
-    /** The resident, a gap and the plate form one centred stack; returns the plate's drop below the centre. */
+    /** Urchi, a gap and the plate form one centred stack; returns the plate's drop below the centre. */
     const stack = (duration: number) => {
-      const fits = stackFits();
-      cloud.liftResident(fits ? (STACK_GAP + plateSize()) / 2 : 0, duration);
-      cloud.dimResident(!fits);
-      return fits ? (cloud.residentSize.h + STACK_GAP) / 2 : 0;
+      const plate = plateSize();
+      const head = cloud.urchiSize.h;
+      const h = Math.min(head, window.innerHeight - 2 * STACK_CLEAR - STACK_GAP - plate);
+      const fits = h >= STACK_MIN_HEAD;
+      cloud.liftUrchi(fits ? (STACK_GAP + plate) / 2 : 0, duration, fits ? h / head : 1);
+      cloud.dimUrchi(!fits);
+      return fits ? (h + STACK_GAP) / 2 : 0;
     };
     const showResult = (date: string, result: number) => {
       const { title, line } = resultCaption(date, result);
@@ -156,7 +160,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (live.current) live.current.textContent = `${title}. ${line}`;
       resultTimer = gsap.delayedCall(RESULT_DWELL, () => {
         resultShown = false;
-        if (overResident) showResidentCaption();
+        if (overUrchi) showUrchiCaption();
         else hideCaption();
       });
     };
@@ -176,7 +180,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       gameOpen = true;
       gameDate = date;
       pending = null;
-      overResident = false;
+      overUrchi = false;
       cursor.set(null);
       resultTimer?.kill();
       resultShown = false;
@@ -188,8 +192,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       gameOpen = false;
       setBoard(null);
       cloud.dim(false);
-      cloud.liftResident(0, reducedMotion ? 0 : 0.9);
-      cloud.dimResident(false);
+      cloud.liftUrchi(0, reducedMotion ? 0 : 0.9);
+      cloud.dimUrchi(false);
       cursor.set(null);
       dropHash();
       if (!abandoned && pending !== null) showResult(gameDate, pending);
@@ -198,21 +202,19 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     game.current = {
       correct: () => {
         sfx.play("tick");
-        cloud.resident.blinkSlow();
+        cloud.urchi.slowBlink();
       },
       miss: () => {
         sfx.play("close");
-        cloud.resident.glanceAside();
+        cloud.urchi.glance();
       },
       end: (result) => {
         writeResult(gameDate, result);
         pending = result;
       },
       closed: closeGame,
-      pointer: (x, y, onPlate) => {
-        cloud.setPointer(x, y);
-        cursor.set(onPlate ? null : "Close");
-      },
+      // The room is still while the board is up, and Urchi follows the pointer on its own.
+      pointer: (_x, _y, onPlate) => cursor.set(onPlate ? null : "Close"),
       leave: () => cursor.set(null),
     };
 
@@ -220,18 +222,18 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let down = { x: 0, y: 0, t: 0 };
     let lastTouchY = 0;
     const onMove = (e: PointerEvent) => {
-      cloud.setPointer(e.clientX, e.clientY);
+      cloud.setPointer(e.clientX);
       if (!cloud.focused) {
-        // Pieces first; the resident only when none is under the pointer.
-        const over = !cloud.pick(e.clientX, e.clientY) && cloud.residentHit(e.clientX, e.clientY);
-        setOverResident(over);
+        // Pieces first; Urchi only when none is under the pointer.
+        const over = !cloud.pick(e.clientX, e.clientY) && cloud.urchiHit(e.clientX, e.clientY);
+        setOverUrchi(over);
         if (!over) cursor.set(null);
         return;
       }
       const hit = cloud.pick(e.clientX, e.clientY);
       cursor.set(hit === cloud.focused ? "Overview" : "Close");
     };
-    const onLeave = () => setOverResident(false);
+    const onLeave = () => setOverUrchi(false);
     const onDown = (e: PointerEvent) => {
       down = { x: e.clientX, y: e.clientY, t: performance.now() };
       lastTouchY = e.clientY;
@@ -256,11 +258,11 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
           cursor.set(null);
         }
       } else if (hit) {
-        overResident = false;
+        overUrchi = false;
         cloud.focus(hit);
         showCaption(hit);
         cursor.set("Overview");
-      } else if (cloud.residentHit(e.clientX, e.clientY)) {
+      } else if (cloud.urchiHit(e.clientX, e.clientY)) {
         openGame();
       }
     };
@@ -279,7 +281,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       } else if (e.key === "Enter" && !cloud.focused && cloud.state === "exploded") {
         const it = cloud.nearestToCentre();
         if (it) {
-          overResident = false;
+          overUrchi = false;
           cloud.focus(it);
           showCaption(it);
         }

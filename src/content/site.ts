@@ -39,15 +39,15 @@ export const ELSEWHERE = [
 ] as const;
 
 /**
- * The owner's lines about the resident, shown as the hover caption on Space
- * when nothing is playing. His voice, never the creature's; no exclamation
- * marks; at most 48 characters. One is chosen per visit.
+ * The owner's lines about Urchi, shown under its name as the hover caption on
+ * Space. His voice, never the creature's; no exclamation marks; at most 48
+ * characters. One is chosen per visit.
  */
-export const RESIDENT_LINES = [
+export const URCHI_LINES = [
   "It keeps the place while I am out.",
   "It has never asked for anything.",
   "It watches the pointer. So do I.",
-  "Chrome, two holes, and a lot of patience.",
+  "Spikes, two eyes, and a lot of patience.",
   "It does not know it is the mascot.",
 ];
 

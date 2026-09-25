@@ -7,7 +7,7 @@ import { BOARDS_PER_ROUND, ROUNDS, boardsFor, resultAfterMiss, squareColor } fro
 type Props = {
   /** YYYY-MM-DD in UTC: the day's boards are seeded from it. */
   date: string;
-  /** How far below the viewport's centre the plate sits, so the resident fits above it. */
+  /** How far below the viewport's centre the plate sits, so Urchi fits above it. */
   drop: number;
   reducedMotion: boolean;
   onCorrect(): void;

@@ -79,13 +79,13 @@ export function runIntro(refs: IntroRefs, cloud: CloudScene): () => void {
           setFlag("pageReady", true);
           // The chrome drops on this flag (Shell); the eyes open once it has landed.
           eyes = gsap.delayedCall(DUR.drop + 0.3, () => {
-            if (!killed) cloud.resident.openEyes(0.35);
+            if (!killed) cloud.urchi.openEyes(0.35);
           });
         });
       }, 2.75)
       .to(letters, { opacity: 0, duration: 0.4, ease: "power2.out" }, 2.75)
-      // The monogram hands over: the resident scales in at the centre, eyes closed.
-      .add(() => cloud.startResident(), 2.95);
+      // The monogram hands over: Urchi scales in at the centre, eyes closed.
+      .add(() => cloud.startUrchi(), 2.95);
   }
 
   cloud
