@@ -247,8 +247,16 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
 
     // Falling asleep or waking under the pointer: the label follows, and the caption when its words change.
     moodChanged = () => {
-      if (!overUrchi) return;
-      cursor.set(att.asleep ? "Wake" : "Threshold");
+      if (overUrchi) cursor.set(att.asleep ? "Wake" : "Threshold");
+      // The phone's one caption follows too: a tap that wakes it at night must not leave it
+      // saying "asleep" with its eyes open. Awake, the line is his, and it reads it.
+      if (slot === "auto") {
+        if (lineSpan.textContent !== hoverLine().text) {
+          att.cancel("read");
+          showUrchiCaption("auto", PHONE_CAPTION.dwell);
+        }
+        return;
+      }
       if (!hovering || (slot && slot !== "hover")) return;
       const { text, readable } = hoverLine();
       if (slot === "hover" && lineSpan.textContent === text) {
