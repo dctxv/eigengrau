@@ -3,6 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { numberWord, PROJECTS, SPACE_ITEMS, statusWord } from "@/content/site";
 
+/** The square every piece's file is cut to, px: its long side. */
+const PIECE_BOX = 320;
+
 export function generateStaticParams() {
   return PROJECTS.map((p) => ({ slug: p.slug }));
 }
@@ -40,9 +43,10 @@ export default async function CasePage({ params }: PageProps<"/projects/[slug]">
           <h2 id="case-pieces">{pieces.length === 1 ? "One piece" : `${numberWord(pieces.length)} pieces`}</h2>
           {pieces.map((s) => (
             <figure key={s.id} className="case-piece">
-              {/* A video piece shows its poster: this page is the record, not the reel. */}
+              {/* A video piece shows its poster: this page is the record, not the reel. Each fits the */}
+              {/* square the pieces are cut to, so none is drawn larger than its file. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={s.media.kind === "video" ? s.media.poster : s.media.src} alt="" style={{ aspectRatio: String(s.aspect) }} loading="lazy" />
+              <img src={s.media.kind === "video" ? s.media.poster : s.media.src} alt="" style={{ aspectRatio: String(s.aspect), maxWidth: Math.round(PIECE_BOX * Math.min(1, s.aspect)) }} loading="lazy" />
               <figcaption>
                 <h3>{s.title}</h3>
                 <p>

@@ -160,6 +160,8 @@ const PHONE_FRAME_W = 168;
 const MARK_LEAD = 40;
 const OPEN_DUR = 2.1;
 const CLOSE_DUR = 0.9;
+/** A click this soon after opening is the rest of a double click, ms. */
+const DOUBLE_CLICK = 400;
 /**
  * How much later the ends of the stretch leave the ball than its mark: at
  * 2.6 about a third of the stretch is in the air at once, so the peel has a
@@ -173,6 +175,16 @@ const RIDE_MIN = 0.2;
 const RECEDE_INK = 0.15;
 const RECEDE_PIECE_INK = 0.07;
 const RECEDE_SCALE = 0.86;
+/**
+ * Under an opened project's words the receded ball thins to this share of
+ * its ink, over a soft edge, so the words are read on the dark and not
+ * through the rings.
+ */
+const VEIL_INK = 0.2;
+const VEIL_PAD = 14;
+const VEIL_FEATHER = 44;
+/** A piece on the ball fades out before it crosses this margin at the screen's sides: a phone's ball nearly fills the width. */
+const SIDE_MARGIN = 16;
 /** Past this many projects a mark hangs only its cover and two pieces. */
 const MANY = 24;
 /** From this many, only marks on the front half hang pieces at all. */
@@ -474,7 +486,8 @@ export class ThreadScene {
   private yaw = 0;
   private targetYaw = 0;
   private vel = 0;
-  private idleK = 1;
+  /** The idle spin's share: 1 turns at IDLE. Reduced motion starts (and stays) at 0. */
+  private idleK: number;
   private drag: { x: number; y: number; t: number; moved: boolean } | null = null;
   private turning: gsap.core.Tween | null = null;
   private loose = { x: 0, v: 0 };
@@ -498,10 +511,14 @@ export class ThreadScene {
   private afterClose: (() => void) | null = null;
   /** Winding back in: a second click on the same project turns it round. */
   private closing = false;
+  /** When the open project began to unspool, ms. */
+  private openedAt = -Infinity;
   private scroll = { cur: 0, target: 0, max: 0 };
   private caseHot = false;
   private caseLift = { v: 0 };
   private coverHot: Piece | null = null;
+  /** The opened project's words on screen, padded, and how far the ball has thinned under them (0..1). */
+  private veil = { x0: 0, y0: 0, x1: 0, y1: 0, k: 0 };
 
   private ready = false;
   private disposed = false;
@@ -517,6 +534,7 @@ export class ThreadScene {
     private opts: ThreadOptions,
   ) {
     this.renderer = makeRenderer(canvas);
+    this.idleK = opts.reducedMotion ? 0 : 1;
     this.camera.position.z = 10;
     this.lineMat = new THREE.ShaderMaterial({
       uniforms: { uColor: { value: GL.ink }, uHalf: { value: 1 }, uDpr: { value: 1 } },
@@ -1392,8 +1410,11 @@ export class ThreadScene {
       return "open";
     }
     if (this.opened) {
-      if (this.unspool.p < 0.98 && !this.opts.reducedMotion) return "none";
-      if (this.onCase(x, y)) return "case";
+      // The second half of the double click that opened it is not a click on empty space. After
+      // that, empty space winds it back from wherever the unspool has got to.
+      if (performance.now() - this.openedAt < DOUBLE_CLICK) return "none";
+      // The Case word answers once it has risen; on its way up it is not empty space either.
+      if (this.onCase(x, y, true)) return this.unspool.p < 0.98 ? "none" : "case";
       if (this.frameAt(x, y)) return "none";
       this.close();
       return "close";
@@ -1450,9 +1471,9 @@ export class ThreadScene {
     return this.opened.pieces.find((pc) => Math.abs(x - pc.sx) <= pc.sw / 2 && Math.abs(y - pc.sy) <= pc.sh / 2) ?? null;
   }
 
-  private onCase(x: number, y: number) {
+  private onCase(x: number, y: number, early = false) {
     const o = this.opened?.open;
-    if (!o || this.unspool.p < 0.98) return false;
+    if (!o || (this.unspool.p < 0.98 && !early)) return false;
     const m = o.link;
     const b = blockBounds(m.t);
     const ox = m.base.x + this.openGroup.position.x;
@@ -1560,6 +1581,7 @@ export class ThreadScene {
     if (this.hovered === b) this.captionOff(b);
     this.hovered = b;
     this.opened = b;
+    this.openedAt = performance.now();
     this.scroll.cur = this.scroll.target = 0;
     this.layoutO = null;
     this.layoutOpen(b);
@@ -1696,10 +1718,8 @@ export class ThreadScene {
     if (this.disposed) return;
     const rm = !!this.opts.reducedMotion;
     this.clock += rm ? 0 : dt;
-    if (!this.ready) {
-      this.renderer.render(this.scene, this.camera);
-      return;
-    }
+    // Nothing is drawn until the layout has placed it: the texts wait at the origin until their fonts are in.
+    if (!this.ready) return;
 
     // Spin: slow on its own, slower still while something is held, still while a project is open.
     const idleTarget = rm || this.opened ? 0 : this.hovered ? 0.1 : 1;
@@ -1741,6 +1761,7 @@ export class ThreadScene {
     });
 
     if (this.pointerAt && !this.keyHold && !this.drag?.moved && !this.opened) this.hoverAtPointer();
+    this.placeVeil();
     this.project();
     this.drawThread();
     this.hang();
@@ -1755,6 +1776,42 @@ export class ThreadScene {
   private get recede() {
     if (!this.opened) return 0;
     return this.opts.reducedMotion ? this.fadeIn.value : inOut(clamp01(this.unspool.p * 1.5));
+  }
+
+  /** Where the opened project's words rest this frame (they scroll with the line), and how much the ball thins under them. */
+  private placeVeil() {
+    const v = this.veil;
+    const o = this.opened?.open;
+    v.k = o && this.layoutO ? this.recede : 0;
+    if (!o || v.k <= 0) return;
+    const g = this.openGroup.position;
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    [o.name, o.status, o.why, o.summary, o.link].forEach((m) => {
+      const bb = blockBounds(m.t);
+      const x = m.base.x + g.x;
+      const y = -(m.base.y + g.y);
+      x0 = Math.min(x0, x + bb[0]);
+      x1 = Math.max(x1, x + bb[2]);
+      y0 = Math.min(y0, y - bb[3]);
+      y1 = Math.max(y1, y - bb[1]);
+    });
+    v.x0 = x0 - VEIL_PAD;
+    v.y0 = y0 - VEIL_PAD;
+    v.x1 = x1 + VEIL_PAD;
+    v.y1 = y1 + VEIL_PAD;
+  }
+
+  /** The share of its ink the ball keeps at a point: all of it, except under the opened project's words. */
+  private veilAt(x: number, y: number) {
+    const v = this.veil;
+    if (v.k <= 0) return 1;
+    const dx = Math.max(v.x0 - x, 0, x - v.x1);
+    const dy = Math.max(v.y0 - y, 0, y - v.y1);
+    const near = 1 - smooth(clamp01(Math.hypot(dx, dy) / VEIL_FEATHER));
+    return 1 - v.k * (1 - VEIL_INK) * near;
   }
 
   /** Every sample to the screen: on the ball, on the line, or on its way between. */
@@ -1778,6 +1835,7 @@ export class ThreadScene {
       const o = this.owner[i];
       const hl = o >= 0 ? this.beads[o].hl : 0;
       let ink = lerp(d * base, 0.55 + 0.45 * smooth(clamp01((q.z + 0.85) / 1.7)), hl);
+      ink *= this.veilAt(s.x, s.y);
       let lift = 0;
       if (open && L && i >= open.i0 && i <= open.i1) {
         lift = this.liftOf(open, i);
@@ -1896,7 +1954,7 @@ export class ThreadScene {
       this.rotate(p.x, p.y, p.z, q);
       const k = this.toScreen(q, radius, s0);
       const dz = depthInk(q.z);
-      let ink = lerp(dz * base, 0.55 + 0.45 * dz, b.hl) * b.pop;
+      let ink = lerp(dz * base, 0.55 + 0.45 * dz, b.hl) * b.pop * this.veilAt(s0.x, s0.y);
       if (b.i > this.draw.value * (this.M - 1)) ink = 0;
       b.mz = q.z;
       // Its tick: along the surface, perpendicular to the thread; north, or south for dead work.
@@ -2002,7 +2060,9 @@ export class ThreadScene {
       this.rotate(x, y, zz, q);
       this.toScreen(q, radius, s);
       if (k === 0) z = q.z;
-      sc.push(s.x + this.loose.x * u * u, s.y + Math.abs(this.loose.x) * 0.15 * u * u, depthInk(q.z) * base);
+      const lx = s.x + this.loose.x * u * u;
+      const ly = s.y + Math.abs(this.loose.x) * 0.15 * u * u;
+      sc.push(lx, ly, depthInk(q.z) * base * this.veilAt(lx, ly));
     }
     sc.normals();
     (z >= 0 ? front : back).strip(sc.x, sc.y, sc.a, sc.nx, sc.ny, 0, sc.n - 1);
@@ -2060,6 +2120,11 @@ export class ThreadScene {
       let ink = b.side > 0 ? 0.1 + 0.9 * smooth(clamp01((q.z + 0.3) / 0.8)) : 0.5 * (0.7 + 0.3 * dz);
       ink *= lerp(base, 1, b.hl) * b.pop;
       if (crowd) ink *= smooth(clamp01((b.mz + 0.1) / 0.25));
+      // Near the limb a knot hangs out past the ball: rather than be cut by the screen's edge, it
+      // fades out as it crosses the side margin, gone by the time it would touch the edge.
+      const over = Math.max(SIDE_MARGIN - (s.x - w / 2), s.x + w / 2 - (this.width - SIDE_MARGIN));
+      if (over > 0) ink *= 1 - smooth(clamp01(over / SIDE_MARGIN));
+      ink *= this.veilAt(s.x, s.y);
       if (!pc.onBall) ink = 0;
       if (b.i > drawn) ink = 0;
       let blur = b.side < 0 ? 0.45 : 0;

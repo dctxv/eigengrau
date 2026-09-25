@@ -100,16 +100,43 @@ export function ProjectsPanel() {
       cursor.set(null);
       scene.leave();
     };
+    // The control the visitor reached with the keys, if the focus is on one: its Enter is its own.
+    // A pill or the sound chip that was clicked keeps the focus too, and must not take Enter from the ball.
+    const byKeys = (el: Element | null) => {
+      try {
+        return !!el?.matches(":focus-visible");
+      } catch {
+        return true; // no :focus-visible: leave Enter to whatever has the focus
+      }
+    };
+    let keyFocus: Element | null = byKeys(document.activeElement) ? document.activeElement : null;
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target instanceof Element ? e.target : null;
+      keyFocus = byKeys(el) ? el : null;
+    };
+    /**
+     * Enter belongs to the ball unless the visitor is typing, or has tabbed to
+     * another link or button. This page's own pill never keeps it: arriving
+     * by the tab bar leaves that pill focused, and following it would only
+     * reload the page they are on.
+     */
+    const ballTakesEnter = () => {
+      const el = document.activeElement;
+      if (!(el instanceof HTMLElement) || el === document.body) return true;
+      if (el.isContentEditable || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return false;
+      if (el.matches('.tabs a[aria-current="page"]')) return true;
+      return !(el.closest("a[href], button") && el === keyFocus);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (!isCurrent() || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "ArrowRight" || e.key === "ArrowDown") scene.step(1);
       else if (e.key === "ArrowLeft" || e.key === "ArrowUp") scene.step(-1);
       else if (e.key === "Enter") {
-        // A focused link or button answers Enter itself.
-        const el = document.activeElement;
-        if (el instanceof HTMLAnchorElement || el instanceof HTMLButtonElement) return;
+        if (!ballTakesEnter()) return;
         const p = scene.focused;
         if (!p) return;
+        // The focused pill would follow its link as well.
+        e.preventDefault();
         if (scene.isOpen) goCase(p);
         else scene.openSlug(p.slug);
       } else if (e.key === "Escape") scene.escape();
@@ -119,6 +146,13 @@ export function ProjectsPanel() {
       const slug = hashSlug();
       if (slug) scene.openSlug(slug);
       else if (scene.isOpen) scene.close();
+    };
+    // This page's own pill, pressed while a project is out, pushes /projects without the hash, and
+    // a push fires no hashchange: the thread winds back in, so the page matches its URL again.
+    const onClick = (e: MouseEvent) => {
+      if (!isCurrent() || !scene.isOpen) return;
+      const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
+      if (a instanceof HTMLAnchorElement && a.origin === window.location.origin && a.pathname === ROUTE && !a.hash) scene.close();
     };
     const onResize = () => scene.resize();
     const onVis = () => scene.setVisible(document.visibilityState === "visible");
@@ -133,6 +167,8 @@ export function ProjectsPanel() {
     window.addEventListener("hashchange", onHash);
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVis);
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("click", onClick);
     return () => {
       stageEl.removeEventListener("wheel", onWheel);
       stageEl.removeEventListener("pointerdown", onDown);
@@ -144,6 +180,8 @@ export function ProjectsPanel() {
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("click", onClick);
       cursor.destroy();
       scene.dispose();
     };
