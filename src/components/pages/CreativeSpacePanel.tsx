@@ -18,8 +18,10 @@ const GAME_HASH = "#threshold";
 const PLATE_MAX = 480;
 const PLATE_MARGIN = 32;
 const STACK_GAP = 24;
-/** Below this height Urchi dims with the room instead of rising above the plate. */
-const STACK_MIN_H = 620;
+/** Room the stack keeps above and below it: clear of the nav, off the bottom edge. */
+const STACK_CLEAR = 48;
+/** Urchi shrinks to fit above the plate; below this head height it dims with the room instead. */
+const STACK_MIN_HEAD = 96;
 /** Seconds the result caption holds the slot before the hover caption may return. */
 const RESULT_DWELL = 4;
 
@@ -139,14 +141,16 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let gameDate = todayUTC();
     /** The run's result, shown once the board has left. */
     let pending: number | null = null;
-    const stackFits = () => window.innerHeight >= STACK_MIN_H;
     const plateSize = () => Math.min(PLATE_MAX, window.innerWidth - PLATE_MARGIN, window.innerHeight - PLATE_MARGIN);
     /** Urchi, a gap and the plate form one centred stack; returns the plate's drop below the centre. */
     const stack = (duration: number) => {
-      const fits = stackFits();
-      cloud.liftUrchi(fits ? (STACK_GAP + plateSize()) / 2 : 0, duration);
+      const plate = plateSize();
+      const head = cloud.urchiSize.h;
+      const h = Math.min(head, window.innerHeight - 2 * STACK_CLEAR - STACK_GAP - plate);
+      const fits = h >= STACK_MIN_HEAD;
+      cloud.liftUrchi(fits ? (STACK_GAP + plate) / 2 : 0, duration, fits ? h / head : 1);
       cloud.dimUrchi(!fits);
-      return fits ? (cloud.urchiSize.h + STACK_GAP) / 2 : 0;
+      return fits ? (h + STACK_GAP) / 2 : 0;
     };
     const showResult = (date: string, result: number) => {
       const { title, line } = resultCaption(date, result);

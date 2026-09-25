@@ -41,6 +41,8 @@ export class Urchi {
   width = 1;
   /** 0 hidden .. 1 full size. */
   appear = 0;
+  /** A size for a moment, on top of `appear`: the game's stack shrinks it to fit above the board. */
+  zoom = 1;
   private texture: THREE.CanvasTexture;
 
   constructor(o: UrchiHostOptions = {}) {
@@ -80,7 +82,7 @@ export class Urchi {
   update(dt: number) {
     this.character.update(dt);
     this.texture.needsUpdate = true;
-    const s = Math.max(this.appear, 1e-4);
+    const s = Math.max(this.appear * this.zoom, 1e-4);
     this.mesh.scale.set(URCHI_FRAME.w * this.unit * s, URCHI_FRAME.h * this.unit * s, 1);
   }
 

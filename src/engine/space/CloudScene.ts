@@ -38,9 +38,12 @@ const FOCUS_Z = 3.2;
 const FOCUS_H = 0.7;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
-/** Urchi's box width in CSS px at depth 0: this with the whole cloud in view, never below the minimum. */
-const URCHI_PX = 180;
-const URCHI_MIN_PX = 112;
+/**
+ * Urchi's box width in CSS px at depth 0: this with the whole cloud in view,
+ * never below the minimum. 288 is two screen pixels for each of its 144.
+ */
+const URCHI_PX = 288;
+const URCHI_MIN_PX = 144;
 const DIM_FADE = 0.15;
 
 const vert = /* glsl */ `
@@ -353,10 +356,11 @@ export class CloudScene {
     });
   }
 
-  /** Urchi rises `px` above the centre (0 brings it back), for the game's stack. */
-  liftUrchi(px: number, duration: number) {
+  /** Urchi rises `px` above the centre (0 brings it back) at `zoom` of its size, for the game's stack. */
+  liftUrchi(px: number, duration: number, zoom = 1) {
     this.liftPx = px;
     gsap.to(this.urchi.mesh.position, { y: this.liftUnits(px), duration, ease: "power3.inOut", overwrite: true });
+    gsap.to(this.urchi, { zoom, duration, ease: "power3.inOut", overwrite: "auto" });
   }
 
   /** On a short viewport Urchi dims with the room instead of rising. */
