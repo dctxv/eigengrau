@@ -542,6 +542,10 @@ button {
   /* So the find field can know the column's width from inside the words. */
   container-type: inline-size;
 }
+/* A word and its glued comma or full stop keep to one line. */
+.notes-keep {
+  white-space: nowrap;
+}
 .notes-head .mask > span {
   animation: notes-rise 0.9s cubic-bezier(0.23, 1, 0.32, 1) var(--d, 0s) both;
 }

@@ -555,6 +555,16 @@ function Group({ id, parent, kind, label, open, fresh, count, rest, none, childr
   );
 }
 
+/** The head's pieces in runs: each piece with the ones glued after it, which must share its line. */
+function runs(pieces: readonly Piece[]): { p: Piece; i: number }[][] {
+  const out: { p: Piece; i: number }[][] = [];
+  pieces.forEach((p, i) => {
+    if (p.glue && out.length) out[out.length - 1].push({ p, i });
+    else out.push([{ p, i }]);
+  });
+  return out;
+}
+
 /**
  * Notes: plain DOM inside the sliding panel, not a canvas, so the text can be
  * selected, searched and linked. One centred column in a scroll container;
@@ -934,6 +944,73 @@ export function NotesPanel() {
   };
   const month = (m: (typeof months)[number], parent: string | null) => group(m, "month", parent, m.entries.map((n) => entry(n, m.id)));
 
+  /** One piece of the head sentence; `withGap` puts the space before it (the run it opens places its own). */
+  const renderPiece = (p: Piece, i: number, withGap: boolean): ReactNode => {
+    // The sentence rewrites whole when its mode changes, but "All notes." stays itself, so
+    // focus on it survives the field closing around it.
+    const k = p.kind === "all" ? "all" : `${mode}/${p.key}`;
+    const d = { "--d": `${mode === "find" ? 0 : Math.min(i, 8) * 0.03}s` } as CSSProperties;
+    const gap = withGap && i > 0 && !p.glue ? " " : "";
+    if (p.kind === "word")
+      return (
+        <Fragment key={k}>
+          {gap}
+          <span className="mask">
+            <span style={d}>{p.text}</span>
+          </span>
+        </Fragment>
+      );
+    if (p.kind === "field")
+      return (
+        <Fragment key={k}>
+          {gap}
+          <span className="mask notes-field">
+            <span style={d}>
+              ‘
+              <span className="notes-q" data-v={query}>
+                <input
+                  ref={input}
+                  value={query}
+                  size={1}
+                  aria-label="Find in notes"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  enterKeyHint="search"
+                  onChange={(e) => find(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape" || (e.key === "Enter" && !e.currentTarget.value.trim())) {
+                      // Shut from the keys, the field hands focus to the word that opens it, not the
+                      // page. The key stops here, or Enter would press that word as it lands and reopen.
+                      e.preventDefault();
+                      focusNext.current = () => inHead(".notes-lead");
+                      stopFinding();
+                    } else if (e.key === "Enter") e.currentTarget.blur();
+                  }}
+                  onBlur={(e) => {
+                    if (!e.currentTarget.value.trim()) stopFinding();
+                  }}
+                />
+              </span>
+              {p.end}
+            </span>
+          </span>
+        </Fragment>
+      );
+    const text = p.kind === "tag" ? p.tag : p.kind === "more" ? p.text : "All notes.";
+    const onPress = p.kind === "more" ? pressMore : p.kind === "all" ? pressAll : undefined;
+    return (
+      <Fragment key={k}>
+        {gap}
+        <button type="button" className={p.kind === "all" ? "notes-tag notes-all" : "notes-tag"} data-tag={p.kind === "tag" ? p.tag : undefined} onClick={onPress}>
+          <span className="mask">
+            <span style={d}>{text}</span>
+          </span>
+        </button>
+      </Fragment>
+    );
+  };
+
   return (
     <section ref={stage} className="stage stage-notes">
       <div ref={scroll} className="notes-scroll">
@@ -952,68 +1029,14 @@ export function NotesPanel() {
               </span>
               <span className="sr-only"> (find)</span>
             </button>
-            {pieces.map((p, i) => {
-              // The sentence rewrites whole when its mode changes, but "All notes." stays itself, so
-              // focus on it survives the field closing around it.
-              const k = p.kind === "all" ? "all" : `${mode}/${p.key}`;
-              const d = { "--d": `${mode === "find" ? 0 : Math.min(i, 8) * 0.03}s` } as CSSProperties;
-              const gap = i > 0 && !p.glue ? " " : "";
-              if (p.kind === "word")
-                return (
-                  <Fragment key={k}>
-                    {gap}
-                    <span className="mask">
-                      <span style={d}>{p.text}</span>
-                    </span>
-                  </Fragment>
-                );
-              if (p.kind === "field")
-                return (
-                  <Fragment key={k}>
-                    {gap}
-                    <span className="mask notes-field">
-                      <span style={d}>
-                        ‘
-                        <span className="notes-q" data-v={query}>
-                          <input
-                            ref={input}
-                            value={query}
-                            size={1}
-                            aria-label="Find in notes"
-                            autoComplete="off"
-                            autoCapitalize="none"
-                            spellCheck={false}
-                            enterKeyHint="search"
-                            onChange={(e) => find(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape" || (e.key === "Enter" && !e.currentTarget.value.trim())) {
-                                // Shut from the keys, the field hands focus to the word that opens it, not the
-                                // page. The key stops here, or Enter would press that word as it lands and reopen.
-                                e.preventDefault();
-                                focusNext.current = () => inHead(".notes-lead");
-                                stopFinding();
-                              } else if (e.key === "Enter") e.currentTarget.blur();
-                            }}
-                            onBlur={(e) => {
-                              if (!e.currentTarget.value.trim()) stopFinding();
-                            }}
-                          />
-                        </span>
-                        {p.end}
-                      </span>
-                    </span>
-                  </Fragment>
-                );
-              const text = p.kind === "tag" ? p.tag : p.kind === "more" ? p.text : "All notes.";
-              const onPress = p.kind === "more" ? pressMore : p.kind === "all" ? pressAll : undefined;
+            {runs(pieces).map((run) => {
+              // A word and the punctuation glued to it ("psychology,") never part at a line's end.
+              if (run.length === 1) return renderPiece(run[0].p, run[0].i, true);
+              const [first] = run;
               return (
-                <Fragment key={k}>
-                  {gap}
-                  <button type="button" className={p.kind === "all" ? "notes-tag notes-all" : "notes-tag"} data-tag={p.kind === "tag" ? p.tag : undefined} onClick={onPress}>
-                    <span className="mask">
-                      <span style={d}>{text}</span>
-                    </span>
-                  </button>
+                <Fragment key={`${mode}/run/${first.p.key}`}>
+                  {first.i > 0 && !first.p.glue ? " " : ""}
+                  <span className="notes-keep">{run.map(({ p, i }) => renderPiece(p, i, false))}</span>
                 </Fragment>
               );
             })}
