@@ -1,4 +1,5 @@
 import { sfx } from "@/audio/sfx";
+import { pointerSeen } from "@/lib/visits";
 import type { LookHow, UrchiCharacter } from "./character";
 import { clock, type Hours } from "./hours";
 import { doze, dozeOff, nod, peek, soundOn, stir, wake } from "./acts";
@@ -147,6 +148,18 @@ export class Attention {
     this.o = o;
     this.reduced = o.reducedMotion;
     ch.attend();
+    // Back on tab 1 with the pointer resting where it clicked (the "1", or wherever it was for
+    // Back): that is where you are, though it has not moved since. A touch has lifted, so a phone
+    // (like a keyboard, or a first arrival) starts with nobody there, and "you" is straight ahead.
+    const seen = pointerSeen();
+    if (seen && !seen.touch) {
+      const p = this.pointer;
+      p.x = clamp(seen.x, 0, innerWidth);
+      p.y = clamp(seen.y, 0, innerHeight);
+      p.has = true;
+      p.lastMove = -(performance.now() - seen.at) / 1000;
+      p.lastEvtMs = seen.at;
+    }
     this.targets.set("pointer", { id: "pointer", kind: "pointer", weight: 1, at: () => (this.pointer.has ? { x: this.pointer.x, y: this.pointer.y } : null), novelty: 0, spikes: [], born: 0 });
     this.listen();
   }

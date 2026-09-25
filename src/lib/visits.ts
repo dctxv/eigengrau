@@ -14,6 +14,7 @@ import { NOTES, TABS, UPDATED, URCHI_NEWS, fillLine, numberWord, type TabHref } 
  * "Newer than the last visit" means newer than `prev`.
  *
  * The route left is kept in memory only: it matters for this session alone.
+ * So is where the pointer was last seen, for the same return to tab 1.
  */
 
 const KEY = "eigengrau:visits";
@@ -26,6 +27,29 @@ type Visits = { prev: number | null; seen: number };
 let visit: { prev: number | null; wrote: number } | null = null;
 let current: string | null = null;
 let left: string | null = null;
+
+/** A pointer as last seen: client px, whether it was a finger, and when (performance.now ms). */
+export type PointerSeen = { x: number; y: number; touch: boolean; at: number };
+let pointer: PointerSeen | null = null;
+
+/**
+ * Space mounts afresh on every visit to tab 1, and a pointer resting where it clicked the "1"
+ * sends it no event, so on its own it would not know where you are until you moved. The pointer
+ * moves on every tab, so it is watched from here, on every page, for as long as the page lives.
+ */
+function watchPointer() {
+  const seen = (e: PointerEvent) => {
+    pointer = { x: e.clientX, y: e.clientY, touch: e.pointerType === "touch", at: performance.now() };
+  };
+  const opts = { passive: true, capture: true };
+  window.addEventListener("pointermove", seen, opts);
+  window.addEventListener("pointerdown", seen, opts);
+  // out of the window (or the window put away): nobody is known to be there
+  window.addEventListener("pointerout", (e) => {
+    if (!e.relatedTarget && e.pointerType !== "touch") pointer = null;
+  }, opts);
+  window.addEventListener("blur", () => (pointer = null));
+}
 
 function read(): Visits | null {
   try {
@@ -54,6 +78,7 @@ function begin(now: number) {
   const prev = !stored ? null : now - stored.seen > NEW_VISIT_MS ? stored.seen : stored.prev;
   visit = { prev, wrote: now };
   write({ prev, seen: now });
+  watchPointer();
   const flush = () => {
     if (!visit) return;
     visit.wrote = Date.now();
@@ -90,6 +115,11 @@ export function lastVisit(): number | null {
 /** The route the visitor was on before this one, in this session; null on arrival. */
 export function leftRoute(): string | null {
   return left;
+}
+
+/** Where the pointer was last seen on any page; null when it is out of the window or has not been seen. */
+export function pointerSeen(): PointerSeen | null {
+  return pointer;
 }
 
 /** A day as YYYY-MM-DD in the visitor's zone, to compare with the content's dates. */
