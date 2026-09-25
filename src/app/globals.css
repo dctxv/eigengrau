@@ -482,9 +482,10 @@ button {
 }
 
 /* ------------------------------------------------------------------ */
-/* Notes (plain DOM). One centred column in a scroll container; the    */
-/* first entry sits on the line the projects heading used. Two voices: */
-/* his in serif, the site's log lines in grotesk. No rules between.    */
+/* Notes (plain DOM). One centred column in a scroll container. Its    */
+/* head is the index, one sentence on the line the projects heading    */
+/* uses. Two voices: his in serif, the site's log lines in grotesk. No */
+/* rules between, except where a filter folds a note into one.         */
 /* ------------------------------------------------------------------ */
 .stage-notes {
   cursor: auto;
@@ -495,6 +496,8 @@ button {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
+  /* The panel holds whatever was clicked in place while the column folds around it. */
+  overflow-anchor: none;
 }
 .notes-scroll::-webkit-scrollbar {
   display: none;
@@ -502,7 +505,100 @@ button {
 .notes-column {
   width: min(450px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 206px 0 calc(var(--bottom-ui) + 120px);
+  padding: 194px 0 calc(var(--bottom-ui) + 120px);
+}
+
+/* The head: a grotesk lead and one serif sentence, its first line on the 206px line of Work and Music. */
+.notes-head {
+  font: 400 16px/24px var(--font-serif);
+  margin: 0 0 64px;
+  /* So the find field can know the column's width from inside the words. */
+  container-type: inline-size;
+}
+.notes-head .mask > span {
+  animation: notes-rise 0.9s cubic-bezier(0.23, 1, 0.32, 1) var(--d, 0s) both;
+}
+/* Words that do something: 32px targets that take no room. */
+.notes-head button {
+  vertical-align: top;
+  padding: 4px 0;
+  margin: -4px 0;
+}
+.notes-head .notes-lead {
+  font: 500 16px/24px var(--font-grotesk);
+  letter-spacing: -0.02em;
+  margin-right: 0.28em;
+  cursor: text;
+}
+/* Underlined only under the pointer. The head's words ride their own masks, so the line goes on them. */
+@media (hover: hover) {
+  .notes-tag:hover,
+  .notes-head .notes-tag:hover .mask > span,
+  .note-tag:hover,
+  .notes-line:hover .notes-count {
+    text-decoration: underline 1px;
+    text-underline-offset: 3px;
+  }
+}
+/*
+ * The keyboard finds the words as the pointer does, underlined. A ring would be clipped by their
+ * masks, or cross the lines above and below. The rows and a note just unfolded keep the ring.
+ */
+.notes-column button:not(.note-row):focus-visible {
+  outline: none;
+}
+.notes-head button:focus-visible .mask > span,
+.note-tag:focus-visible,
+.notes-line .notes-tag:focus-visible,
+.notes-fold:focus-visible .notes-count {
+  text-decoration: underline 1px;
+  text-underline-offset: 3px;
+}
+/*
+ * The field sizes to what is typed, with a pixel for the caret, up to the column less room for its
+ * closing quote. Past that the text scrolls inside it, so a long search never widens the page.
+ */
+.notes-q {
+  display: inline-grid;
+  vertical-align: top;
+  max-width: calc(100cqi - 1em);
+}
+.notes-q::after,
+.notes-q input {
+  grid-area: 1 / 1;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0 1px 0 0;
+}
+.notes-q::after {
+  content: attr(data-v);
+  visibility: hidden;
+  white-space: pre;
+  overflow: hidden;
+}
+/* Its own width counts for nothing; the typed text beside it sets the size. */
+.notes-q input {
+  width: 0;
+  min-width: 100%;
+  margin: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: inherit;
+  caret-color: var(--ink);
+  text-overflow: ellipsis;
+}
+
+.note {
+  position: relative;
+}
+/* A note the keyboard has just unfolded holds focus; its ring stands clear of the text. */
+.note:focus-visible {
+  outline-offset: 8px;
+}
+/* Its own formatting context, so nothing inside collapses margins through it as it folds. */
+.note-full {
+  display: flow-root;
 }
 .note + .note {
   margin-top: 56px;
@@ -532,6 +628,167 @@ button {
   font-variant-numeric: tabular-nums;
   white-space: pre-wrap;
   margin: 0;
+}
+.note-tag,
+.notes-tag {
+  position: relative;
+}
+
+/* New since the last visit: a 4px dot hung in the margin, so the dates stay in line. */
+.note-new {
+  position: absolute;
+  left: -12px;
+  top: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+/* Folded: the note is a 1px rule at 18% ink on a 6px row, as long as the note was. */
+.note[data-moving] {
+  overflow: hidden;
+}
+.note[data-folded] {
+  height: 6px;
+}
+.note[data-folded][data-thin] {
+  height: 3px;
+}
+.note-row {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+}
+.note-row::before {
+  content: "";
+  position: absolute;
+  inset: -3px 0;
+}
+.note[data-thin] .note-row {
+  height: 3px;
+}
+.note[data-folded] .note-row,
+.note[data-moving] .note-row {
+  display: block;
+}
+.note-rule {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: var(--w);
+  max-width: 100%;
+  height: 1px;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+  transform-origin: left center;
+  transition: background-color 200ms var(--ease-ui);
+}
+.note[data-thin] .note-rule {
+  top: 1px;
+}
+.note[data-hot] .note-rule {
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+
+/* Sediment: each older month, then each older year, as one line in the log's voice. */
+.notes-sediment {
+  margin-top: 56px;
+}
+.notes-group + .notes-group {
+  margin-top: 10px;
+}
+.notes-line {
+  display: flow-root;
+  position: relative;
+  font: 500 12px/1.4 var(--font-grotesk);
+  font-variant-numeric: tabular-nums;
+  white-space: pre-wrap;
+  cursor: pointer;
+  transition: opacity 250ms var(--ease-ui);
+}
+.notes-line .mask,
+.notes-line .mask > span {
+  display: block;
+}
+.notes-fold {
+  text-align: left;
+  white-space: pre-wrap;
+}
+/* A month the filter finds nothing in stays, quieter, so the gaps keep their shape. */
+.notes-line[data-none] {
+  opacity: 0.35;
+}
+.notes-body[data-moving] {
+  overflow: hidden;
+}
+.notes-group[data-kind="month"] > .notes-body > .notes-inner {
+  padding: 32px 0 46px;
+}
+.notes-group[data-kind="year"] > .notes-body > .notes-inner {
+  padding: 10px 0 24px;
+}
+
+/*
+ * A phone has no pointer to aim: tags and rows get 32px targets, and their masks make room. A tag's
+ * target is centred on the word and at least 32px wide, so "ai" is as easy to hit as "psychology",
+ * and a note's tags sit a little further apart so no target reaches over its neighbour's letters.
+ */
+@media (hover: none), (max-width: 640px) {
+  .note-meta-mask,
+  .note-log .mask,
+  .notes-line .mask {
+    padding: 9px 16px;
+    margin: -9px -16px;
+  }
+  .note-tag::after,
+  .notes-tag::after {
+    content: "";
+    position: absolute;
+    top: -9px;
+    bottom: -9px;
+    left: 50%;
+    width: max(100%, 32px);
+    translate: -50% 0;
+  }
+  .note-tag + .note-tag {
+    margin-left: 8px;
+  }
+  /* The head's buttons are 32px tall already; above the plain words beside them, which ride their own layers. */
+  .notes-head .notes-tag::after {
+    top: 0;
+    bottom: 0;
+    z-index: 1;
+  }
+  .note-row::before {
+    inset: -8px 0;
+  }
+  .note-new {
+    left: -10px;
+  }
+  .notes-group + .notes-group {
+    margin-top: 16px;
+  }
+}
+
+/* power4.out, the site's reveal, as a curve CSS can run on remount */
+@keyframes notes-rise {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notes-head .mask > span {
+    animation: none;
+  }
+  .note-rule,
+  .notes-line {
+    transition: none;
+  }
 }
 /* The rims: the pill's material, masked so text dissolves as it leaves. Music wears them too. */
 .notes-rim,

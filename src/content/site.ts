@@ -208,6 +208,12 @@ export type Note = {
   body: string;
 };
 
+/**
+ * Past this many notes the column settles into sediment: the last sixty days stay in full, each
+ * older month folds into one line, and the months older than a year into one line per year.
+ */
+export const NOTES_FOLD_AFTER = 100;
+
 /** The notes column, any order; the page sorts newest first. Log lines carry the tag "site". */
 export const NOTES: Note[] = [
   { id: "2026-09-24-eigengrau", date: "2026-09-24", kind: "log", tags: ["site"], body: "Eigengrau replaces white. Sound arrives." },
