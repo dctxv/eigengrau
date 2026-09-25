@@ -54,8 +54,13 @@ const LINE_MAX = 48;
 const readLines = new Set<string>();
 /** The phone's one caption, once per visit. */
 let phoneCaptionShown = false;
-/** When this session first saw each now-playing track, for the stale cap. */
-const firstSeen = new Map<string, number>();
+/**
+ * When this session first and last saw each now-playing track (ms), for the stale cap when the
+ * answer does not say how far in he is.
+ */
+const tracksSeen = new Map<string, { first: number; last: number }>();
+/** A song missing from the answers this long (ms) is a new play when it comes back, as Music has it. */
+const FORGET_MS = 3 * 60 * 1000;
 /**
  * What the last poll said (in memory, across tab changes), so coming back to tab 1 at night while
  * he plays something does not show it asleep until this mount's own first poll answers.
@@ -395,7 +400,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       }
     });
 
-    // Is he playing something? The same poll Music uses; a track playing for over 15 minutes is stale.
+    // Is he playing something? The same poll Music uses; a track 15 minutes in is stale, and a
+    // replay (Holocene eleven times) is a new play, not the old one gone stale.
     const hear = (track: Track | null) => {
       playing = track;
       if (track && !att.listening) listenGlance = att.t + rand(...LISTEN_GLANCE.first);
@@ -408,13 +414,19 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     if (known) hear(known.track);
     const stopPoll = pollNow((r) => {
       const now = r.now;
+      const at = Date.now();
       let on = false;
-      if (now) {
-        const key = `${now.artist}\u0000${now.title}`;
-        if (!firstSeen.has(key)) firstSeen.set(key, Date.now());
-        on = Date.now() - firstSeen.get(key)! < STALE_MS;
+      const key = now && `${now.artist}\u0000${now.title}`;
+      if (now && key) {
+        const seen = tracksSeen.get(key);
+        const first = seen && at - seen.last < FORGET_MS ? seen.first : at;
+        tracksSeen.set(key, { first, last: at });
+        // how far in: the server's word when it has one, else how long this session has seen it
+        const inSong = typeof now.elapsed === "number" ? now.elapsed * 1000 : at - first;
+        on = inSong < STALE_MS;
       }
-      lastNow = { track: on ? now : null, at: Date.now() };
+      for (const [k, s] of tracksSeen) if (k !== key && at - s.last >= FORGET_MS) tracksSeen.delete(k);
+      lastNow = { track: on ? now : null, at };
       hear(lastNow.track);
       onHeard();
     });
