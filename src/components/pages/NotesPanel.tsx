@@ -986,8 +986,13 @@ export function NotesPanel() {
                             enterKeyHint="search"
                             onChange={(e) => find(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === "Escape") stopFinding();
-                              else if (e.key === "Enter") e.currentTarget.blur();
+                              if (e.key === "Escape" || (e.key === "Enter" && !e.currentTarget.value.trim())) {
+                                // Shut from the keys, the field hands focus to the word that opens it, not the
+                                // page. The key stops here, or Enter would press that word as it lands and reopen.
+                                e.preventDefault();
+                                focusNext.current = () => inHead(".notes-lead");
+                                stopFinding();
+                              } else if (e.key === "Enter") e.currentTarget.blur();
                             }}
                             onBlur={(e) => {
                               if (!e.currentTarget.value.trim()) stopFinding();
