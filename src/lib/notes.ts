@@ -267,30 +267,35 @@ export function groupsOf(n: Note, settled: Settled): string[] {
 }
 
 /**
- * A folded month or year in words. At rest: "Eleven notes. Mostly ai." With a tag the count follows
- * it ("Twenty on psychology."), and while finding it counts matches. `none` dims a line with nothing in it.
+ * A folded month or year in words: the count, which opens it, then the rest, its tag a filter.
+ * At rest "Eleven notes. Mostly ai.", "One note, on design." or "Three notes, all random.". With a
+ * tag the count follows it ("Twenty on psychology."), and while finding it counts matches. `none`
+ * quiets a line with nothing in it.
  */
-export function summary(entries: readonly Note[], tag: string | null, query: string, match: (n: Note) => boolean): { pieces: Piece[]; none: boolean } {
-  const w = new Writer();
-  if (query.trim()) {
+export function summary(entries: readonly Note[], tag: string | null, query: string, match: (n: Note) => boolean): { count: Piece[]; rest: Piece[]; none: boolean } {
+  const count = new Writer();
+  const rest = new Writer();
+  if (query.trim() || tag) {
     const m = entries.filter(match).length;
-    w.say("q", `${m === 0 ? "No" : countWord(m)} ${m === 1 ? "match" : "matches"}.`);
-    return { pieces: w.out, none: m === 0 };
+    const n = m === 0 ? (tag && !query.trim() ? "None" : "No") : countWord(m);
+    if (query.trim()) count.say("q", `${n} ${m === 1 ? "match" : "matches"}.`);
+    else count.say("t", `${n} ${onTag(tag!).join(" ")}.`);
+    return { count: count.out, rest: [], none: m === 0 };
   }
-  if (tag) {
-    const m = entries.filter(match).length;
-    const [pre, word] = onTag(tag);
-    w.say("t", `${m === 0 ? "None" : countWord(m)} ${pre} ${word}.`);
-    return { pieces: w.out, none: m === 0 };
-  }
-  const count = new Map<string, number>();
-  entries.forEach((n) => n.tags.forEach((t) => count.set(t, (count.get(t) ?? 0) + 1)));
-  const [top, c] = [...count].sort((a, b) => b[1] - a[1] || (RANK.get(a[0]) ?? 0) - (RANK.get(b[0]) ?? 0))[0];
+  const tally = new Map<string, number>();
+  entries.forEach((n) => n.tags.forEach((t) => tally.set(t, (tally.get(t) ?? 0) + 1)));
+  const [top, c] = [...tally].sort((a, b) => b[1] - a[1] || (RANK.get(a[0]) ?? 0) - (RANK.get(b[0]) ?? 0))[0];
   const [pre] = onTag(top);
-  if (entries.length === 1) w.say("s", `One note, ${pre}`).tag(top).say("e", ".", true);
-  else if (c === entries.length) w.say("s", `${countWord(entries.length)} notes, all ${pre}`).tag(top).say("e", ".", true);
-  else w.say("s", `${countWord(entries.length)} notes. Mostly ${top === "site" ? "about the" : ""}`).tag(top).say("e", ".", true);
-  return { pieces: w.out, none: false };
+  const one = entries.length === 1;
+  if (one || c === entries.length) {
+    count.say("n", `${countWord(entries.length)} note${one ? "" : "s"}`);
+    rest.say("r", ",", true).say("s", `${one ? "" : "all"} ${pre}`);
+  } else {
+    count.say("n", `${countWord(entries.length)} notes.`);
+    rest.say("r", `Mostly ${top === "site" ? "about the" : ""}`);
+  }
+  rest.tag(top).say("e", ".", true);
+  return { count: count.out, rest: rest.out, none: false };
 }
 
 /* ------------------------------------------------------------------ */

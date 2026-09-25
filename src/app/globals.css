@@ -559,9 +559,10 @@ button {
   visibility: hidden;
   white-space: pre;
 }
+/* Its own width counts for nothing; the typed text beside it sets the size. */
 .notes-q input {
-  width: 100%;
-  min-width: 2px;
+  width: 0;
+  min-width: 100%;
   margin: 0;
   border: 0;
   outline: 0;
@@ -572,6 +573,10 @@ button {
 
 .note {
   position: relative;
+}
+/* Its own formatting context, so nothing inside collapses margins through it as it folds. */
+.note-full {
+  display: flow-root;
 }
 .note + .note {
   margin-top: 56px;
@@ -602,7 +607,8 @@ button {
   white-space: pre-wrap;
   margin: 0;
 }
-.note-tag {
+.note-tag,
+.notes-tag {
   position: relative;
 }
 
@@ -674,6 +680,7 @@ button {
   margin-top: 10px;
 }
 .notes-line {
+  display: flow-root;
   position: relative;
   font: 500 12px/1.4 var(--font-grotesk);
   font-variant-numeric: tabular-nums;
@@ -722,6 +729,9 @@ button {
   }
   .note-new {
     left: -10px;
+  }
+  .notes-group + .notes-group {
+    margin-top: 16px;
   }
 }
 

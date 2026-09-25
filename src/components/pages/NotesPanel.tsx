@@ -449,16 +449,14 @@ type GroupProps = {
   label: string;
   open: boolean;
   fresh: boolean;
-  pieces: Piece[];
+  count: Piece[];
+  rest: Piece[];
   none: boolean;
   children: ReactNode;
 };
 
 /** A folded month or year: its line in the log's voice, and the body it opens into. */
-function Group({ id, parent, kind, label, open, fresh, pieces, none, children }: GroupProps) {
-  const cut = pieces.findIndex((p) => p.kind === "tag");
-  const words = cut < 0 ? pieces : pieces.slice(0, cut);
-  const rest = cut < 0 ? [] : pieces.slice(cut);
+function Group({ id, parent, kind, label, open, fresh, count, rest, none, children }: GroupProps) {
   return (
     <div className="notes-group" data-g={id} data-parent={parent ?? undefined} data-kind={kind}>
       <div className="notes-line" data-toggle={id} data-none={none ? "" : undefined}>
@@ -469,10 +467,10 @@ function Group({ id, parent, kind, label, open, fresh, pieces, none, children }:
               {label}
               {"  "}
               <span className="notes-count">
-                <Inline pieces={words} />
+                <Inline pieces={count} />
               </span>
             </button>
-            {rest.length > 0 && " "}
+            {rest.length > 0 && !rest[0].glue && " "}
             <Inline pieces={rest} />
           </span>
         </span>
@@ -503,7 +501,7 @@ export function NotesPanel() {
   const input = useRef<HTMLInputElement>(null);
   const folds = useRef<Folds | null>(null);
   const cursor = useRef<CursorLabel | null>(null);
-  /** The next apply is set, not moved: the browser's find already opened it. */
+  /** While true, apply sets rather than moves: a hash or the browser's find is already there. */
   const instant = useRef(false);
 
   const [today] = useState(() => localDay(Date.now()));
@@ -550,12 +548,24 @@ export function NotesPanel() {
     const f = new Folds(columnEl);
     folds.current = f;
     f.init(folded, shown);
-    if (landing) {
-      const el = document.getElementById(ANCHORS.get(landing.id)!);
-      if (el) scrollEl.scrollTop = Math.max(0, el.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top - FIRST_Y);
+    // Land on the hash, and again once the fonts are in and the text has its real height,
+    // unless the reader has moved since.
+    let alive = true;
+    const land = () => {
+      const el = landing && document.getElementById(ANCHORS.get(landing.id)!);
+      if (!el) return null;
+      scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop + el.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top - FIRST_Y);
+      return scrollEl.scrollTop;
+    };
+    const landed = land();
+    const fonts = document.fonts;
+    if (landed !== null && fonts?.load) {
+      const again = () => alive && Math.abs(scrollEl.scrollTop - landed) < 1 && land();
+      Promise.all([fonts.load('400 16px "Serif"'), fonts.load('500 11px "Grotesk"')]).then(again, again);
     }
     if (!prefersReducedMotion()) f.enter(scrollEl.getBoundingClientRect());
     return () => {
+      alive = false;
       f.destroy();
       folds.current = null;
     };
@@ -577,8 +587,16 @@ export function NotesPanel() {
       const d = el.getBoundingClientRect().top - top;
       if (Math.abs(d) >= 1) s.scrollTop += d;
     };
+    // Until the folds settle, or the reader scrolls for themselves.
+    const release = () => {
+      gsap.ticker.remove(tick);
+      s.removeEventListener("wheel", release);
+      s.removeEventListener("touchstart", release);
+    };
     gsap.ticker.add(tick);
-    gsap.delayedCall(FOLD + 0.8, () => gsap.ticker.remove(tick));
+    s.addEventListener("wheel", release, { passive: true });
+    s.addEventListener("touchstart", release, { passive: true });
+    gsap.delayedCall(FOLD + 0.8, release);
   };
 
   const toTop = () => {
@@ -604,6 +622,7 @@ export function NotesPanel() {
 
   /** Letters typed anywhere land in the sentence's field, which then takes the rest itself. */
   const type = (q: string) => {
+    cursor.current?.set(null);
     flushSync(() => {
       setField(true);
       find(q);
@@ -629,6 +648,7 @@ export function NotesPanel() {
 
   /** The lead word opens the field; on a phone this is the way in, with the keyboard. */
   const openField = () => {
+    cursor.current?.set(null);
     flushSync(() => setField(true));
     input.current?.focus({ preventScroll: true });
   };
@@ -725,6 +745,7 @@ export function NotesPanel() {
       setShut(EMPTY);
       if (folded.has(n.id)) setUnfolded((prev) => new Set([...prev, n.id]));
     });
+    instant.current = false;
     const s = scroll.current;
     const el = document.getElementById(ANCHORS.get(n.id)!);
     if (!s || !el) return;
@@ -751,6 +772,7 @@ export function NotesPanel() {
         });
       }
     });
+    instant.current = false;
   });
 
   useEffect(() => {
@@ -776,7 +798,7 @@ export function NotesPanel() {
   const group = (g: { id: string; label: string; entries: Note[] }, kind: "month" | "year", parent: string | null, children: ReactNode) => {
     const s = summary(g.entries, tag, query, match);
     return (
-      <Group key={g.id} id={g.id} parent={parent} kind={kind} label={g.label} open={shown.has(g.id)} fresh={fresh(g.entries[0])} pieces={s.pieces} none={s.none}>
+      <Group key={g.id} id={g.id} parent={parent} kind={kind} label={g.label} open={shown.has(g.id)} fresh={fresh(g.entries[0])} count={s.count} rest={s.rest} none={s.none}>
         {children}
       </Group>
     );
