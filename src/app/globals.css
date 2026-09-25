@@ -998,6 +998,11 @@ button {
   align-items: center;
   gap: 8px;
 }
+/* Room inside the clip for the dot at the top of its breath, without moving the line off the sleeve's edge. */
+.music-state.mask {
+  padding-inline-start: 3px;
+  margin-inline-start: -3px;
+}
 /* Playing: a dot that breathes like an alive project's tick. Not playing: a ring, as paused. */
 .music-dot {
   width: 6px;
