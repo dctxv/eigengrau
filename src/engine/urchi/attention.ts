@@ -68,7 +68,7 @@ const EXIT_FOR = 20;
 /** Motes pull once the pointer has been still this long, ramping up over a second. */
 const MOTE_STILL = { after: 3, ramp: 1, bonus: 0.6, faintest: 0.08, bob: [5, 10] as [number, number] };
 /** A turn wider than this (degrees) gets a blink mid-turn; the character's look angles per unit. */
-const TURN = { blink: 20, yaw: 41.25, pitch: 16, after: 0.14, gap: 1.2 };
+const TURN = { blink: 20, yaw: 41.25, pitch: 16, after: 0.14, gap: 1.6 };
 const STARTLE = { gap: 2.5, pause: 0.4, widen: 0.06, widenFor: 0.7 };
 /** Alertness: where it rests, how fast the stirred part settles (tau, s), and what stillness takes off. */
 const ALERT = { base: 0.6, tau: 10, idleFrom: 20, idleOver: 100, idleMax: 0.3, listening: 0.15 };

@@ -620,7 +620,7 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   // The sway (listening): roll on a slow sine whose depth eases in and out.
   const swaying = { amp: spring(), period: 3.4, phase: 0 };
   // The owl's bob: three swings side to side at 2Hz.
-  const BOB = { roll: 3 * D2R, shift: 7, hz: 2, cycles: 3 };
+  const BOB = { roll: 3 * D2R, shift: 10, hz: 2, cycles: 3 };
   let bobStart = -1, shift = 0;
   // The stretch: one slow hump up and back.
   const STRETCH = { seconds: 1.2, pitch: 9.5 * D2R, rise: 16 };
