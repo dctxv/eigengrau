@@ -1,4 +1,4 @@
-import { NOTES, NOTES_FOLD_AFTER, numberWord, type Note } from "@/content/site";
+import { NOTES, NOTES_FOLD_AFTER, countWord, type Note } from "@/content/site";
 
 /**
  * The Notes column's data and copy: the order, the anchors, the index sentence, the sediment's
@@ -36,16 +36,6 @@ export function localDay(t: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-const TEENS = ["Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
-const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
-
-/** numberWord, carried on to ninety-nine so a year can hold "Eighty-one notes"; digits after that. */
-export function countWord(n: number): string {
-  if (n <= 12) return numberWord(n);
-  if (n < 20) return TEENS[n - 13];
-  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? `-${numberWord(n % 10).toLowerCase()}` : "");
-  return String(n);
-}
 const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 export type Category = { tag: string; count: number };

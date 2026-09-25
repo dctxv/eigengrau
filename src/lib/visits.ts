@@ -1,4 +1,4 @@
-import { NOTES, TABS, UPDATED, URCHI_NEWS, fillLine, numberWord, type TabHref } from "@/content/site";
+import { NOTES, TABS, UPDATED, URCHI_NEWS, countWord, fillLine, type TabHref } from "@/content/site";
 
 /**
  * When this browser was last here, and which tab the visitor just left.
@@ -151,7 +151,7 @@ export function whatsNew(prev: number | null = lastVisit(), now = new Date()): N
   const label = TABS.find((t) => t.href === href)!.label;
   const line =
     href === "/notes"
-      ? fillLine(fresh.length === 1 ? URCHI_NEWS.note : URCHI_NEWS.notes, { count: numberWord(fresh.length), date: sinceWords })
+      ? fillLine(fresh.length === 1 ? URCHI_NEWS.note : URCHI_NEWS.notes, { count: countWord(fresh.length), date: sinceWords })
       : fillLine(URCHI_NEWS.changed, { date: sinceWords });
   return { href, label, line };
 }
