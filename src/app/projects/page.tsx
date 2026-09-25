@@ -8,9 +8,14 @@ export const metadata: Metadata = { title: "Projects" };
  * Projects. The thread is drawn in WebGL; this is its accessible mirror, in
  * the thread's order of things: each project with its status, its line, its
  * pieces and its case, then the studies, the pieces that belong to none.
+ * The thread runs by year, first to last, and a year's work in the order it
+ * is listed (the sort is stable), so the mirror reads in the order the arrow
+ * keys step through.
  */
 export default function ProjectsPage() {
-  const studies = SPACE_ITEMS.filter((s) => !s.project || !PROJECTS.some((p) => p.slug === s.project));
+  const byYear = <T extends { year: number }>(list: readonly T[]) => [...list].sort((a, b) => a.year - b.year);
+  const projects = byYear(PROJECTS);
+  const studies = byYear(SPACE_ITEMS.filter((s) => !s.project || !PROJECTS.some((p) => p.slug === s.project)));
   return (
     <section className="sr-only">
       <h1>
@@ -19,7 +24,7 @@ export default function ProjectsPage() {
       <h2>Projects</h2>
       <p>{projectsLine()}</p>
       <ul>
-        {PROJECTS.map((p) => {
+        {projects.map((p) => {
           const pieces = SPACE_ITEMS.filter((s) => s.project === p.slug);
           return (
             <li key={p.slug}>
