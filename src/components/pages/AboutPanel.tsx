@@ -10,9 +10,10 @@ import { prefersReducedMotion } from "@/lib/motion";
 const COPIED_MS = 1200;
 
 /**
- * About (spec 10): the statement, the status line and Urchi, all in one
- * canvas, with the Elsewhere row as real links beside it so it stays
- * reachable while the canvas is hidden from assistive tech.
+ * About (spec 10): the statement, with Urchi as the small mark after its last
+ * word, and the status line, all in one canvas, with the Elsewhere row as real
+ * links beside it so it stays reachable while the canvas is hidden from
+ * assistive tech.
  */
 export function AboutPanel() {
   const canvas = useRef<HTMLCanvasElement>(null);

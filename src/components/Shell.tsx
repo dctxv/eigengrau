@@ -12,6 +12,7 @@ import { isTab, tabIndex } from "@/lib/routes";
 import { installViewportVars } from "@/lib/viewport";
 import { noteVisit } from "@/lib/visits";
 import { FloatingLogo, measureLogoSlot } from "./chrome/FloatingLogo";
+import { LiveIcon } from "./chrome/LiveIcon";
 import { Nav } from "./chrome/Nav";
 import { SoundChip } from "./chrome/SoundChip";
 
@@ -147,6 +148,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <Nav ref={navRef} pathname={pathname} />
       <FloatingLogo ref={logoRef} placed={chromePlaced} />
       <SoundChip />
+      <LiveIcon />
       <div className="page-viewport">
         <div className="page-row" ref={rowRef}>
           {panels.map((p) => (
