@@ -72,8 +72,12 @@ const POINTER = { rest: 0.35, fast: 700, stopAfter: 0.12, motion: 0.25, motionAt
 const PILL_STALE = { after: 3, over: 1.5, to: 0.3 };
 /** Where the pointer left: looked at for up to this long. */
 const EXIT_FOR = 20;
-/** Motes pull once the pointer has been still this long, ramping up over a second. */
-const MOTE_STILL = { after: 3, ramp: 1, bonus: 0.6, faintest: 0.08, bob: [5, 10] as [number, number] };
+/**
+ * Motes pull once the pointer has been still this long, ramping up over a second. Watching one,
+ * the owl's bob comes every `bob` seconds: now and then, so it stays a gesture and the watching
+ * stays still; a bob refused because a tilt is still swinging is tried again after `retry`.
+ */
+const MOTE_STILL = { after: 3, ramp: 1, bonus: 0.6, faintest: 0.08, bob: [12, 25] as [number, number], retry: 0.5 };
 /** A turn wider than this (degrees) gets a blink mid-turn; the character's look angles per unit. */
 const TURN = { blink: 20, yaw: 41.25, pitch: 16, after: 0.14, gap: 1.6 };
 const STARTLE = { gap: 2.5, pause: 0.4, widen: 0.06, widenFor: 0.7 };
@@ -663,8 +667,7 @@ export class Attention {
     this.idle.corner = null;
     const cur = this.current!;
     if (cur.kind === "mote" && this.t > this.bobNext && this.t - this.currentSince > 2) {
-      this.ch.bob();
-      this.bobNext = this.t + rand(...MOTE_STILL.bob);
+      this.bobNext = this.t + (this.ch.bob() ? rand(...MOTE_STILL.bob) : MOTE_STILL.retry);
     }
     const settled = cur.kind !== "pointer" || this.t - this.pointer.lastMove > 0.5;
     return { at: curAt, fixate: settled };
