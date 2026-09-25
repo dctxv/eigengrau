@@ -10,6 +10,7 @@ import { getFlags, onFlags, setFlag } from "@/lib/flags";
 import { DUR, EASE, prefersReducedMotion } from "@/lib/motion";
 import { isTab, tabIndex } from "@/lib/routes";
 import { installViewportVars } from "@/lib/viewport";
+import { noteVisit } from "@/lib/visits";
 import { FloatingLogo, measureLogoSlot } from "./chrome/FloatingLogo";
 import { Nav } from "./chrome/Nav";
 import { SoundChip } from "./chrome/SoundChip";
@@ -91,6 +92,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
   // Route change: decide whether to slide.
   useLayoutEffect(() => {
+    noteVisit(pathname); // on mount too: the visit's clock, and which tab was just left (Space looks back at it)
     const prev = prevPath.current;
     if (prev === pathname) return;
     prevPath.current = pathname;

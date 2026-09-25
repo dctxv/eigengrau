@@ -1,6 +1,6 @@
-import { NAME, ROLE, SPACE_ITEMS, TAGLINE } from "@/content/site";
+import { NAME, ROLE, TAGLINE } from "@/content/site";
 
-/** Space. The visible page is the WebGL cloud; this is its accessible mirror, with the game's door. */
+/** Space. The visible page is Urchi alone in its room; this is its accessible mirror, with the game's door. */
 export default function SpacePage() {
   return (
     <section className="sr-only">
@@ -8,21 +8,10 @@ export default function SpacePage() {
         {NAME} - {ROLE}
       </h1>
       <p>{TAGLINE}</p>
+      <p>Urchi lives here, a small spiked head with two coloured eyes that watches the pointer and keeps the place while I am out.</p>
       <p>
         <a href="/threshold">Threshold, the daily game</a>
       </p>
-      <h2>Space</h2>
-      <ul>
-        {SPACE_ITEMS.map((item) => (
-          <li key={item.id}>
-            <article>
-              <h3>{item.title}</h3>
-              <p>{item.category}</p>
-              <p>{item.description.join(" ")}</p>
-            </article>
-          </li>
-        ))}
-      </ul>
     </section>
   );
 }
