@@ -746,9 +746,11 @@ export class ThreadScene {
    * each owns its share of the year's thread.
    */
   private wind() {
-    const years = this.beads.map((b) => b.year);
+    const now = fractionalYear(new Date());
+    // With nothing tied on yet, the thread is this year so far.
+    const years = this.beads.length ? this.beads.map((b) => b.year) : [Math.floor(now)];
     this.T0 = Math.min(...years);
-    this.T1 = Math.max(fractionalYear(new Date()), Math.max(...years) + 0.25);
+    this.T1 = Math.max(now, Math.max(...years) + 0.25);
     const turns = TURNS_PER_YEAR * (this.T1 - this.T0);
 
     // A dense table first, then even steps along its arc. Each turn leans a little, and the lean
