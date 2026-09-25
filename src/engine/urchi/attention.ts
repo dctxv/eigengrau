@@ -64,6 +64,12 @@ const HYSTERESIS = { ratio: 1.2, margin: 0.05, dwell: 0.35 };
 const BORED = { below: 0.45, after: 1.5, grace: 4, check: [3, 6] as [number, number], checkFor: 0.9 };
 /** The pointer. Speeds in px/s. */
 const POINTER = { rest: 0.35, fast: 700, stopAfter: 0.12, motion: 0.25, motionAt: 400, away: 4 };
+/**
+ * A hovered pill is a pet watching you head for the door: a moment, not a stare. Once the pointer
+ * has rested on it `after` seconds its pull fades over `over` seconds to `to` of itself, so a
+ * pointer parked on the "1" goes stale like any other and the room's boredom and motes come back.
+ */
+const PILL_STALE = { after: 3, over: 1.5, to: 0.3 };
 /** Where the pointer left: looked at for up to this long. */
 const EXIT_FOR = 20;
 /** Motes pull once the pointer has been still this long, ramping up over a second. */
@@ -609,6 +615,7 @@ export class Attention {
     let s = tg.weight * (FLOOR[tg.kind] + tg.novelty);
     if (tg.kind === "pointer") s += POINTER.motion * Math.min(1, this.pointer.speed / POINTER.motionAt);
     if (tg.kind === "exit") s *= 1 - Math.pow((this.t - tg.born) / EXIT_FOR, 3);
+    if (tg.kind === "pill") s *= lerp(1, PILL_STALE.to, clamp((this.stillFor - PILL_STALE.after) / PILL_STALE.over, 0, 1));
     if (tg.kind === "mote") {
       // once you have been still a while (or gone a while), the faint things in the room get interesting
       // (not while it is still watching the spot where you left)
