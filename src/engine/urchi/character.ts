@@ -7,9 +7,12 @@ import MESH_DATA from "./mesh.json";
  * hard pixel edges; the white rim; the random eye colourway; the cursor
  * follow, breathing, curious head tilt, darting pupils and blinks. Only the
  * page around it is gone (the floor, the hint and its own frame loop: the host
- * calls update(dt)). The site adds four hooks: eyes shut until opened (the
- * intro's handoff), a slow blink and a glance away (Threshold's yes and no),
- * and alphaAt for hit tests. The query-string knobs still work on any page.
+ * calls update(dt)). The site adds its hooks: eyes shut until opened, a slow
+ * blink and a glance away (Threshold's yes and no), alphaAt for hit tests,
+ * and for the Space intro a reveal (the eyes alone, then the head built
+ * outward from them), one ordinary blink on cue, a deep breath and a gaze
+ * target. With none of them called it behaves exactly as the standalone page.
+ * The query-string knobs still work on any page.
  *
  * The mesh is baked into urchi/index.html by urchi/tools/build-mascot.mjs;
  * `npm run urchi:sync` copies it to mesh.json beside this file.
@@ -34,6 +37,30 @@ export const URCHI_FRAME = { x: -701.25, y: -674, w: 1402.5, h: 1230 } as const;
 export const URCHI_BOX = { x: -540, y: -500, w: 1080, h: 1056 } as const;
 /** The head itself, from ear tips to chin. */
 export const URCHI_HEAD = { top: -436, bottom: 435.5 } as const;
+/** The eye distance render() uses unless ?ortho asks for none. */
+const PERSPECTIVE_AT_REST = 2800;
+
+/**
+ * The eyes as drawn at rest (facing front, open, in perspective), in mesh
+ * units, x right and y down: where each centre lands, and how far from it the
+ * eye reaches. A host that shows the eyes before the head (the Space intro)
+ * lays things out around them with this.
+ */
+export const URCHI_EYES: { centres: [number, number][]; reach: number } = (() => {
+  const eyes = MESH.eyes || [];
+  const s = (z: number) => PERSPECTIVE_AT_REST / (PERSPECTIVE_AT_REST - z);
+  let reach = 0;
+  const centres = eyes.map(({ c: [cx, cy, cz], dzdx, dzdy }): [number, number] => {
+    const x0 = cx * s(cz), y0 = cy * s(cz);
+    for (let k = 0; k < 40; k++) {
+      const t = (2 * Math.PI * k) / 40, x = cx + MESH.eye.rx * Math.cos(t), y = cy + MESH.eye.ry * Math.sin(t);
+      const z = cz + dzdx * (x - cx) + dzdy * (y - cy);
+      reach = Math.max(reach, Math.hypot(x * s(z) - x0, y * s(z) - y0));
+    }
+    return [x0, y0];
+  });
+  return { centres, reach };
+})();
 
 // ------------------------------------------------------------------ eye colours
 // One colourway is drawn at random on every page load, weighted exactly as the LilGuy eyes
@@ -196,6 +223,29 @@ export type UrchiCharacter = {
   slowBlink(): void;
   /** A look away, head and pupils, for a moment: Threshold's no. */
   glance(): void;
+  /** One ordinary blink now (never a double); the next random one waits its usual gap after it. */
+  blink(): void;
+  /**
+   * Look at a point instead of the pointer: nx, ny in the pointer's space (the viewport, x right,
+   * y down, each -1..1). The head turns on its usual springs and the pupils settle toward it with
+   * small flicks. lookAt(null) hands the gaze back to the pointer (or straight ahead without one).
+   * Reduced motion keeps the head front.
+   */
+  lookAt(nx: number | null, ny?: number): void;
+  /**
+   * One deep breath: over `inhale` seconds the breath rises from wherever it is to the top of an
+   * in-breath `depth` times the usual, then breathes out over `exhale` seconds (a nod of `depth`
+   * times 3.15 degrees), and the ordinary loop carries on from the bottom, settling back to its
+   * usual depth over about a second.
+   */
+  deepBreath(inhale: number, exhale: number, depth: number): void;
+  /**
+   * How much of Urchi is painted, 0..1 (1, the default, is all of it and costs nothing extra).
+   * 0 paints the eyes alone, as they would show on the head, on nothing. Between, the head's art
+   * pixels switch on in order of their distance from the nearer eye centre, and once the head is
+   * whole the white rim switches on in the same order. The curious tilt holds off until it is 1.
+   */
+  setReveal(r: number): void;
   /** Whether canvas coordinates (u, v in 0..1, v up) fall on the head or its rim. */
   alphaAt(u: number, v: number): boolean;
   dispose(): void;
@@ -243,7 +293,7 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   const LIGHT = (() => { const l = [0.18, 0.88, 0.44], n = Math.hypot(...l); return l.map(v => v / n); })();   // view space: x right, y up, z toward viewer
   const FORCED_ROLL = params.has("roll") ? (Number(params.get("roll")) || 0) * D2R : null;
   const FORCED_BLINK = params.has("blink") ? Math.min(1, Math.max(0, Number(params.get("blink")) || 0)) : null;
-  const PERSPECTIVE = params.has("ortho") ? Infinity : 2800;                                            // eye distance in mesh units
+  const PERSPECTIVE = params.has("ortho") ? Infinity : PERSPECTIVE_AT_REST;                             // eye distance in mesh units
   const PIVOT_Y = MESH.pivot[1];                                                                        // turn about the middle of the head
   const FORCED = params.has("yaw") || params.has("pitch") ? [Number(params.get("yaw")) || 0, Number(params.get("pitch")) || 0].map(v => v * D2R) : null;
   type Spring = { v: number; vel: number; target: number };
@@ -283,10 +333,28 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
 
   // ------------------------------------------------------------------ breathing
   // A slow loop: the head tips up as it rises and down as it settles, like a gentle nod.
-  const BREATH = { period: 4.29, nod: 3.15 * D2R, rise: 5.25 };   // seconds per breath, nod amplitude, rise in SVG units (~1.75px)
+  // The loop is a phase that advances with time, times a depth, so a scripted breath (the
+  // intro's first) can take it over and hand it back without a jump.
+  const BREATH = { period: 4.29, nod: 3.15 * D2R, rise: 5.25, settle: 0.8 };   // seconds per breath, nod amplitude, rise in SVG units (~1.75px), seconds to settle after a deep one
+  type DeepBreath = { start: number; inhale: number; exhale: number; depth: number; from: number };
+  const breath = { phase: 0, depth: 1, w: 0, deep: null as DeepBreath | null };
   let rise = 0;
-  function breathe(t: number) {
-    const w = reduceMotion ? 0 : Math.sin(2 * Math.PI * t / BREATH.period);   // +1 at the top of the in-breath
+  function breathe(dt: number) {
+    let w = 0;   // +depth at the top of the in-breath
+    const deep = breath.deep;
+    if (reduceMotion || FORCED) {
+      w = 0;
+    } else if (deep && S.t - deep.start < deep.inhale + deep.exhale) {
+      const e = S.t - deep.start;
+      if (e < deep.inhale) { const u = e / deep.inhale; w = deep.from + (deep.depth - deep.from) * u * u * (3 - 2 * u); }
+      else { breath.phase = Math.PI / 2 + Math.PI * (e - deep.inhale) / deep.exhale; w = Math.sin(breath.phase) * deep.depth; }
+    } else {
+      if (deep) { breath.deep = null; breath.phase = 1.5 * Math.PI; breath.depth = deep.depth; }   // on from the bottom of the out-breath
+      breath.phase = (breath.phase + 2 * Math.PI * dt / BREATH.period) % (2 * Math.PI);
+      breath.depth += (1 - breath.depth) * (1 - Math.exp(-dt / BREATH.settle));
+      w = Math.sin(breath.phase) * breath.depth;
+    }
+    breath.w = w;
     rise = -BREATH.rise * w;
     return -BREATH.nod * w;   // negative pitch tips the face up
   }
@@ -317,6 +385,10 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
     tiltTo(dir);
   }
   function stepTilt(t: number, dt: number) {
+    if (reveal < 1) {                                  // a head not yet drawn holds level, so the eyes stay where the host put them
+      tilt.side = 0; tilt.roll.target = 0; tilt.yaw.target = 0; tilt.pitch.target = 0;
+      tilt.next = Math.max(tilt.next, t + rand(2, 4));
+    }
     if (t >= tilt.next) {
       let rest = false;
       const wasResettled = tilt.resettled; tilt.resettled = false;
@@ -337,18 +409,26 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   // The pupils move as a pair, separately from the eye whites: small, smooth darts up, down,
   // left and right, and now and then a quick dip to 95% height and back. A new change comes
   // every 0.2-0.8s (with the dips' returns, 2.5 changes a second on average); each eases into place over about 0.2s.
-  const GAZE = { minGap: 0.2, maxGap: 0.8, x: 10, y: 9, dip: 0.95, dipChance: 0.25, dipHold: [0.25, 0.45] as Vec2 };
+  // With a gaze target (lookAt) the darts centre on it and shrink to small flicks.
+  const GAZE = { minGap: 0.2, maxGap: 0.8, x: 10, y: 9, dip: 0.95, dipChance: 0.25, dipHold: [0.25, 0.45] as Vec2, flick: 3 };
   const gaze = { x: spring(), y: spring(), h: spring(1), next: 0.5, undip: -1 };
+  const look = { on: false, nx: 0, ny: 0, fx: 0, fy: 0 };   // the target, and this moment's flick about it
   function stepGaze(t: number, dt: number) {
     if (gaze.undip >= 0 && t >= gaze.undip) { gaze.h.target = 1; gaze.undip = -1; }
     if (t >= gaze.next) {
       if (Math.random() < GAZE.dipChance && gaze.undip < 0) {
         gaze.h.target = GAZE.dip; gaze.undip = t + rand(...GAZE.dipHold);
+      } else if (look.on) {
+        look.fx = rand(-GAZE.flick, GAZE.flick); look.fy = rand(-GAZE.flick, GAZE.flick);
       } else {
         gaze.x.target = rand(-GAZE.x, GAZE.x);
         gaze.y.target = rand(-GAZE.y, GAZE.y);
       }
       gaze.next = t + rand(GAZE.minGap, GAZE.maxGap);
+    }
+    if (look.on) {   // kept on the target as it moves
+      gaze.x.target = clamp(look.nx * GAZE.x + look.fx, -GAZE.x, GAZE.x);
+      gaze.y.target = clamp(look.ny * GAZE.y + look.fy, -GAZE.y, GAZE.y);
     }
     stepSpring(gaze.x, dt, 22, 0.9); stepSpring(gaze.y, dt, 22, 0.9); stepSpring(gaze.h, dt, 22, 0.9);
   }
@@ -384,16 +464,16 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   const BLINK: BlinkTiming = { close: 0.09, hold: 0.15, open: 0.14 };
   /** The site's slow blink (Threshold's yes): the same curves, drawn out. */
   const SLOW_BLINK: BlinkTiming = { close: 0.35, hold: 0.2, open: 0.35 };
-  const blink = { start: -1, next: 1.2 + Math.random() * 2, double: false, timing: BLINK };
+  const blink = { start: -1, next: 1.2 + Math.random() * 2, double: false, timing: BLINK, cued: false };
   function stepBlink(t: number) {
     if (blink.start < 0) { if (t >= blink.next) blink.start = t; else return 0; }
     const e = t - blink.start, { close, hold, open } = blink.timing;
     if (e < close) { const u = e / close; return u * u * (3 - 2 * u); }   // lid eases down, deliberate rather than a snap
     if (e < close + hold) return 1;
     if (e < close + hold + open) { const u = (e - close - hold) / open; return 1 - (1 - (1 - u) * (1 - u)); }   // eases open
-    const slow = blink.timing !== BLINK;
-    blink.start = -1; blink.timing = BLINK;
-    blink.double = !slow && !blink.double && Math.random() < 0.18;   // at most two in a row
+    const lone = blink.timing !== BLINK || blink.cued;   // a slow blink or one on cue is never doubled
+    blink.start = -1; blink.timing = BLINK; blink.cued = false;
+    blink.double = !lone && !blink.double && Math.random() < 0.18;   // at most two in a row
     blink.next = t + (blink.double ? 0.12 : 2.5 + Math.random() * 3.5);
     return 0;
   }
@@ -412,6 +492,51 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   // The glance away (Threshold's no): the head turns off and the pupils follow for a moment.
   const GLANCE = { yaw: 22 * D2R, hold: 0.6 };
   const away = { turn: spring(), until: -1 };
+  // No stray blink straight after the eyes open: the first comes at least this long after the lids are up.
+  const WAKE_BLINK_GAP = 1;
+
+  // The reveal (the intro's "eyes first"). While it is under 1, render() also paints the eyes as
+  // they show on the head into a mask, and its pixel pass (after the alpha snap and the rim) turns
+  // off every head pixel beyond the sweep: the head's pixels switch on in order of distance from
+  // the nearer eye centre over the first REVEAL.head of the way, the rim's over the rest.
+  const REVEAL = { head: 0.72 };
+  let reveal = 1;
+  let revealMask: CanvasRenderingContext2D | null = null;
+  let revealDist: Float32Array | null = null;
+  const eyeAt = new Float64Array(EYES.length * 2);   // the eye centres this frame, in canvas pixels
+  /** The eyes' reach, in canvas pixels: the head's sweep starts at their edge rather than their centre. */
+  const EYE_REACH = URCHI_EYES.reach / CELL;
+  function maskContext() {
+    if (!revealMask) {
+      const c = document.createElement("canvas");
+      c.width = canvas.width; c.height = canvas.height;
+      revealMask = c.getContext("2d", { willReadFrequently: true })!;
+      revealDist = new Float32Array(c.width * c.height);
+    }
+    return revealMask;
+  }
+  /** The reveal's pixel pass over the snapped, rimmed frame: what the sweep has not reached goes transparent. */
+  function hideUnrevealed(px: Uint8ClampedArray, eyes: Uint8ClampedArray, W: number, H: number) {
+    const dist = revealDist!;
+    let farHead = EYE_REACH, nearRim = Infinity, farRim = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (!px[i * 4 + 3]) continue;
+      let d = Infinity;
+      for (let k = 0; k < eyeAt.length; k += 2) d = Math.min(d, Math.hypot(x + 0.5 - eyeAt[k], y + 0.5 - eyeAt[k + 1]));
+      dist[i] = d;
+      if (!rimMask[i]) farHead = Math.max(farHead, d);
+      else { nearRim = Math.min(nearRim, d); farRim = Math.max(farRim, d); }
+    }
+    const u = reveal / REVEAL.head, v = (reveal - REVEAL.head) / (1 - REVEAL.head);
+    const headR = reveal <= 0 ? -1 : EYE_REACH + Math.min(1, u) * (farHead - EYE_REACH);
+    const rimR = v <= 0 ? -1 : nearRim + Math.min(1, v) * (farRim - nearRim);
+    for (let i = 0; i < W * H; i++) {
+      if (!px[i * 4 + 3]) continue;
+      const on = rimMask[i] ? dist[i] <= rimR : eyes[i * 4 + 3] >= 128 || dist[i] <= headR;
+      if (!on) px[i * 4 + 3] = 0;
+    }
+  }
 
   // ------------------------------------------------------------------ render
   const proj = new Float64Array(V.length * 3);   // rotated x, y (screen, y down) and z (toward viewer) per vertex
@@ -495,21 +620,36 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
     items.sort((a, b) => a.z - b.z);   // painter's order: far first
 
     // 4. paint: dark base (silhouette grown by BASE, so joins between planes show dark), the
-    //    planes and eyes far-to-near, then snap the edge to whole pixels and add the rim
+    //    planes and eyes far-to-near, then snap the edge to whole pixels and add the rim.
+    //    During a reveal the eyes also go into a mask, and planes nearer than an eye cut it.
+    const toCanvas = [1 / CELL, 0, 0, 1 / CELL, -VBX / CELL, (rise - VBY) / CELL] as const;
+    const mask = reveal < 1 ? maskContext() : null;
+    if (mask) {
+      mask.setTransform(1, 0, 0, 1, 0, 0);
+      mask.clearRect(0, 0, canvas.width, canvas.height);
+      mask.setTransform(...toCanvas);
+      mask.lineJoin = "round"; mask.lineWidth = CELL; mask.fillStyle = mask.strokeStyle = "#fff";
+      EYES.forEach((e, k) => { const q = project(e.c); eyeAt[k * 2] = (q[0] - VBX) / CELL; eyeAt[k * 2 + 1] = (q[1] + rise - VBY) / CELL; });
+    }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(1 / CELL, 0, 0, 1 / CELL, -VBX / CELL, (rise - VBY) / CELL);
+    ctx.setTransform(...toCanvas);
     ctx.lineJoin = "round";
     ctx.fillStyle = ctx.strokeStyle = COLOR.base; ctx.lineWidth = 2 * BASE; ctx.fill(head); ctx.stroke(head);
     ctx.lineWidth = CELL;   // one canvas pixel
     for (const it of items) {
       // one-pixel stroke in the plane's own colour closes the anti-aliasing gap to its neighbours
-      if (it.plane) { ctx.fillStyle = ctx.strokeStyle = it.plane.color; ctx.fill(it.plane.path); ctx.stroke(it.plane.path); continue; }
+      if (it.plane) {
+        ctx.fillStyle = ctx.strokeStyle = it.plane.color; ctx.fill(it.plane.path); ctx.stroke(it.plane.path);
+        if (mask) { mask.globalCompositeOperation = "destination-out"; mask.fill(it.plane.path); mask.stroke(it.plane.path); }
+        continue;
+      }
       const eye = it.eye!;
       ctx.save(); ctx.clip(head);                                     // a turned-away eye never sticks out past the head
       ctx.fillStyle = EYE_COLOUR.iris; ctx.fill(eye.white);
       if (eye.pupil) { ctx.clip(eye.white); ctx.fillStyle = eye.left ? EYE_COLOUR.pupilLeft : EYE_COLOUR.pupilRight; ctx.fill(eye.pupil); }   // the lid covers the pupil
       ctx.restore();
+      if (mask) { mask.save(); mask.globalCompositeOperation = "source-over"; mask.clip(head); mask.fill(eye.white); mask.restore(); }
     }
     // hard pixel edge against the page (each pixel is head or background), then the white rim:
     // every background pixel touching the head (8 neighbours) turns white, one art pixel wide
@@ -527,6 +667,7 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
       if (touch) rimMask[y * W + x] = 1;
     }
     for (let i = 0; i < rimMask.length; i++) if (rimMask[i]) { const k = i * 4; px[k] = px[k + 1] = px[k + 2] = 255; px[k + 3] = 255; }
+    if (mask) hideUnrevealed(px, mask.getImageData(0, 0, W, H).data, W, H);
     ctx.putImageData(img, 0, 0);
     lastPx = px;
   }
@@ -536,14 +677,15 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   function frame(dtSeconds: number) {
     const dt = Math.min(0.05, Math.max(0.001, dtSeconds));
     S.t += dt;
-    const tx = P.has ? P.nx : 0, ty = P.has ? P.ny : 0;
+    const aim = look.on && !reduceMotion ? look : P.has ? P : null;   // a gaze target outranks the pointer
+    const tx = aim ? aim.nx : 0, ty = aim ? aim.ny : 0;
     S.yaw.target = tx * LOOK.yaw;
     S.pitch.target = ty > 0 ? ty * LOOK.pitchDown : ty * LOOK.pitchUp;
     stepSpring(S.yaw, dt); stepSpring(S.pitch, dt);
     if (STILL) { S.yaw.v = S.yaw.target; S.pitch.v = S.pitch.target; }
     if (FORCED) { S.yaw.v = FORCED[0]; S.pitch.v = FORCED[1]; }
     blinkAmount = Math.max(FORCED_BLINK ?? (reduceMotion ? 0 : stepBlink(S.t)), stepLid(S.t));
-    const nod = STILL || FORCED ? breathe(0) : breathe(S.t);
+    const nod = breathe(dt);
     if (!reduceMotion && !FORCED) { stepTilt(S.t, dt); stepGaze(S.t, dt); }
     if (away.until >= 0 && S.t >= away.until) { away.turn.target = 0; away.until = -1; }
     stepSpring(away.turn, dt, 12, 0.8);
@@ -562,6 +704,7 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
     },
     openEyes(seconds) {
       lid.from = lid.v; lid.start = S.t; lid.dur = reduceMotion ? 0 : seconds;
+      if (blink.start < 0) blink.next = Math.max(blink.next, S.t + lid.dur + WAKE_BLINK_GAP);
     },
     slowBlink() {
       if (reduceMotion || lid.v > 0) return;
@@ -572,6 +715,21 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
       const dir = S.yaw.v + tilt.yaw.v > 0 ? -1 : 1;   // away from where it was looking
       away.turn.target = dir * GLANCE.yaw; away.until = S.t + GLANCE.hold;
       gaze.x.target = dir * GAZE.x; gaze.next = S.t + GLANCE.hold;
+    },
+    blink() {
+      if (reduceMotion || lid.v > 0 || blink.start >= 0) return;
+      blink.start = S.t; blink.timing = BLINK; blink.cued = true; blink.double = false;
+    },
+    lookAt(nx, ny = 0) {
+      if (nx === null) { look.on = false; gaze.next = S.t; return; }
+      if (!look.on) { look.fx = look.fy = 0; }
+      look.on = true; look.nx = clamp(nx, -1, 1); look.ny = clamp(ny, -1, 1);   // the pupils go at once; the head follows on its springs
+    },
+    deepBreath(inhale, exhale, depth) {
+      breath.deep = { start: S.t, inhale: Math.max(0.05, inhale), exhale: Math.max(0.05, exhale), depth, from: breath.w };
+    },
+    setReveal(r) {
+      reveal = clamp(r, 0, 1);
     },
     alphaAt(u, v) {
       if (!lastPx) return false;
