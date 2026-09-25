@@ -839,7 +839,7 @@ button {
   display: none;
 }
 .music {
-  /* The sleeve in the room: 320px, smaller on a short window so the words under it stay on screen. */
+  /* The sleeve in the room: 320px, smaller on a short window so the words under it stay on screen (shorter still, they move beside it). */
   --sleeve-room: clamp(200px, calc(var(--app-h) - 480px), 320px);
   display: grid;
   justify-items: center;
@@ -1182,6 +1182,46 @@ button {
   }
   .music[data-room] .music-side {
     --sleeve-w: 100%;
+  }
+}
+/*
+ * A short window on its side (a phone turned over): under a sleeve of any
+ * size the words would start below the fold, so in the room they stand
+ * beside it. The heading keeps the shared line while the sleeve can still be
+ * about 200px, and below that climbs only as far as it must, never under the tabs.
+ */
+@media (max-height: 620px) and (orientation: landscape) {
+  .music {
+    --music-top: clamp(72px, calc(var(--app-h) - 300px), 196px);
+    /* What is left under the heading's line, its gap and a breath above the bottom. */
+    --sleeve-room: clamp(120px, calc(var(--app-h) - var(--music-top) - var(--bottom-ui) - 82px), 320px);
+    --room-words: 240px;
+    padding-top: var(--music-top);
+  }
+  .music[data-room] {
+    padding-bottom: calc(var(--bottom-ui) + 32px);
+  }
+  .music[data-room] .music-body {
+    grid-template-columns: auto;
+    margin-top: 24px;
+  }
+  .music[data-room] .music-side {
+    display: grid;
+    grid-template-columns: var(--sleeve-room) minmax(0, var(--room-words));
+    column-gap: 32px;
+  }
+  .music[data-room] .music-now {
+    align-self: start;
+    margin-top: 0;
+  }
+  .music[data-room] .music-progress {
+    margin-top: 0;
+  }
+}
+/* On a narrow one the heading still starts where the room does, now the sleeve and its words. */
+@media (max-height: 620px) and (orientation: landscape) and (max-width: 640px) {
+  .music[data-room] .music-heading {
+    width: min(100%, calc(var(--sleeve-room) + 32px + var(--room-words)));
   }
 }
 
