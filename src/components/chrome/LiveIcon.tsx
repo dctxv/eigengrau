@@ -18,6 +18,11 @@ const STEP = 0.125;
  * but only for the first few: after that the browser throttles hidden tabs hard, and it sleeps too.
  */
 const SLEEP = { after: 20, check: [120, 180], peek: 1.4, checksFor: 290 } as const;
+/**
+ * Finding the closed lids (see lidLine): painted `fine` times finer, a pixel is lid where at least
+ * `least` of its fine pixels are, and the head's planes are about `plane` grey (#040404-#1C1C1C).
+ */
+const LID = { fine: 8, least: 8, plane: 12 } as const;
 /** Seconds after the page's load event. */
 const START_AFTER_LOAD = 1.2;
 
@@ -66,7 +71,7 @@ function startLiveIcon(): () => void {
  * half second (its first tilt, dart and blink all come later), so a few milliseconds of its time
  * are enough to paint its eyes shut, the lid curve opening, and open, on the same head.
  */
-function paintFrames({ createUrchi, URCHI_FRAME, URCHI_HEAD }: typeof Character): Frames {
+function paintFrames({ createUrchi, drawnColourway, URCHI_FRAME, URCHI_HEAD }: typeof Character): Frames {
   const urchi = createUrchi({ cell: ICON.cell, input: false });
   const icon = document.createElement("canvas");
   icon.width = icon.height = ICON.size;
@@ -75,15 +80,25 @@ function paintFrames({ createUrchi, URCHI_FRAME, URCHI_HEAD }: typeof Character)
   // The head's middle lands on the icon's middle, on whole pixels, so each canvas pixel is one icon pixel.
   const dx = Math.round(ICON.size / 2 + URCHI_FRAME.x / ICON.cell);
   const dy = Math.round(ICON.size / 2 - ((URCHI_HEAD.top + URCHI_HEAD.bottom) / 2 - URCHI_FRAME.y) / ICON.cell);
-  const paint = () => {
+  const draw = () => {
     ctx.clearRect(0, 0, ICON.size, ICON.size);
     ctx.drawImage(urchi.canvas, dx, dy);
+  };
+  const paint = () => {
+    draw();
     return icon.toDataURL("image/png");
   };
   const MS = 0.001;
   urchi.closeEyes();
   urchi.update(MS);
-  const shut = paint();
+  draw();
+  // The shut eyes are the sleeping icon, so they must read as eyes: the lids go over in full colour.
+  const iris = drawnColourway()?.iris;
+  if (iris) {
+    ctx.fillStyle = iris;
+    for (const [x, y] of lidLine(createUrchi, iris, MS)) ctx.fillRect(dx + x, dy + y, 1, 1);
+  }
+  const shut = icon.toDataURL("image/png");
   urchi.openEyes(4 * MS);
   const lids: string[] = [];
   for (let i = 0; i < 4; i++) {
@@ -93,6 +108,50 @@ function paintFrames({ createUrchi, URCHI_FRAME, URCHI_HEAD }: typeof Character)
   urchi.dispose();
   const open = lids.pop()!;
   return { shut, open, lids };
+}
+
+/**
+ * The closed lids, pixel by pixel. At the icon's cell the lid arc is thinner than a pixel and
+ * smudges into the head, most of all with a dark iris, so the same shut pose is painted LID.fine
+ * times finer to find where it falls: in each column of the icon's canvas the arc crosses, the
+ * pixel it covers most is lid. A one-pixel line, which keeps the arc's sag where it has one.
+ */
+function lidLine(createUrchi: typeof Character.createUrchi, iris: string, dt: number): [number, number][] {
+  const fine = createUrchi({ cell: ICON.cell / LID.fine, input: false });
+  fine.closeEyes();
+  fine.update(dt);
+  const { width: W, height: H } = fine.canvas;
+  const px = fine.canvas.getContext("2d")!.getImageData(0, 0, W, H).data;
+  fine.dispose();
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(iris.slice(i, i + 2), 16));
+  // Lid is nearer the iris than halfway to the head's dark planes. The white rim, as white as some
+  // irises, is never lid: every pixel of it is within two of the transparent outside.
+  const near = ((r - LID.plane) ** 2 + (g - LID.plane) ** 2 + (b - LID.plane) ** 2) / 4;
+  const inside = (x: number, y: number) => {
+    for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) {
+      const u = x + i, v = y + j;
+      if (u < 0 || v < 0 || u >= W || v >= H || !px[(v * W + u) * 4 + 3]) return false;
+    }
+    return true;
+  };
+  const cols = Math.ceil(W / LID.fine), rows = Math.ceil(H / LID.fine);
+  const cover = new Uint16Array(cols * rows);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const k = (y * W + x) * 4;
+    if (!px[k + 3] || (px[k] - r) ** 2 + (px[k + 1] - g) ** 2 + (px[k + 2] - b) ** 2 > near || !inside(x, y)) continue;
+    cover[Math.floor(y / LID.fine) * cols + Math.floor(x / LID.fine)]++;
+  }
+  const line: [number, number][] = [];
+  for (let x = 0; x < cols; x++) {
+    let best = -1, most = LID.least - 1;
+    for (let y = 0; y < rows; y++) {
+      if (cover[y * cols + x] <= most) continue;
+      most = cover[y * cols + x];
+      best = y;
+    }
+    if (best >= 0) line.push([x, best]);
+  }
+  return line;
 }
 
 /** Runs the icon: blinks while visible, sleeps while hidden. Returns the stop, which puts the static icon back. */
