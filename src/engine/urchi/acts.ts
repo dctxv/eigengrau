@@ -85,8 +85,10 @@ export function* nod(a: Attention): Act {
  * His caption rises and it reads it: head down, pupils down, then three to five jumps left to
  * right that land on the words where they are on screen, 200-260ms each. Then it looks up at you
  * and reacts to that line. `words` are the words' centres in client px, in reading order.
+ * `done` is told once the last jump has landed: a reading cut off before then has not read the
+ * line, so the next hover still gets the whole of it.
  */
-export function* read(a: Attention, words: Point[], reaction: UrchiReaction): Act {
+export function* read(a: Attention, words: Point[], reaction: UrchiReaction, done?: () => void): Act {
   if (!words.length) return;
   const left = words[0].x, right = words[words.length - 1].x;
   const mid = (left + right) / 2, half = Math.max(40, (right - left) / 2);
@@ -104,6 +106,7 @@ export function* read(a: Attention, words: Point[], reaction: UrchiReaction): Ac
       a.eyes(ex(w.x), 0.85);
       yield rand(0.2, 0.26);
     }
+    done?.();
     a.eyes(null);
     a.look("you");
     a.steady(false);

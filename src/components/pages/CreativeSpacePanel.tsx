@@ -32,6 +32,11 @@ const RESULT_DWELL = 4;
 /** A press that moves less than this (px) and lets go within this (ms) is a click. */
 const CLICK = { slop: 6, ms: 600 };
 /**
+ * Seconds the pointer must rest on Urchi before its caption rises. A pointer crossing it on the
+ * way to the tabs is not a hover, and must not spend the line's one reading.
+ */
+const HOVER_REST = 0.35;
+/**
  * What's new (spec S4): the look waits this long after the eyes open (or after the intro hands
  * over), and for the pointer to be still this long; then its line holds the caption this long.
  */
@@ -154,16 +159,20 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     };
 
     // One slot: a timed caption (the result, what's new, the phone's one rise) holds it for its
-    // dwell; then it goes back to the hover caption if the pointer is on Urchi, or sinks.
+    // dwell; then it goes back to the hover caption if the pointer rests on Urchi, or sinks.
     let slot: Slot | null = null;
     let slotTimer: gsap.core.Tween | null = null;
+    /** The pointer is on Urchi (the cursor label follows at once)... */
     let overUrchi = false;
+    /** ...and has rested there HOVER_REST: the hover caption is up, or waits for a timed one. */
+    let hovering = false;
+    let restTimer: gsap.core.Tween | null = null;
     const release = () => {
       slotTimer?.kill();
       slotTimer = null;
       slot = null;
       att.cancel("read");
-      if (overUrchi) showUrchiCaption();
+      if (hovering) showUrchiCaption();
       else hideCaption();
     };
     const say = (kind: Slot, title: string, line: string, o: { dwell?: number; delay?: number } = {}) => {
@@ -202,20 +211,23 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         att.play("read", 2, () => glanceDown(att, words()), { queue: 0.6 });
         return;
       }
-      att.play(
-        "read",
-        2,
-        () => {
-          readLines.add(text); // read once it has begun, not merely asked
-          return read(att, words(), line.reaction);
-        },
-        { queue: Infinity },
-      );
+      // read once its last jump has landed: a reading cut off before that leaves the line unread
+      att.play("read", 2, () => read(att, words(), line.reaction, () => readLines.add(text)), { queue: Infinity });
     };
     const showUrchiCaption = (kind: Slot = "hover", dwell?: number) => {
       const { text, readable } = hoverLine();
       if (!say(kind, "Urchi", text, { dwell })) return;
       if (readable) readCaption(text);
+    };
+    /** The pointer has rested on Urchi: its caption rises (or waits for a timed one to finish). */
+    const settleHover = () => {
+      restTimer = null;
+      hovering = true;
+      if (slot && slot !== "hover") return;
+      // You came to it: it stops looking back at the tab you left (or at the "4") and reads.
+      att.cancel("comeBack");
+      att.cancel("listenGlance");
+      showUrchiCaption();
     };
     const setOverUrchi = (on: boolean) => {
       if (on === overUrchi) return;
@@ -223,24 +235,21 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (on) att.rouse();
       overUrchi = on;
       cursor.set(on ? (att.asleep ? "Wake" : "Threshold") : null);
+      restTimer?.kill();
+      restTimer = on ? gsap.delayedCall(HOVER_REST, settleHover) : null;
+      if (on || !hovering) return;
+      hovering = false;
       if (slot && slot !== "hover") return;
-      if (on) {
-        // You came to it: it stops looking back at the tab you left (or at the "4") and reads.
-        att.cancel("comeBack");
-        att.cancel("listenGlance");
-        showUrchiCaption();
-      } else {
-        slot = null;
-        att.cancel("read");
-        hideCaption();
-      }
+      slot = null;
+      att.cancel("read");
+      hideCaption();
     };
 
     // Falling asleep or waking under the pointer: the label follows, and the caption when its words change.
     moodChanged = () => {
       if (!overUrchi) return;
       cursor.set(att.asleep ? "Wake" : "Threshold");
-      if (slot && slot !== "hover") return;
+      if (!hovering || (slot && slot !== "hover")) return;
       const { text, readable } = hoverLine();
       if (slot === "hover" && lineSpan.textContent === text) {
         if (readable) readCaption(text); // the same line, and awake now to read it
@@ -291,7 +300,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       gameOpen = true;
       gameDate = date;
       pending = null;
-      overUrchi = false;
+      overUrchi = hovering = false;
+      restTimer?.kill();
+      restTimer = null;
       cursor.set(null);
       slotTimer?.kill();
       slot = null;
@@ -475,6 +486,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       stopArrive?.();
       openTimer?.kill();
       slotTimer?.kill();
+      restTimer?.kill();
       stopPoll();
       stopLife();
       game.current = null;
