@@ -34,13 +34,6 @@ const GAZE = { reach: 4, release: 1.4 } as const;
 type Metrics = TextRenderInfo & { visibleBounds?: [number, number, number, number]; topBaseline?: number };
 
 /**
- * The attention hook Space adds to the character (lookAt: a gaze target in the pointer's space, the
- * viewport at -1..1 each way; null hands the gaze back to the pointer), where the character has it.
- * Without it the mark follows the pointer across the whole viewport, as it did as the old object.
- */
-type LooksAt = { lookAt?: (nx: number | null, ny?: number) => void };
-
-/**
  * Which scene last took each canvas, by number (a canvas has only the one context to give; see
  * dispose). A number, so a canvas kept alive never keeps a whole scene alive with it.
  */
@@ -65,7 +58,8 @@ export class AboutScene {
   private current: Text | null = null;
   /**
    * Urchi as the superscript mark after "things.": a coarse cell, so each of its pixels is one
-   * screen pixel and its rim stays one crisp pixel. It follows the pointer and blinks on its own.
+   * screen pixel and its rim stays one crisp pixel. It looks at the pointer from where it sits
+   * (see look) and blinks on its own.
    */
   mark: Urchi | null = null;
   /** The mark's box width in canvas pixels, which fixes its cell; a new size builds a new Urchi. */
@@ -107,8 +101,10 @@ export class AboutScene {
     }
   }
 
-  // The gaze, as seen from the mark. The character follows the pointer on its own; these only
-  // steer it where the character takes a gaze target (see LooksAt), and cost nothing where not.
+  // The gaze, as seen from the mark. Left to itself the character reads the pointer across the
+  // whole viewport, as if it sat mid-screen; these give it the direction from its head to the
+  // pointer instead (see look), and hand the gaze back once the pointer has gone, when the
+  // character, which has let go of it too, looks straight ahead.
   private onPointer = (e: PointerEvent) => {
     clearTimeout(this.release);
     this.pointer = { x: e.clientX, y: e.clientY };
@@ -124,19 +120,18 @@ export class AboutScene {
     clearTimeout(this.release);
     if (!this.pointer) return;
     this.pointer = null;
-    (this.mark?.character as LooksAt | undefined)?.lookAt?.(null);
+    this.mark?.character.lookAt(null);
   };
 
   /** Turns the mark toward the pointer: the direction from its head to the pointer, `reach` ems out in front. */
   private look() {
     const m = this.mark, p = this.pointer;
-    const c = m?.character as LooksAt | undefined;
-    if (!m || !p || !c?.lookAt) return;
+    if (!m || !p) return;
     const r = this.canvas.getBoundingClientRect();
     const dx = p.x - (r.left + m.mesh.position.x);
     const dy = p.y - (r.top - m.mesh.position.y);
     const d = Math.hypot(dx, dy, GAZE.reach * this.fontSize);
-    c.lookAt(dx / d, dy / d);
+    m.character.lookAt(dx / d, dy / d);
   }
 
   private measure() {
