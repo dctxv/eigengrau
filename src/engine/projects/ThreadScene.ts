@@ -223,6 +223,13 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 /** The far side of the thread falls to a quarter of the ink: a wire ball, not a disc. */
 const depthInk = (z: number) => BACK_INK + (1 - BACK_INK) * smooth(clamp01((z + 0.85) / 1.7));
 const blockBounds = (t: Text): [number, number, number, number] => t.textRenderInfo?.blockBounds ?? [0, 0, 0, 0];
+/**
+ * Which scene last took each canvas, by number (a canvas has only the one
+ * context to give; see dispose). A number, so a canvas kept alive never keeps
+ * a whole scene alive with it.
+ */
+const owners = new WeakMap<HTMLCanvasElement, number>();
+let scenes = 0;
 
 /** The year as a number with its fraction: 25 September 2026 is about 2026.73. */
 function fractionalYear(d: Date) {
@@ -550,6 +557,7 @@ export class ThreadScene {
 
   private ready = false;
   private disposed = false;
+  private serial = ++scenes;
   private pendingOpen: string | null = null;
   private intro: gsap.core.Timeline | null = null;
   private ctx = gsap.context(() => undefined);
@@ -562,6 +570,7 @@ export class ThreadScene {
     private opts: ThreadOptions,
   ) {
     this.renderer = makeRenderer(canvas);
+    owners.set(canvas, this.serial);
     this.idleK = opts.reducedMotion ? 0 : 1;
     this.camera.position.z = 10;
     this.lineMat = new THREE.ShaderMaterial({
@@ -2379,5 +2388,14 @@ export class ThreadScene {
     this.planeGeo.dispose();
     this.glass.dispose();
     this.renderer.dispose();
+    // troika's glyph atlas is shared by every text on the site, and a renderer that drew it stays
+    // reachable through it, context and all, so each visit would leave a live context behind
+    // until the browser starts losing the oldest. Lose this one on purpose. A tick later, and only
+    // if no new scene has taken the canvas: in development React mounts the panel twice on the
+    // same element, and the second scene gets this very context back.
+    const { canvas, renderer, serial } = this;
+    setTimeout(() => {
+      if (owners.get(canvas) === serial) renderer.forceContextLoss();
+    }, 0);
   }
 }
