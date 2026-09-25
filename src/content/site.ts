@@ -190,6 +190,21 @@ const NUMBER_WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven
 /** A count as the site writes it: "No", "One" … "Twelve", then digits. */
 export const numberWord = (n: number) => NUMBER_WORDS[n] ?? String(n);
 
+const TEENS = ["Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+/**
+ * numberWord, carried on to ninety-nine, for counts that run past twelve (a
+ * week of plays, a year of notes): "Sixty-two plays", "Eighty-one notes".
+ * Digits after that. One copy, so Space, Notes and Music never disagree.
+ */
+export function countWord(n: number): string {
+  if (n <= 12) return numberWord(n);
+  if (n < 20) return TEENS[n - 13];
+  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? `-${numberWord(n % 10).toLowerCase()}` : "");
+  return String(n);
+}
+
 /** The bottom line on Projects, derived from the data so it is never stale: "Six projects since 2021. Two alive." */
 export function projectsLine(projects: readonly Project[] = PROJECTS): string {
   const since = Math.min(...projects.map((p) => p.year));

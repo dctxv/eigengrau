@@ -54,7 +54,7 @@ export function Shell({ children }: { children: ReactNode }) {
   // Viewport units and the reduced-motion intro skip.
   useEffect(() => installViewportVars(), []);
 
-  // Chrome drop-in: after the explode on an intro load, otherwise as soon as the fonts are in.
+  // Chrome drop-in: after the first breath on an intro load, otherwise as soon as the fonts are in.
   useEffect(() => {
     const nav = navRef.current;
     const logo = logoRef.current;
