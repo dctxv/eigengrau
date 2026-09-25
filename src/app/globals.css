@@ -454,6 +454,33 @@ button {
   font: 400 14px/1.3 var(--font-serif);
   margin: 4px 0 0;
 }
+/*
+ * The rims, as on Notes and Music: the pill's material, masked so the page
+ * dissolves as it passes under the tab bar. Fixed, so they hold still while
+ * the page scrolls (the panel's transform makes it their box, not the window).
+ */
+.case-rim {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+  z-index: 3;
+}
+.case-rim-top {
+  top: 0;
+  -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent);
+  mask-image: linear-gradient(to bottom, #000 30%, transparent);
+}
+.case-rim-bottom {
+  bottom: 0;
+  height: 50px;
+  -webkit-mask-image: linear-gradient(to top, #000 30%, transparent);
+  mask-image: linear-gradient(to top, #000 30%, transparent);
+}
 
 /* ------------------------------------------------------------------ */
 /* Elsewhere: three words at the foot of About, beside the canvas.     */
