@@ -40,6 +40,13 @@ type Metrics = TextRenderInfo & { visibleBounds?: [number, number, number, numbe
  */
 type LooksAt = { lookAt?: (nx: number | null, ny?: number) => void };
 
+/**
+ * Which scene last took each canvas, by number (a canvas has only the one context to give; see
+ * dispose). A number, so a canvas kept alive never keeps a whole scene alive with it.
+ */
+const owners = new WeakMap<HTMLCanvasElement, number>();
+let scenes = 0;
+
 function markBox(size: number) {
   const [first] = MARK_BOX, last = MARK_BOX[MARK_BOX.length - 1];
   if (size <= first[0]) return first[1];
@@ -79,11 +86,13 @@ export class AboutScene {
   private height = 1;
   private tick: (t: number, dt: number) => void;
   private disposed = false;
+  private serial = ++scenes;
   private ready = false;
   private revealed = false;
 
   constructor(private canvas: HTMLCanvasElement, private opts: AboutOptions) {
     this.renderer = makeRenderer(canvas);
+    owners.set(canvas, this.serial);
     this.camera = new THREE.OrthographicCamera(0, 1, 0, -1, -1000, 1000);
     this.camera.position.z = 10;
     this.measure();
@@ -313,5 +322,14 @@ export class AboutScene {
     this.current?.dispose();
     this.mark?.dispose();
     this.renderer.dispose();
+    // troika's glyph atlas is shared by every text on the site, and a renderer that drew it stays
+    // reachable through it, context and all, so each visit would leave a live context behind
+    // until the browser starts losing the oldest. Lose this one on purpose. A tick later, and only
+    // if no new scene has taken the canvas: in development React mounts the panel twice on the
+    // same element, and the second scene gets this very context back.
+    const { canvas, renderer, serial } = this;
+    setTimeout(() => {
+      if (owners.get(canvas) === serial) renderer.forceContextLoss();
+    }, 0);
   }
 }
