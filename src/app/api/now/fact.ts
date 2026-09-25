@@ -1,11 +1,11 @@
-import { numberWord } from "@/content/site";
+import { countWord, plainFact } from "@/lib/now";
 
 /**
  * The week, one honest sentence. A handful of small rules each look for one
  * kind of oddity in the week's scrobbles and say how surprising it is; the
  * most surprising fact becomes the heading on Music. When nothing stands out
- * it is the plain line the page has always had: "62 plays this week. Mostly
- * Bon Iver." Pure, so the route can call it and a fixture can check it.
+ * it is the plain line the page has always had: "Sixty-two plays this week.
+ * Mostly Bon Iver." Pure, so the route can call it and a fixture can check it.
  */
 
 /** One scrobble: the song and when it started (unix seconds). */
@@ -45,9 +45,9 @@ const BANDS = [
   { from: 21, to: 24, words: "late at night", usual: 0.16 },
 ] as const;
 
-/** A count inside a sentence: "eleven", "no", "14". */
-const count = (n: number) => numberWord(n).toLowerCase();
-const plays = (n: number) => `${numberWord(n)} play${n === 1 ? "" : "s"}`;
+/** A count inside a sentence: "eleven", "no", "sixty-two", "140". */
+const count = (n: number) => countWord(n).toLowerCase();
+const plays = (n: number) => `${countWord(n)} play${n === 1 ? "" : "s"}`;
 const keyOf = (s: { artist: string; title: string }) => `${s.artist}\u0000${s.title}`.toLowerCase();
 
 /** A title as the sentence says it: no guest credit, no remaster tag. */
@@ -115,9 +115,15 @@ function tally<T, K>(items: T[], key: (t: T) => K): Map<K, number> {
   return m;
 }
 
-/** The plain line: "62 plays this week. Mostly Bon Iver." or "No plays this week." */
-export function plainFact(total: number, artist: string | null): string {
-  return `${plays(total)} this week.${total > 0 && artist ? ` Mostly ${artist}.` : ""}`;
+/**
+ * A sentence as the heading says it. It starts with a capital, as sentences
+ * do ("Iris five times", though a title shaped like "eBay" keeps its shape),
+ * and it never carries an exclamation mark, not even a song's own: that fact
+ * gives way to the next one.
+ */
+function heading(text: string): string | null {
+  if (text.includes("!")) return null;
+  return /^\p{Ll}(?!\p{Lu})/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
 
 export function weekFact(input: WeekInput): string {
@@ -204,7 +210,9 @@ export function weekFact(input: WeekInput): string {
     }
   }
 
-  const fits = facts.filter((f) => f.text.length <= MAX_CHARS && f.score > 1);
+  const fits = facts
+    .map((f) => ({ score: f.score, text: heading(f.text) ?? "" }))
+    .filter((f) => f.text && f.text.length <= MAX_CHARS && f.score > 1);
   fits.sort((a, b) => b.score - a.score);
   return fits[0]?.text ?? fallback;
 }

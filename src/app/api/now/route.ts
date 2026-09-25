@@ -81,8 +81,10 @@ async function lengthOf(key: string, t: RecentTrack): Promise<number | null> {
 
 /**
  * When this server first saw the song that is playing. Only the current song
- * is remembered: a different one replaces it. On a cold start it is simply
- * now, which is why a start from here is never called sure.
+ * is remembered: a different one replaces it, and silence clears it, so the
+ * same song played again later starts again. On a cold start it is simply
+ * now, which is why a start from here is never called sure (and why the page
+ * keeps its own earliest sighting too).
  */
 let firstSeen: { key: string; at: number } | null = null;
 function seenAt(key: string, now: number) {
@@ -160,7 +162,8 @@ export async function GET() {
       });
 
     let nowPlaying: Playing | null = null;
-    if (playing) {
+    if (!playing) firstSeen = null;
+    else {
       const sameAsFinished = finished && recentKey(finished) === recentKey(playing);
       const [length, previousLength] = await Promise.all([
         lengthOf(key, playing),

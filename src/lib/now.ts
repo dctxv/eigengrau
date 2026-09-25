@@ -4,6 +4,8 @@
  * ten most-played songs, and the week's one honest sentence). Shared by the
  * route handler and the Music panel, which polls it while the page is visible.
  */
+import { numberWord } from "@/content/site";
+
 export type Track = { title: string; artist: string; album: string | null; coverId: string | null; url: string | null };
 /**
  * The track playing now, with what is known of how far into it he is. All
@@ -33,6 +35,30 @@ export type Week = {
 export type NowResponse = { now: Playing | null; last: Played | null; week: Week };
 
 export const EMPTY_NOW: NowResponse = { now: null, last: null, week: { plays: 0, artist: null, tracks: [] } };
+
+const TEENS = ["Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+/**
+ * numberWord, carried on to ninety-nine, because a week of listening runs past
+ * twelve and "Sixty-two plays" reads as his; digits after that.
+ */
+export function countWord(n: number): string {
+  if (n <= 12) return numberWord(n);
+  if (n < 20) return TEENS[n - 13];
+  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? `-${numberWord(n % 10).toLowerCase()}` : "");
+  return String(n);
+}
+
+/**
+ * The plain line, and the week's heading when nothing stands out: "Sixty-two
+ * plays this week. Mostly Bon Iver." The heading never shouts, so an artist
+ * whose name carries an exclamation mark is left out of it.
+ */
+export function plainFact(plays: number, artist: string | null): string {
+  const mostly = plays > 0 && artist && !artist.includes("!") ? ` Mostly ${artist}.` : "";
+  return `${countWord(plays)} play${plays === 1 ? "" : "s"} this week.${mostly}`;
+}
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 

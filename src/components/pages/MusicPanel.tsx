@@ -2,12 +2,11 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
 import gsap from "gsap";
-import { numberWord } from "@/content/site";
 import { sfx, type Preview } from "@/audio/sfx";
 import { CursorLabel } from "@/components/CursorLabel";
 import { setFlag } from "@/lib/flags";
 import { EASE, prefersReducedMotion } from "@/lib/motion";
-import { pollNow, type NowResponse, type Playing, type Track, type WeekTrack } from "@/lib/now";
+import { countWord, plainFact, pollNow, type NowResponse, type Playing, type Track, type WeekTrack } from "@/lib/now";
 
 /** The quietest song's opacity: the less it was played, the closer it sits to eigengrau. */
 const QUIETEST = 0.28;
@@ -27,6 +26,14 @@ const FOLD_MS = 560;
 /** The sleeve's glide between the week and the room, and how long the words under it wait for it. */
 const GLIDE = 0.9;
 const AFTER_GLIDE = 0.45;
+/**
+ * The server's stale cap, kept here too: how long past its end a song may
+ * still say "now playing", and the cap when its length is unknown.
+ */
+const GRACE = 60;
+const UNKNOWN_CAP = 15 * 60;
+/** A song missing from the answers this long (seconds) is a new play when it comes back. */
+const FORGET = 180;
 
 /** Once per visit, the first hover with sound off says so instead of naming Last.fm. */
 let toldSoundOff = false;
@@ -38,8 +45,8 @@ function firstSoundOffHover() {
 
 const keyOf = (t: Track) => `${t.artist}\u0000${t.title}`;
 const cover = (id: string) => `/api/cover/${id}`;
-const plays = (n: number) => `${numberWord(n)} play${n === 1 ? "" : "s"}`;
-const minutes = (n: number) => (n === 1 ? "a minute" : `${numberWord(n).toLowerCase()} minutes`);
+const plays = (n: number) => `${countWord(n)} play${n === 1 ? "" : "s"}`;
+const minutes = (n: number) => (n === 1 ? "a minute" : `${countWord(n).toLowerCase()} minutes`);
 
 /** A guest credit in brackets leaves the title for the stack; the full title stays in the link's name. */
 function short(title: string) {
@@ -64,7 +71,8 @@ type Timing = { key: string; start: number; sure: boolean; length: number | null
  * The server says how far in he is; this turns it into a start on the page's
  * own clock, so the two clocks never need to agree. A start the server only
  * guessed (when it first saw the song) keeps the earliest guess, since a
- * restarted server forgets; a sure one holds still unless it really moved.
+ * restarted or different server forgets; a sure one holds still unless it
+ * really moved.
  */
 function timingOf(now: Playing | null, at: number, before: Timing | null): Timing | null {
   if (!now || typeof now.elapsed !== "number") return null;
@@ -79,6 +87,14 @@ function timingOf(now: Playing | null, at: number, before: Timing | null): Timin
 }
 
 /**
+ * Past its end and a minute (a quarter of an hour when its length is
+ * unknown), a now-playing is a scrobbler that forgot to stop. The server
+ * caps this too, but a server that has only just seen the song thinks it
+ * began then; the page's earliest sighting knows better.
+ */
+const stale = (t: Timing, at: number) => at - t.start > (t.length ?? UNKNOWN_CAP) + GRACE;
+
+/**
  * The honest state line. With a start from the scrobbles, roughly how far in;
  * with only a first sighting, a lower bound; never seconds.
  */
@@ -89,10 +105,6 @@ function whereIn(t: Timing, now: number): string {
   if (e < 45) return "Just started.";
   return `About ${minutes(Math.max(1, Math.round(e / 60)))} in.`;
 }
-
-/** The plain line, for an answer that came without its sentence. */
-const plainFact = (plays: number, artist: string | null) =>
-  `${numberWord(plays)} play${plays === 1 ? "" : "s"} this week.${plays > 0 && artist ? ` Mostly ${artist}.` : ""}`;
 
 type Latest = { data: NowResponse; at: number; timing: Timing | null };
 type Shown = { mode: "now" | "last" | "song" | "quiet"; track: Track | null; state: string };
@@ -120,6 +132,7 @@ export function MusicPanel() {
   const progress = useRef<HTMLElement>(null);
   const listenLine = useRef<HTMLElement>(null);
   const label = useRef<HTMLDivElement>(null);
+  const foldButton = useRef<HTMLButtonElement>(null);
   const cursor = useRef<CursorLabel | null>(null);
 
   /** The latest answer, when it arrived (unix seconds, which "a minute ago" is measured from), and its timing. */
@@ -135,14 +148,19 @@ export function MusicPanel() {
   /** The panel only mounts in the browser, so the preference can be read on the first render. */
   const [reduced] = useState(prefersReducedMotion);
 
-  /** The visitor unfolded the week while he is live. */
+  /** The visitor unfolded the week while he is live; forgotten when he stops, so his next song is the room again. */
   const openRef = useRef(false);
   const liveRef = useRef(false);
   /** The layout being headed for, which may be ahead of `room` while the stack leaves. */
   const targetRef = useRef(false);
   const foldTimer = useRef<number | null>(null);
   const firstPlace = useRef<Place | null>(null);
-  const timingRef = useRef<Timing | null>(null);
+  /** The last song heard playing, when it began, and when it was last reported, kept through an answer or two without it. */
+  const memo = useRef<(Timing & { seen: number }) | null>(null);
+  /** A title had keyboard focus when the stack folded away; the heading takes it. */
+  const refocus = useRef(false);
+  /** The pointer is on the heading's button, whose label must go with it. */
+  const onHeading = useRef(false);
   const liveCover = useRef<{ key: string | null; cover: string | null }>({ key: null, cover: null });
   const dwell = useRef<number | null>(null);
   const asking = useRef<AbortController | null>(null);
@@ -162,33 +180,6 @@ export function MusicPanel() {
     return { x: r.left - o.left, y: r.top - o.top + sc.scrollTop, w: r.width };
   }, []);
 
-  /**
-   * Turns the page to the room (true) or the week. Into the room, the stack's
-   * lines leave first and then the sleeve glides to the middle; back to the
-   * week, the sleeve glides home and the stack rises. `animate` is off for the
-   * first answer and under reduced motion.
-   */
-  const go = useCallback(
-    (toRoom: boolean, animate: boolean) => {
-      if (toRoom === targetRef.current) return;
-      targetRef.current = toRoom;
-      if (foldTimer.current !== null) window.clearTimeout(foldTimer.current);
-      foldTimer.current = null;
-      const commit = () => {
-        foldTimer.current = null;
-        firstPlace.current = animate ? measure() : null;
-        setGlided(animate);
-        setFolding(false);
-        setRoom(toRoom);
-      };
-      if (toRoom && animate && list.current) {
-        setFolding(true);
-        foldTimer.current = window.setTimeout(commit, FOLD_MS);
-      } else commit();
-    },
-    [measure],
-  );
-
   // ---------------------------------------------------------------- the song through the wall
 
   /** Leave: the door closes over 1.2s and the song goes back into the bed. */
@@ -202,6 +193,54 @@ export function MusicPanel() {
       setHearing((h) => (h ? { ...h, closing: true } : h));
     }
   }, []);
+
+  /** Off a title (or a tap elsewhere): the stack is whole again and the song goes back through the wall. */
+  const leave = useCallback(() => {
+    setActive(null);
+    setGlided(false);
+    cursor.current?.set(null);
+    armed.current = null;
+    hush();
+  }, [hush]);
+
+  /**
+   * Turns the page to the room (true) or the week. Into the room, the stack's
+   * lines leave first and then the sleeve glides to the middle; back to the
+   * week, the sleeve glides home and the stack rises. `animate` is off for the
+   * first answer and under reduced motion.
+   */
+  const go = useCallback(
+    (toRoom: boolean, animate: boolean) => {
+      if (toRoom === targetRef.current) return;
+      targetRef.current = toRoom;
+      if (foldTimer.current !== null) window.clearTimeout(foldTimer.current);
+      foldTimer.current = null;
+      if (toRoom) {
+        // Whatever was resting on a title belongs to the week: the room is his song. The stack
+        // goes without a pointerleave or a blur, so let go of it here, and hand a keyboard's
+        // place to the heading that brings the stack back.
+        const focused = document.activeElement;
+        if (focused instanceof HTMLElement && list.current?.contains(focused)) {
+          refocus.current = true;
+          focused.blur();
+        }
+        pinned.current = false;
+        leave();
+      } else refocus.current = false;
+      const commit = () => {
+        foldTimer.current = null;
+        firstPlace.current = animate ? measure() : null;
+        setGlided(animate);
+        setFolding(false);
+        setRoom(toRoom);
+      };
+      if (toRoom && animate && list.current) {
+        setFolding(true);
+        foldTimer.current = window.setTimeout(commit, FOLD_MS);
+      } else commit();
+    },
+    [measure, leave],
+  );
 
   const listen = useCallback((t: WeekTrack) => {
     const controller = new AbortController();
@@ -231,22 +270,28 @@ export function MusicPanel() {
     cursor.current = new CursorLabel(label.current!, stage.current!);
     let first = true;
     const stop = pollNow(
-      (data) => {
+      (answer) => {
         const at = Date.now() / 1000;
-        const timing = timingOf(data.now, at, timingRef.current);
-        timingRef.current = timing;
+        const before = memo.current && at - memo.current.seen < FORGET ? memo.current : null;
+        const heard = timingOf(answer.now, at, before);
+        if (heard) memo.current = { ...heard, seen: at };
+        const over = !!heard && stale(heard, at);
+        const data = over ? { ...answer, now: null } : answer;
+        const timing = over ? null : heard;
         // A new song while he is live: the old sleeve drops out and the next one rises.
         const key = data.now ? keyOf(data.now) : null;
         const was = liveCover.current;
         if (!first && key && was.key && key !== was.key) setSwap({ from: was.cover, to: data.now!.coverId, n: at });
         liveCover.current = { key, cover: data.now?.coverId ?? null };
         liveRef.current = !!data.now;
+        // He stopped: the next time he plays something, the page turns to it again.
+        if (!data.now) openRef.current = false;
         setLatest({ data, at, timing });
         setClock(at);
         go(!!data.now && !openRef.current, !first && !reduced);
         first = false;
       },
-      (r) => (r.now ? POLL.live : POLL.quiet),
+      () => (liveRef.current ? POLL.live : POLL.quiet),
     );
     return () => {
       stop();
@@ -315,6 +360,20 @@ export function MusicPanel() {
     };
   }, [room, measure]);
 
+  // A keyboard that was on a title when the stack folded away lands on the heading, which brings it back.
+  useEffect(() => {
+    if (!room || !refocus.current) return;
+    refocus.current = false;
+    if (document.activeElement === document.body || document.activeElement === null) foldButton.current?.focus({ preventScroll: true });
+  }, [room]);
+
+  // He stopped with the pointer on the heading: the button goes, and so does its word.
+  useEffect(() => {
+    if (live || !onHeading.current) return;
+    onHeading.current = false;
+    cursor.current?.set(null);
+  }, [live]);
+
   // A new song: the old sleeve drops out through the sleeve's edge and the next one rises in.
   useLayoutEffect(() => {
     const box = sleeve.current;
@@ -342,7 +401,8 @@ export function MusicPanel() {
     };
   }, [swap, reduced]);
 
-  const song = tracks.find((t) => keyOf(t) === (active ?? hearing?.key)) ?? null;
+  // The room is his song alone: a title still sounding as the week leaves has no say in it.
+  const song = room || folding ? null : (tracks.find((t) => keyOf(t) === (active ?? hearing?.key)) ?? null);
   const heard = song && hearing?.key === keyOf(song) ? hearing : null;
   const shown: Shown = song
     ? { mode: "song", track: song, state: heard ? "Preview from Apple Music" : `${plays(song.plays)} this week` }
@@ -393,25 +453,22 @@ export function MusicPanel() {
   }, [hearN, hearFor, reduced]);
 
   const enter = (t: WeekTrack, viaTouch: boolean) => {
+    // The stack is on its way out to the room.
+    if (targetRef.current) return;
     const key = keyOf(t);
     if (key !== active) hush();
     setActive(key);
     setGlided(false);
     cursor.current?.set(!sfx.enabled && !viaTouch && firstSoundOffHover() ? "Sound is off" : "Last.fm");
-    if (sfx.enabled && !viaTouch && hearing?.key !== key) {
+    // A song whose door is still closing (back on it within the second) plays again after the dwell.
+    const sounding = !!hearing && !hearing.closing && hearing.key === key;
+    if (sfx.enabled && !viaTouch && !sounding) {
       if (dwell.current !== null) window.clearTimeout(dwell.current);
       dwell.current = window.setTimeout(() => {
         dwell.current = null;
         listen(t);
       }, DWELL_MS);
     }
-  };
-  const leave = () => {
-    setActive(null);
-    setGlided(false);
-    cursor.current?.set(null);
-    armed.current = null;
-    hush();
   };
   /** A phone's first tap on a title plays it through the wall (sound on); the second opens Last.fm as before. */
   const tap = (e: MouseEvent, t: WeekTrack) => {
@@ -432,8 +489,9 @@ export function MusicPanel() {
   const fold = () => {
     openRef.current = targetRef.current;
     sfx.play(openRef.current ? "close" : "focus");
-    cursor.current?.set(openRef.current ? "Now playing" : "The week");
     go(liveRef.current && !openRef.current, !reduced);
+    // After the turn, which lets go of any title: the word says what the next click does.
+    cursor.current?.set(openRef.current ? "Now playing" : "The week");
   };
 
   return (
@@ -445,13 +503,20 @@ export function MusicPanel() {
               <span>
                 {live ? (
                   <button
+                    ref={foldButton}
                     type="button"
                     className="music-fold"
                     aria-expanded={!room}
                     aria-controls={room ? undefined : "music-week"}
                     onClick={fold}
-                    onPointerEnter={() => cursor.current?.set(room ? "The week" : "Now playing")}
-                    onPointerLeave={() => cursor.current?.set(null)}
+                    onPointerEnter={() => {
+                      onHeading.current = true;
+                      cursor.current?.set(targetRef.current ? "The week" : "Now playing");
+                    }}
+                    onPointerLeave={() => {
+                      onHeading.current = false;
+                      cursor.current?.set(null);
+                    }}
                   >
                     <span className="music-lead">Music</span>
                     <span className="music-fact">{fact}</span>
@@ -539,6 +604,7 @@ export function MusicPanel() {
                   className="music-list"
                   data-active={song ? "" : undefined}
                   data-leaving={folding ? "" : undefined}
+                  inert={folding}
                   onPointerLeave={(e) => e.pointerType !== "touch" && leave()}
                   aria-label="Most played this week"
                 >

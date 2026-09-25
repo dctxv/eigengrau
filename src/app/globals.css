@@ -639,7 +639,8 @@ button {
 /* In the room the sleeve stands alone in the middle: the one thing to look at. */
 .music[data-room] .music-body {
   grid-template-columns: var(--sleeve-room);
-  margin-top: 56px;
+  /* On a short window the sleeve can only get so small before its words wrap, so the gap gives way too. */
+  margin-top: clamp(32px, calc((var(--app-h) - 560px) * 0.3), 56px);
 }
 .music-cover {
   position: relative;
@@ -762,8 +763,9 @@ button {
   font: 400 22px/1.2 var(--font-serif);
   margin: 12px 0 0;
 }
+/* The title grows with the room's sleeve: 26px beside a full one, the week's 22px beside the smallest. */
 .music[data-room] .music-title {
-  font-size: 26px;
+  font-size: clamp(22px, calc(22px + (var(--sleeve-room) - 200px) / 30), 26px);
 }
 .music-by {
   font: 400 14px/1.3 var(--font-serif);
@@ -858,6 +860,12 @@ button {
     opacity: 0;
   }
 }
+@keyframes music-rise-room {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
 @keyframes music-leave {
   to {
     transform: translateY(-100%);
@@ -895,11 +903,29 @@ button {
     --vol-max: 40px;
     margin-top: 0;
   }
-  /* The room on a phone: the sleeve at 78vw with the line under it. */
+  /*
+   * The room on a phone: the column narrows to the sleeve (78vw) and moves to
+   * the middle, the heading on the sleeve's left edge. The heading leaves with
+   * the stack and rises again in its new place (a second name for the same
+   * rise restarts it), so it never jumps across.
+   */
   .music {
     --sleeve-room: 78vw;
   }
+  .music[data-room] .music-heading {
+    width: var(--sleeve-room);
+    justify-self: center;
+  }
+  .music[data-room] .music-heading.mask > span {
+    animation-name: music-rise-room;
+    animation-delay: calc(var(--after, 0s) + 0.05s);
+  }
+  .music[data-folding] .music-heading.mask > span {
+    animation: music-leave 0.38s cubic-bezier(0.55, 0, 0.75, 0.2) both;
+  }
   .music[data-room] .music-body {
+    width: auto;
+    justify-self: center;
     margin-top: 48px;
   }
   .music[data-room] .music-side {
@@ -963,7 +989,9 @@ button {
   .music .mask > span,
   .music-dot,
   .music-progress,
-  .music-list[data-leaving] .mask > span {
+  .music-list[data-leaving] .mask > span,
+  .music[data-room] .music-heading.mask > span,
+  .music[data-folding] .music-heading.mask > span {
     animation: none;
   }
   .music-listen,
