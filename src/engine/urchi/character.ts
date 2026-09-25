@@ -291,7 +291,11 @@ export type UrchiCharacter = {
   setRestLid(v: number): void;
   /** Each eye's own lid, 0 open .. 1 shut (the closed arc), eased over `seconds`: one eye can open alone. */
   setLids(left: number, right: number, seconds?: number): void;
-  /** The curious tilt, now, toward a side (-1 left, 1 right), at its usual angle or `degrees`. */
+  /**
+   * The curious tilt, now, toward a side (-1 left, 1 right), at its usual angle or `degrees`.
+   * It is cued, so it happens even with the random tilts off (listening): then it holds a moment
+   * and the head comes level again.
+   */
   tiltToward(dir: number, degrees?: number): void;
   /** The random curious tilts: `[min, max]` seconds apart (4..9 by default), or null for none (it straightens). */
   setTilts(gap: [number, number] | null): void;
@@ -444,6 +448,12 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   const tilt = { roll: spring(), yaw: spring(), pitch: spring(), speed: 5.5, side: 0, lastSide: 0, streak: 0, next: rand(2, 5), resettled: false };
   /** The gap between moves (the attention hooks can stretch it, or stop the tilts: `on` false). */
   const tilts = { on: true, min: 4, max: 9 };
+  /** With the random tilts off, how long a cued tilt holds before the head comes level. */
+  const CUED_HOLD: Vec2 = [1.3, 1.8];
+  let cuedUntil = -1;
+  function level() {
+    tilt.side = 0; tilt.roll.target = 0; tilt.yaw.target = 0; tilt.pitch.target = 0;
+  }
   function tiltTo(dir: number, degrees?: number) {
     const small = Math.random() < 0.25;
     tilt.roll.target = dir * (degrees ?? rand(small ? 3 : 6, small ? 6 : 15)) * D2R;
@@ -458,11 +468,12 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
     tiltTo(dir);
   }
   function stepTilt(t: number, dt: number) {
-    if (reveal < 1 || !tilts.on) {                     // a head not yet drawn holds level, so the eyes stay where the host put them; no tilts: level too
-      tilt.side = 0; tilt.roll.target = 0; tilt.yaw.target = 0; tilt.pitch.target = 0;
+    if (reveal < 1) {                                  // a head not yet drawn holds level, so the eyes stay where the host put them
+      level();
       tilt.next = Math.max(tilt.next, t + rand(2, 4));
-    }
-    if (t >= tilt.next) {
+    } else if (!tilts.on) {                            // no random tilts: level, once a cued one has had its moment
+      if (t >= cuedUntil) { level(); tilt.next = Math.max(tilt.next, t + rand(2, 4)); }
+    } else if (t >= tilt.next) {
       let rest = false;
       const wasResettled = tilt.resettled; tilt.resettled = false;
       if (tilt.side === 0) newTilt(Math.random() < 0.5 ? 1 : -1);
@@ -977,16 +988,17 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
       easeTo(eyeLids[0], clamp(left, 0, 1), dur); easeTo(eyeLids[1], clamp(right, 0, 1), dur);
     },
     tiltToward(dir, degrees) {
-      if (reduceMotion || reveal < 1 || !tilts.on) return;
+      if (reduceMotion || reveal < 1) return;
       const side = dir < 0 ? -1 : 1;
       tilt.streak = side === tilt.lastSide ? tilt.streak + 1 : 1; tilt.lastSide = side;
       tiltTo(side, degrees); tilt.resettled = false;
       tilt.speed = rand(6, 8);   // a perk rather than a lean
-      tilt.next = S.t + rand(tilts.min, tilts.max);
+      if (tilts.on) tilt.next = S.t + rand(tilts.min, tilts.max);
+      else cuedUntil = S.t + rand(...CUED_HOLD);
     },
     setTilts(gap) {
       tilts.on = !!gap;
-      if (gap) { tilts.min = gap[0]; tilts.max = Math.max(gap[0], gap[1]); tilt.next = Math.min(tilt.next, S.t + tilts.max); }
+      if (gap) { tilts.min = gap[0]; tilts.max = Math.max(gap[0], gap[1]); tilt.next = Math.min(tilt.next, S.t + tilts.max); cuedUntil = -1; }
     },
     sway(degrees, period = 3.4) {
       swaying.amp.target = Math.abs(degrees) * D2R; swaying.period = Math.max(0.5, period);

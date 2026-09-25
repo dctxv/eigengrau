@@ -50,11 +50,9 @@ export function* tug(a: Attention, pill: Where, say: () => void): Act {
   }
 }
 
-/** Back on tab 1: it is still watching the pill of the tab you left, and turns to you once the page has settled. */
+/** Back on tab 1: it is still watching the pill of the tab you left (it opens already looking there), and turns to you once the page has settled. */
 export function* comeBack(a: Attention, pill: Where, settled: () => boolean): Act {
   a.look(pill, "snap");
-  yield 0;
-  a.look(pill);
   yield* until(a, settled, 3);
   yield 0.8;
   a.look("you");

@@ -120,6 +120,7 @@ export class Attention {
   private act: Running | null = null;
   private queue: Queued[] = [];
   private actGaze: Where | "you" | "hold" | null = null;
+  /** How an act's last look should turn (a snap, a quick turn): sent with the next aim, once. */
   private actHow: LookHow | undefined;
   private held: Point | null = null;
   private last = { nx: 0, ny: 0, has: false };
@@ -174,10 +175,13 @@ export class Attention {
     this.apply(true);
   }
 
-  /** The game is up: it just watches the pointer, and nothing else happens until it closes. */
+  /** The game is up: it just watches the pointer, and nothing else happens until it closes (nor after: what was waiting is dropped). */
   pause(on: boolean) {
     this.paused = on;
-    if (on) this.stopAct();
+    if (on) {
+      this.stopAct();
+      this.queue = [];
+    }
   }
 
   /** He is playing something now (or not). */
@@ -203,8 +207,22 @@ export class Attention {
     return true;
   }
 
+  /** Asleep or dozing: a click would wake it. (Only "asleep" is the night's sleep.) */
   get asleep() {
     return this.mood !== "awake";
+  }
+
+  /**
+   * The pointer came onto it. Dozing, it stirs now rather than on the next frame, so the host
+   * decides its caption with it awake (and does not raise a sleeping line in daylight first).
+   */
+  rouse() {
+    if (this.mood === "dozing" && this.canStir()) this.play("stir", 8, () => stir(this, true), { sleeping: true });
+  }
+
+  /** A doze can be broken once it has settled (not while its lids are still closing). */
+  private canStir() {
+    return this.started && !this.paused && !this.act?.sleeping && this.t - this.moodAt > 1;
   }
 
   // ---------------------------------------------------------------- targets
@@ -268,14 +286,15 @@ export class Attention {
 
   /**
    * Run a scripted beat. A higher priority interrupts what is running (its finally blocks run);
-   * otherwise it waits in line for up to `queue` seconds, or is dropped. Asleep, only acts marked
-   * `sleeping` run.
+   * otherwise it waits in line for up to `queue` seconds (Infinity: until cancelled), or is
+   * dropped. Before it has started (the intro still has its eyes) an act can only wait. Asleep,
+   * only acts marked `sleeping` run.
    */
   play(name: string, priority: number, make: () => Act, o: { queue?: number; sleeping?: boolean } = {}): boolean {
-    if (!this.started || this.paused) return false;
+    if (this.paused) return false;
     const sleeping = !!o.sleeping;
     if (this.mood !== "awake" && !sleeping) return false;
-    if (this.act && this.act.priority >= priority) {
+    if (!this.started || (this.act && this.act.priority >= priority)) {
       if (o.queue) this.queue.push({ name, priority, make, sleeping, expires: this.t + o.queue });
       return !!o.queue;
     }
@@ -290,16 +309,25 @@ export class Attention {
     return this.act?.name ?? null;
   }
 
+  /** Whether an act by this name is running or waiting. */
+  has(name: string): boolean {
+    return this.act?.name === name || this.queue.some((q) => q.name === name);
+  }
+
   /** Stops an act by name, running or waiting (the caption it was reading has gone). */
   cancel(name: string) {
     this.queue = this.queue.filter((q) => q.name !== name);
     if (this.act?.name === name) this.stopAct();
   }
 
-  /** For acts: where the eyes go ("you": the pointer; "hold": where they are now; null: their own choice). */
+  /**
+   * For acts: where the eyes go ("you": the pointer; "hold": where they are now; null: their own
+   * choice). `how` shapes this one turn (a snap, a quick turn) and is spent on the next frame's
+   * aim, even if the act has moved on to its next step by then.
+   */
   look(where: Where | "you" | "hold" | null, how?: LookHow) {
     this.actGaze = where;
-    this.actHow = how;
+    if (how) this.actHow = how;
     this.held = where === "hold" ? this.gazeNow : null;
   }
 
@@ -315,7 +343,7 @@ export class Attention {
     this.arousal = Math.min(0.45, this.arousal + 0.3);
     this.ch.pauseBreath(STARTLE.pause);
     this.ch.widen(STARTLE.widen, STARTLE.widenFor);
-    this.ch.tiltToward(at.x < this.o.head().x ? -1 : 1);
+    if (!this.steadying) this.ch.tiltToward(at.x < this.o.head().x ? -1 : 1); // reading keeps its head level
   }
 
   /** For acts: no curious tilts while it concentrates (reading); the head comes level. */
@@ -354,6 +382,7 @@ export class Attention {
     const a = this.act;
     this.act = null;
     this.actGaze = null;
+    this.actHow = undefined;
     this.held = null;
     if (a) {
       a.gen.return();
@@ -512,8 +541,11 @@ export class Attention {
       gaze = c.at;
       fixate = c.fixate;
     }
-    this.aim(gaze, fixate, this.act ? this.actHow : undefined);
-    if (this.act && this.actHow === "snap") this.actHow = undefined; // a snap happens once
+    // an act's snap or quick turn goes with this aim and is spent: a quick turn stiffens the head
+    // for that turn only, and a snap is already there
+    const how = this.act && this.actGaze !== null ? this.actHow : undefined;
+    this.actHow = undefined;
+    this.aim(gaze, fixate, how);
   }
 
   private resolve(w: Where | "you" | "hold"): Point | null {
@@ -678,7 +710,7 @@ export class Attention {
     if (this.mood === "awake" && !this.listening && this.t - this.wokeAt > 2) {
       if (this.hours === "night" && still > IDLE.night) this.play("dozeOff", 8, () => dozeOff(this), { sleeping: true });
       else if (this.hours !== "night" && still > IDLE.doze) this.play("doze", 8, () => doze(this), { sleeping: true });
-    } else if (this.mood === "dozing" && still < 0.5 && this.t - this.moodAt > 1) {
+    } else if (this.mood === "dozing" && still < 0.5 && this.canStir()) {
       this.play("stir", 8, () => stir(this, true), { sleeping: true });
     } else if (this.mood === "asleep") {
       const you = this.you();

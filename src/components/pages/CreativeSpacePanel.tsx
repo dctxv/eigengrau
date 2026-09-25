@@ -51,6 +51,15 @@ const readLines = new Set<string>();
 let phoneCaptionShown = false;
 /** When this session first saw each now-playing track, for the stale cap. */
 const firstSeen = new Map<string, number>();
+/**
+ * What the last poll said (in memory, across tab changes), so coming back to tab 1 at night while
+ * he plays something does not show it asleep until this mount's own first poll answers.
+ */
+let lastNow: { track: Track | null; at: number } | null = null;
+/** How old that answer may be and still be believed (the poll runs once a minute). */
+const NOW_FRESH_MS = 2 * 60 * 1000;
+/** At night, with nothing known yet, Urchi waits this long (ms, at most) for the poll before it appears. */
+const NIGHT_WAIT = 800;
 
 /** The scene's side of the game, reachable from the board's React handlers. */
 type Game = {
@@ -125,6 +134,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const motes = new Motes(room, att, { reducedMotion });
     Object.assign(stageEl, { __room: room, __att: att, __motes: motes }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
+    let stopArrive: (() => void) | null = null;
     let openTimer: gsap.core.Tween | null = null;
 
     // ---- the caption: Urchi's name over one of his lines, a state, what's new, or the game's result
@@ -171,15 +181,22 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const line = URCHI_LINES[Math.floor(Math.random() * URCHI_LINES.length)];
     let playing: Track | null = null;
     const hoverLine = (): { text: string; readable: boolean } => {
-      if (att.asleep) return { text: fillLine(URCHI_STATES.asleep, { time: clock().text }), readable: false };
+      // The night's sleep only: dozing off in daylight is not "asleep" at 14:05
+      if (att.mood === "asleep") return { text: fillLine(URCHI_STATES.asleep, { time: clock().text }), readable: false };
       if (att.listening && playing) {
         const l = fillLine(URCHI_STATES.listening, { title: playing.title });
         return { text: l.length > LINE_MAX ? URCHI_STATES.listeningLong : l, readable: false };
       }
       return { text: line.text, readable: true };
     };
-    /** His line rises and Urchi reads it (once per line per visit; after that, a glance down). Not its states: it is asleep, or listening. */
+    /**
+     * His line rises and Urchi reads it (once per line per visit; after that, a glance down). Not
+     * its states: it is asleep, or listening. A first reading waits for whatever Urchi is busy
+     * with (waking, a look at what is new, a mote) for as long as the line stays up: the caption
+     * sinking or changing cancels it.
+     */
     const readCaption = (text: string) => {
+      if (att.has("read")) return;
       const words = () => wordsOf(lineSpan);
       if (readLines.has(text)) {
         att.play("read", 2, () => glanceDown(att, words()), { queue: 0.6 });
@@ -192,7 +209,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
           readLines.add(text); // read once it has begun, not merely asked
           return read(att, words(), line.reaction);
         },
-        { queue: 1 },
+        { queue: Infinity },
       );
     };
     const showUrchiCaption = (kind: Slot = "hover", dwell?: number) => {
@@ -202,22 +219,35 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     };
     const setOverUrchi = (on: boolean) => {
       if (on === overUrchi) return;
+      // Dozing, the pointer arriving stirs it first, so its caption is decided awake.
+      if (on) att.rouse();
       overUrchi = on;
       cursor.set(on ? (att.asleep ? "Wake" : "Threshold") : null);
       if (slot && slot !== "hover") return;
-      if (on) showUrchiCaption();
-      else {
+      if (on) {
+        // You came to it: it stops looking back at the tab you left (or at the "4") and reads.
+        att.cancel("comeBack");
+        att.cancel("listenGlance");
+        showUrchiCaption();
+      } else {
         slot = null;
         att.cancel("read");
         hideCaption();
       }
     };
 
-    // Falling asleep or waking under the pointer: the caption and the label follow.
+    // Falling asleep or waking under the pointer: the label follows, and the caption when its words change.
     moodChanged = () => {
       if (!overUrchi) return;
       cursor.set(att.asleep ? "Wake" : "Threshold");
-      if (!slot || slot === "hover") showUrchiCaption();
+      if (slot && slot !== "hover") return;
+      const { text, readable } = hoverLine();
+      if (slot === "hover" && lineSpan.textContent === text) {
+        if (readable) readCaption(text); // the same line, and awake now to read it
+        return;
+      }
+      att.cancel("read");
+      showUrchiCaption();
     };
 
     // ---- Threshold: the door, the stack, the result
@@ -329,7 +359,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         att.play("news", 2, () =>
           tug(att, () => pillAt(news.href), () => {
             say("news", news.label, news.line, { dwell: NEWS.dwell });
-            if (live.current) live.current.textContent = news.line;
+            if (live.current) live.current.textContent = `${news.label}. ${news.line}`;
             att.nodAt(news.href);
           }),
         );
@@ -347,6 +377,16 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     });
 
     // Is he playing something? The same poll Music uses; a track playing for over 15 minutes is stale.
+    const hear = (track: Track | null) => {
+      playing = track;
+      if (track && !att.listening) listenGlance = att.t + rand(...LISTEN_GLANCE.first);
+      att.setListening(!!track);
+    };
+    /** The first answer's other listener: a night arrival waiting on it. */
+    let onHeard = () => {};
+    // The last answer, if it is recent, holds until this mount's own poll comes back.
+    const known = lastNow && Date.now() - lastNow.at < NOW_FRESH_MS ? lastNow : null;
+    if (known) hear(known.track);
     const stopPoll = pollNow((r) => {
       const now = r.now;
       let on = false;
@@ -355,9 +395,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         if (!firstSeen.has(key)) firstSeen.set(key, Date.now());
         on = Date.now() - firstSeen.get(key)! < STALE_MS;
       }
-      playing = on ? now : null;
-      if (on && !att.listening) listenGlance = att.t + rand(...LISTEN_GLANCE.first);
-      att.setListening(on);
+      lastNow = { track: on ? now : null, at: Date.now() };
+      hear(lastNow.track);
+      onHeard();
     });
 
     if (playIntro) {
@@ -371,15 +411,34 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         () => begin(true),
       );
     } else {
-      // No intro, and nothing to load: Urchi is simply there.
+      // No intro, and nothing to load: Urchi is simply there. At night, when nobody knows yet
+      // whether he is playing something, it waits a moment for the poll before it appears, so it
+      // arrives asleep or listening rather than waking the moment the answer lands.
       gsap.set([side.current, monogram.current, counter.current], { display: "none" });
-      room.showUrchi(0.6);
-      begin(false);
+      let arrived = false;
+      // A real timer, not gsap's: its clock can jump ahead after a long first frame.
+      let arriveTimer = 0;
+      const arrive = () => {
+        if (arrived) return;
+        arrived = true;
+        window.clearTimeout(arriveTimer);
+        room.showUrchi(0.6);
+        begin(false);
+      };
+      if (!known && clock().hours === "night") {
+        onHeard = arrive;
+        arriveTimer = window.setTimeout(arrive, NIGHT_WAIT);
+      } else arrive();
       setFlag("loadingComplete", true);
       setFlag("exploded", true);
       setFlag("pageReady", true);
       // Arriving at the door: the board opens once the chrome has landed.
-      if (hashGame) openTimer = gsap.delayedCall(DUR.drop + 0.2, () => openGame());
+      if (hashGame)
+        openTimer = gsap.delayedCall(DUR.drop + 0.2, () => {
+          arrive();
+          openGame();
+        });
+      stopArrive = () => window.clearTimeout(arriveTimer);
     }
 
     // ---- pointer: hover and click on Urchi; a tap on the empty room lets a mote go
@@ -413,6 +472,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
 
     return () => {
       stopIntro?.();
+      stopArrive?.();
       openTimer?.kill();
       slotTimer?.kill();
       stopPoll();
