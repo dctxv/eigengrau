@@ -147,7 +147,8 @@ export function runIntro(refs: IntroRefs, room: RoomScene, onSettled?: () => voi
       .add(() => room.urchi.fade(1, T.eyesIn, 0, 0), T.eyes)
       .add(() => room.urchi.openEyes(T.openFor), T.open)
       .add(() => urchi.blink(), T.blink)
-      // The head, from the eyes out, on an in-breath.
+      // The head, from the eyes out, on an in-breath, swallowing the ring as it grows.
+      .add(() => ring.behind(), T.build)
       .add(() => urchi.deepBreath(T.breath - T.build, T.exhale, T.depth), T.build)
       .to(reveal, { r: 1, duration: T.buildFor, ease: "sine.in", onUpdate: () => urchi.setReveal(reveal.r) }, T.build)
       // First breath.

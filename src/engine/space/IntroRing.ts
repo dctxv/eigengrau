@@ -74,7 +74,7 @@ export class IntroRing {
     const picked = new Set<number>();
     for (let k = 0; k < RING.count && n; k++) picked.add(Math.round((k * n) / RING.count) % n);
     this.sources = [...picked].map((i) => items[i]);
-    // Over Urchi: the head builds under the ring, and the breath clears it.
+    // Over Urchi while there are only its eyes; behind it once the head builds (see behind).
     this.group.renderOrder = 10;
     room.scene.add(this.group);
     this.stopFrame = room.onFrame((dt) => this.frame(dt));
@@ -93,7 +93,7 @@ export class IntroRing {
     }
     this.sources.forEach((source, slot) => {
       const l = loaded[slot];
-      // Transparent only so it sorts with Urchi (also transparent) by renderOrder, and draws over it.
+      // Transparent only so it sorts with Urchi (also transparent) by renderOrder.
       const mat = new THREE.MeshBasicMaterial({ map: l.texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
       const mesh = new THREE.Mesh(this.geo, mat);
       mesh.renderOrder = 10;
@@ -142,6 +142,16 @@ export class IntroRing {
     const radius = eyes.reach + DRAW.gap * scale + thumb / 2;
     gsap.to(this, { radius: radius / this.fit, thumb: thumb / this.thumbFit, duration, ease: "power2.in", overwrite: true });
     gsap.to(this.centre, { x: eyes.x, y: eyes.y, duration, ease: "power2.inOut" });
+  }
+
+  /**
+   * The head is about to build out from the eyes: the ring goes behind Urchi, so the head
+   * swallows the pieces as it grows over them (rather than wearing them on its face), and the
+   * breath blows them out from behind it.
+   */
+  behind() {
+    this.group.renderOrder = -1;
+    this.pieces.forEach((p) => (p.mesh.renderOrder = -1));
   }
 
   /**

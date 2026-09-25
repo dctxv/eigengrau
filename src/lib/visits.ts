@@ -152,6 +152,6 @@ export function whatsNew(prev: number | null = lastVisit(), now = new Date()): N
   const line =
     href === "/notes"
       ? fillLine(fresh.length === 1 ? URCHI_NEWS.note : URCHI_NEWS.notes, { count: numberWord(fresh.length), date: sinceWords })
-      : fillLine(URCHI_NEWS.changed, { tab: label, date: sinceWords });
+      : fillLine(URCHI_NEWS.changed, { date: sinceWords });
   return { href, label, line };
 }

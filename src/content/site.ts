@@ -76,14 +76,14 @@ export const URCHI_STATES = {
 };
 
 /**
- * What Urchi's look at a tab's pill means, said once in the caption: what
- * changed since the visitor's last visit. {count} is a number word, {date}
- * that visit's day ("12 September"), {tab} the tab's label.
+ * What Urchi's look at a tab's pill means, said once in the caption under
+ * that tab's label ("Notes", "Projects"): what changed since the visitor's
+ * last visit. {count} is a number word, {date} that visit's day ("12 September").
  */
 export const URCHI_NEWS = {
   note: "{count} new note since {date}.",
   notes: "{count} new notes since {date}.",
-  changed: "{tab} has changed since {date}.",
+  changed: "Changed since {date}.",
 };
 
 /** A caption template with its {placeholders} filled. */
