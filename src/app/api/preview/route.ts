@@ -6,6 +6,12 @@ const SEARCH = "https://itunes.apple.com/search";
 const DAY = 86400;
 /** Nothing Last.fm calls a song or an artist is longer than this. */
 const MAX_PARAM = 200;
+/**
+ * How long Apple may take: the search, answer and all, and the preview only
+ * until its headers arrive, since its body then streams at its own pace.
+ */
+const SEARCH_MS = 5_000;
+const AUDIO_MS = 10_000;
 
 type Result = {
   wrapperType?: string;
@@ -95,7 +101,9 @@ const silence = (cache: boolean) =>
  * filter it (through the wall). Only a confident match plays: no match is a
  * 404, because a wrong song through the wall is worse than none. The Apple
  * Music page for the track rides along in X-Preview-Link, for the attribution
- * under the sleeve. Cached for a day.
+ * under the sleeve. Cached for a day. Apple taking too long, or the visitor
+ * moving off the title, ends the request (and the download) in a silence that
+ * is not cached, so the next rest on the title asks again.
  */
 export async function GET(req: NextRequest) {
   const artist = req.nextUrl.searchParams.get("artist")?.trim() ?? "";
@@ -105,7 +113,10 @@ export async function GET(req: NextRequest) {
     // Search on the title without its tags: Apple's index does better on the bare name.
     const bare = title.replace(/\s*(?:\([^()]*\)|\[[^[\]]*\])\s*$/g, "").replace(/\s-\s.*$/, "") || title;
     const q = new URLSearchParams({ term: `${artist} ${bare}`, entity: "song", media: "music", limit: "10" });
-    const res = await fetch(`${SEARCH}?${q}`, { next: { revalidate: DAY } });
+    const res = await fetch(`${SEARCH}?${q}`, {
+      next: { revalidate: DAY },
+      signal: AbortSignal.any([req.signal, AbortSignal.timeout(SEARCH_MS)]),
+    });
     if (!res.ok) return silence(false);
     const { results = [] } = (await res.json()) as { results?: Result[] };
     const ranked = results
@@ -114,7 +125,12 @@ export async function GET(req: NextRequest) {
       .sort((x, y) => y.c - x.c || x.i - y.i);
     const pick = ranked.find((x) => apple(x.r.previewUrl, ["apple.com", "mzstatic.com"]));
     if (!pick) return silence(true);
-    const audio = await fetch(apple(pick.r.previewUrl, ["apple.com", "mzstatic.com"])!, { next: { revalidate: DAY } });
+    const late = new AbortController();
+    const timer = setTimeout(() => late.abort(new DOMException("The preview took too long to start", "TimeoutError")), AUDIO_MS);
+    const audio = await fetch(apple(pick.r.previewUrl, ["apple.com", "mzstatic.com"])!, {
+      next: { revalidate: DAY },
+      signal: AbortSignal.any([req.signal, late.signal]),
+    }).finally(() => clearTimeout(timer));
     if (!audio.ok || !audio.body) return silence(false);
     const headers = new Headers({
       "Content-Type": audio.headers.get("content-type") ?? "audio/mp4",
@@ -126,6 +142,7 @@ export async function GET(req: NextRequest) {
     if (link) headers.set("X-Preview-Link", link);
     return new Response(audio.body, { headers });
   } catch {
+    // A network failure, a TimeoutError or the visitor's AbortError: none of them is Apple's answer.
     return silence(false);
   }
 }
