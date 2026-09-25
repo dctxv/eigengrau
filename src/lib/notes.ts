@@ -150,7 +150,11 @@ export function tagSentence(tag: string, count: number): Piece[] {
   return w.out;
 }
 
-/** "containing ‘cache’. One." and, inside a tag, "containing ‘cache’. One on psychology. All notes." */
+/**
+ * "containing ‘cache’. One. All notes." and, inside a tag, "containing ‘cache’. One on psychology.
+ * All notes." Once something is asked there is always a way back that is not the Esc key, which a
+ * phone's keyboard does not have.
+ */
 export function findSentence(query: string, count: number, tag: string | null): Piece[] {
   const w = new Writer();
   const asked = query.trim() !== "";
@@ -165,7 +169,7 @@ export function findSentence(query: string, count: number, tag: string | null): 
       w.say("n", `${n}.`);
     }
   }
-  if (tag) w.out.push({ kind: "all", key: "all" });
+  if (asked || tag) w.out.push({ kind: "all", key: "all" });
   return w.out;
 }
 
@@ -217,9 +221,11 @@ export type Settled = { recent: Note[]; months: Month[]; years: Year[] };
 const RECENT_DAYS = 60;
 
 /**
- * The column as sediment: the last sixty days in full, each older month as one line, and whole
- * years older than a year as one line each, which open into their months. With no notes in the
- * last sixty days the newest month stays open, so the top of the column is never only summaries.
+ * The column as sediment: the last sixty days in full, each older month as one line, and the
+ * months older than a year as one line per year, which opens into them. A month joins its year once
+ * all of it is more than a year old, so the newest year line can hold only the start of its year,
+ * just under that year's later months. With no notes in the last sixty days the newest month stays
+ * open, so the top of the column is never only summaries.
  */
 export function settle(today: Date): Settled {
   if (!SETTLES) return { recent: ENTRIES, months: [], years: [] };
@@ -229,8 +235,8 @@ export function settle(today: Date): Settled {
   if (!ENTRIES.some((n) => n.date >= from)) from = `${ENTRIES[0].date.slice(0, 7)}-01`;
   const yearAgo = new Date(today);
   yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-  // Only a whole year folds into one line, so no year is ever split between a line and its months.
-  const foldBefore = yearAgo.getFullYear();
+  // The month a year ago is still partly within the year, so it keeps its own line.
+  const foldBefore = localDay(yearAgo.getTime()).slice(0, 7);
 
   const recent: Note[] = [];
   const months = new Map<string, Month>();
@@ -242,7 +248,7 @@ export function settle(today: Date): Settled {
     }
     const m = n.date.slice(0, 7);
     const y = n.date.slice(0, 4);
-    const inYear = +y < foldBefore;
+    const inYear = m < foldBefore;
     let month = months.get(m);
     if (!month) {
       month = { id: m, label: dot(m), year: inYear ? y : null, entries: [] };
@@ -263,7 +269,9 @@ export function settle(today: Date): Settled {
 export function groupsOf(n: Note, settled: Settled): string[] {
   if (settled.recent.includes(n)) return [];
   const m = n.date.slice(0, 7);
-  return settled.years.some((y) => y.id === n.date.slice(0, 4)) ? [n.date.slice(0, 4), m] : [m];
+  // A year's line holds only its months past the year, so ask the year, not the date.
+  const year = settled.years.find((y) => y.months.some((mo) => mo.id === m));
+  return year ? [year.id, m] : [m];
 }
 
 /**

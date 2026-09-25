@@ -517,6 +517,8 @@ button {
 .notes-head {
   font: 400 16px/24px var(--font-serif);
   margin: 0 0 64px;
+  /* So the find field can know the column's width from inside the words. */
+  container-type: inline-size;
 }
 .notes-head .mask > span {
   animation: notes-rise 0.9s cubic-bezier(0.23, 1, 0.32, 1) var(--d, 0s) both;
@@ -533,19 +535,38 @@ button {
   margin-right: 0.28em;
   cursor: text;
 }
-/* Underlined only under the pointer. */
+/* Underlined only under the pointer. The head's words ride their own masks, so the line goes on them. */
 @media (hover: hover) {
   .notes-tag:hover,
+  .notes-head .notes-tag:hover .mask > span,
   .note-tag:hover,
   .notes-line:hover .notes-count {
     text-decoration: underline 1px;
     text-underline-offset: 3px;
   }
 }
-/* The field sizes to what is typed, with a pixel for the caret. */
+/*
+ * The keyboard finds the words as the pointer does, underlined. A ring would be clipped by their
+ * masks, or cross the lines above and below. The rows and a note just unfolded keep the ring.
+ */
+.notes-column button:not(.note-row):focus-visible {
+  outline: none;
+}
+.notes-head button:focus-visible .mask > span,
+.note-tag:focus-visible,
+.notes-line .notes-tag:focus-visible,
+.notes-fold:focus-visible .notes-count {
+  text-decoration: underline 1px;
+  text-underline-offset: 3px;
+}
+/*
+ * The field sizes to what is typed, with a pixel for the caret, up to the column less room for its
+ * closing quote. Past that the text scrolls inside it, so a long search never widens the page.
+ */
 .notes-q {
   display: inline-grid;
   vertical-align: top;
+  max-width: calc(100cqi - 1em);
 }
 .notes-q::after,
 .notes-q input {
@@ -558,6 +579,7 @@ button {
   content: attr(data-v);
   visibility: hidden;
   white-space: pre;
+  overflow: hidden;
 }
 /* Its own width counts for nothing; the typed text beside it sets the size. */
 .notes-q input {
@@ -569,10 +591,15 @@ button {
   background: none;
   color: inherit;
   caret-color: var(--ink);
+  text-overflow: ellipsis;
 }
 
 .note {
   position: relative;
+}
+/* A note the keyboard has just unfolded holds focus; its ring stands clear of the text. */
+.note:focus-visible {
+  outline-offset: 8px;
 }
 /* Its own formatting context, so nothing inside collapses margins through it as it folds. */
 .note-full {
@@ -710,19 +737,36 @@ button {
   padding: 10px 0 24px;
 }
 
-/* A phone has no pointer to aim: tags and rows get 32px targets, and their masks make room. */
+/*
+ * A phone has no pointer to aim: tags and rows get 32px targets, and their masks make room. A tag's
+ * target is centred on the word and at least 32px wide, so "ai" is as easy to hit as "psychology",
+ * and a note's tags sit a little further apart so no target reaches over its neighbour's letters.
+ */
 @media (hover: none), (max-width: 640px) {
   .note-meta-mask,
   .note-log .mask,
   .notes-line .mask {
-    padding: 9px 0;
-    margin: -9px 0;
+    padding: 9px 16px;
+    margin: -9px -16px;
   }
   .note-tag::after,
-  .notes-line .notes-tag::after {
+  .notes-tag::after {
     content: "";
     position: absolute;
-    inset: -9px -6px;
+    top: -9px;
+    bottom: -9px;
+    left: 50%;
+    width: max(100%, 32px);
+    translate: -50% 0;
+  }
+  .note-tag + .note-tag {
+    margin-left: 8px;
+  }
+  /* The head's buttons are 32px tall already; above the plain words beside them, which ride their own layers. */
+  .notes-head .notes-tag::after {
+    top: 0;
+    bottom: 0;
+    z-index: 1;
   }
   .note-row::before {
     inset: -8px 0;

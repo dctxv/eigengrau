@@ -38,12 +38,33 @@ const THIN_AFTER = 20;
 const FOLD = 0.5;
 const ENTER_COUNT = 8;
 const STAGGER = 0.08;
+/** Finding opens the sediment's months that hold a match only when there are at most this many. */
+const FIND_OPENS = 12;
+/** How far past the edges of the screen a fold still moves; beyond it, it is set. */
+const NEAR = 240;
 
 const BY_ID = new Map(ENTRIES.map((n) => [n.id, n]));
 const EMPTY: ReadonlySet<string> = new Set();
 /** The rule is as long as the note was, to scale: 20px for a line, the column for an essay. */
 const ruleWidth = (n: Note) => Math.round(Math.min(450, Math.max(20, n.body.length * 1.6)));
 const spansOf = (el: Element) => Array.from(el.querySelectorAll<HTMLElement>(".mask > span, .note-new"));
+/**
+ * Clears what gsap left on these, if it left anything. Clearing a transform makes gsap read it back,
+ * a layout each, and a month opening for the first time has nothing on it to clear.
+ */
+const unset = (els: HTMLElement[]) => {
+  const touched = els.filter((el) => el.style.transform || el.style.opacity);
+  if (touched.length) gsap.set(touched, { clearProps: "transform,opacity" });
+};
+
+/** The hash as an anchor. A hand-typed one can be malformed, and that should land nowhere, not break the page. */
+function readHash(): string {
+  try {
+    return decodeURIComponent(window.location.hash.slice(1));
+  } catch {
+    return "";
+  }
+}
 
 function readTag(): string | null {
   const t = new URLSearchParams(window.location.search).get("tag");
@@ -68,7 +89,8 @@ type Group = { id: string; line: HTMLElement; body: HTMLElement; parent: string 
 /**
  * The column's folds, done by hand so they can move: notes folding into rules and back, and the
  * sediment's months and years opening under their lines. React draws every note once; this keeps
- * each one's shape. Only what can be seen moves; anything hidden is set when its group opens.
+ * each one's shape. Only what can be seen moves: anything hidden is set when its group opens, and
+ * anything well off screen is set where it will be.
  * Folded text is hidden="until-found", so the browser's own find still reaches it.
  */
 class Folds {
@@ -126,18 +148,20 @@ class Folds {
     const was = this.shape;
     this.shape = this.shapes(folded);
     this.open = open;
-    const moves: (() => void)[] = [];
+    const opening: Group[] = [];
+    const closing: Group[] = [];
+    const folding: string[] = [];
+    const unfolding: string[] = [];
 
     // Groups, outermost first. Those in sight open and close; the rest are set as they come into sight.
     for (const g of this.groups.values()) {
       const want = open.has(g.id);
       if (want === before.has(g.id) || !this.shown(open, g.parent)) continue;
-      if (animate && this.shown(before, g.parent)) moves.push(() => (want ? this.expand(g) : this.collapse(g)));
+      if (animate && this.shown(before, g.parent)) (want ? opening : closing).push(g);
       else this.sync(g.id);
     }
 
     // Notes that were and stay in sight fold and unfold. Unfolding ones rise one after another.
-    let k = 0;
     for (const [c, ids] of this.lists) {
       const inSight = (o: ReadonlySet<string>) => c === "recent" || this.shown(o, c);
       if (!inSight(open) || !inSight(before)) continue;
@@ -146,15 +170,55 @@ class Folds {
         const b = this.shape.get(id)!;
         if (a.folded === b.folded && a.margin === b.margin && a.thin === b.thin) continue;
         if (!animate) this.put(id);
-        else if (a.folded === b.folded) moves.push(() => this.reshape(id));
-        else if (b.folded) moves.push(() => this.fold(id));
-        else {
-          const delay = Math.min(k++, ENTER_COUNT) * STAGGER;
-          moves.push(() => this.unfold(id, delay));
-        }
+        else if (a.folded === b.folded) this.reshape(id);
+        else (b.folded ? folding : unfolding).push(id);
       }
     }
-    moves.forEach((m) => m());
+
+    // Every size and place is read before anything is written, and every height things open to
+    // after, so the page lays out twice however much moves, not once for each note and month. What
+    // is well off screen is set rather than moved: nobody sees it, and at a few hundred notes one
+    // letter typed can open a dozen months.
+    const rect = (el: HTMLElement) => el.getBoundingClientRect();
+    const near = (r: DOMRect) => r.bottom > -NEAR && r.top < window.innerHeight + NEAR;
+    // Read: where everything is and how tall.
+    const foldRect = folding.map((id) => rect(this.items.get(id)!.el));
+    const unfoldRect = unfolding.map((id) => rect(this.items.get(id)!.el));
+    const closeRect = closing.map((g) => rect(g.body));
+    const openSeen = opening.map((g) => near(rect(g.line)));
+    const closeSeen = closing.map((g, i) => near(rect(g.line)) || near(closeRect[i]));
+    const foldSeen = foldRect.map(near);
+    const unfoldSeen = unfoldRect.map(near);
+    // Write: set what is out of sight, and let out what opens so it can be measured.
+    folding.forEach((id, i) => {
+      if (!foldSeen[i]) this.put(id);
+    });
+    unfolding.forEach((id, i) => {
+      if (!unfoldSeen[i]) this.put(id);
+    });
+    closing.forEach((g, i) => {
+      if (!closeSeen[i]) this.sync(g.id);
+    });
+    opening.forEach((g) => this.sync(g.id));
+    const atRest = unfolding.map((id, i) => unfoldSeen[i] && this.release(id));
+    // Read: the heights they open to, and which of the lines and notes inside can be seen.
+    const openTo = opening.map((g, i) => (openSeen[i] ? rect(g.body).height : 0));
+    const unfoldTo = unfolding.map((id, i) => (unfoldSeen[i] ? rect(this.items.get(id)!.el).height : 0));
+    const risers = opening.map((g, i) => (openSeen[i] ? this.kids(g.id).filter((el) => near(rect(el))) : []));
+    // Write: the moves.
+    let k = 0;
+    folding.forEach((id, i) => {
+      if (foldSeen[i]) this.fold(id, foldRect[i].height);
+    });
+    unfolding.forEach((id, i) => {
+      if (unfoldSeen[i]) this.unfold(id, unfoldRect[i].height, unfoldTo[i], atRest[i], Math.min(k++, ENTER_COUNT) * STAGGER);
+    });
+    closing.forEach((g, i) => {
+      if (closeSeen[i]) this.collapse(g, closeRect[i].height);
+    });
+    opening.forEach((g, i) => {
+      if (openSeen[i]) this.expand(g, openTo[i], risers[i]);
+    });
     this.mark();
   }
 
@@ -164,8 +228,10 @@ class Folds {
     const s = this.shape.get(id)!;
     const spans = spansOf(it.full);
     gsap.killTweensOf([it.el, it.rule, ...spans]);
-    gsap.set(it.el, { clearProps: "height", marginTop: s.margin });
-    gsap.set([it.rule, ...spans], { clearProps: "transform,opacity" });
+    // Straight onto the style: gsap.set would read the margin back first, a layout for every note.
+    it.el.style.height = "";
+    it.el.style.marginTop = `${s.margin}px`;
+    unset([it.rule, ...spans]);
     it.el.removeAttribute("data-moving");
     it.el.toggleAttribute("data-folded", s.folded);
     it.el.toggleAttribute("data-thin", s.thin);
@@ -177,7 +243,7 @@ class Folds {
   private sync(id: string) {
     const g = this.groups.get(id)!;
     gsap.killTweensOf(g.body);
-    gsap.set(g.body, { clearProps: "height" });
+    g.body.style.height = "";
     g.body.removeAttribute("data-moving");
     if (!this.open.has(id)) {
       g.body.setAttribute("hidden", "until-found");
@@ -187,21 +253,20 @@ class Folds {
     this.lists.get(id)?.forEach((i) => this.put(i));
     for (const child of this.groups.values()) {
       if (child.parent !== id) continue;
-      gsap.set(spansOf(child.line), { clearProps: "transform,opacity" });
+      unset(spansOf(child.line));
       this.sync(child.id);
     }
   }
 
   /** The text drops through its mask while the note closes to its row, and the rule draws in. */
-  private fold(id: string) {
+  private fold(id: string, from: number) {
     const it = this.items.get(id)!;
     const s = this.shape.get(id)!;
     const spans = spansOf(it.full);
     gsap.killTweensOf([it.el, it.rule, ...spans]);
-    const from = it.el.getBoundingClientRect().height;
     it.el.setAttribute("data-moving", "");
     it.el.toggleAttribute("data-thin", s.thin);
-    gsap.set(it.el, { height: from });
+    it.el.style.height = `${from}px`;
     gsap.to(spans, { yPercent: 100, opacity: 0, duration: 0.28, ease: "power2.in", stagger: 0.015 });
     gsap.fromTo(it.rule, { scaleX: 0, opacity: 1 }, { scaleX: 1, duration: 0.36, ease: EASE.tab, delay: 0.2 });
     gsap.to(it.el, {
@@ -219,20 +284,24 @@ class Folds {
     });
   }
 
-  /** The rule fades, the row opens to the note's height and its text rises back. */
-  private unfold(id: string, delay: number) {
+  /** A note about to unfold, let out to its full height so it can be measured. True if it was at rest folded. */
+  private release(id: string): boolean {
     const it = this.items.get(id)!;
-    const s = this.shape.get(id)!;
-    const spans = spansOf(it.full);
-    gsap.killTweensOf([it.el, it.rule, ...spans]);
-    const from = it.el.getBoundingClientRect().height;
+    gsap.killTweensOf([it.el, it.rule, ...spansOf(it.full)]);
     const atRest = it.el.hasAttribute("data-folded");
     it.full.removeAttribute("hidden");
     it.el.removeAttribute("data-folded");
     it.el.setAttribute("data-moving", "");
-    gsap.set(it.el, { height: "auto" });
-    const to = it.el.getBoundingClientRect().height;
-    gsap.set(it.el, { height: from });
+    it.el.style.height = "auto";
+    return atRest;
+  }
+
+  /** The rule fades, the row opens to the note's height and its text rises back. */
+  private unfold(id: string, from: number, to: number, atRest: boolean, delay: number) {
+    const it = this.items.get(id)!;
+    const s = this.shape.get(id)!;
+    const spans = spansOf(it.full);
+    it.el.style.height = `${from}px`;
     if (atRest) gsap.set(spans, { yPercent: 100, opacity: 0 });
     gsap.to(it.rule, { opacity: 0, duration: 0.15 });
     gsap.to(it.el, {
@@ -258,11 +327,9 @@ class Folds {
     gsap.to(it.el, { marginTop: s.margin, duration: FOLD, ease: EASE.inout, overwrite: "auto" });
   }
 
-  /** The line stays as the header; its notes, or its months, rise under it one after another. */
-  private expand(g: Group) {
-    this.sync(g.id);
+  /** The line stays as the header; its notes, or its months, rise under it one after another. Synced and measured already. */
+  private expand(g: Group, to: number, risers: HTMLElement[]) {
     const body = g.body;
-    const to = body.getBoundingClientRect().height;
     body.setAttribute("data-moving", "");
     gsap.fromTo(body, { height: 0 }, {
       height: to,
@@ -273,16 +340,16 @@ class Folds {
         gsap.set(body, { clearProps: "height" });
       },
     });
-    this.kids(g.id).forEach((el, i) => this.rise(el, 0.1 + Math.min(i, 10) * STAGGER));
+    risers.forEach((el, i) => this.rise(el, 0.1 + Math.min(i, 10) * STAGGER));
   }
 
-  private collapse(g: Group) {
+  private collapse(g: Group, from: number) {
     const body = g.body;
     gsap.killTweensOf(body);
     const spans = spansOf(body);
     body.setAttribute("data-moving", "");
     gsap.to(spans, { yPercent: 100, opacity: 0, duration: 0.25, ease: "power2.in", overwrite: "auto" });
-    gsap.fromTo(body, { height: body.getBoundingClientRect().height }, {
+    gsap.fromTo(body, { height: from }, {
       height: 0,
       duration: 0.45,
       ease: EASE.inout,
@@ -336,6 +403,12 @@ class Folds {
     while (a > 0 && this.shape.get(ids[a - 1])!.folded) a--;
     while (b < ids.length - 1 && this.shape.get(ids[b + 1])!.folded) b++;
     return ids.slice(a, b + 1);
+  }
+
+  /** The row that stands for the run a note is folded into, or null while the note is open. */
+  leadRow(id: string): HTMLElement | null {
+    const first = this.run(id)[0];
+    return first ? this.items.get(first)!.row : null;
   }
 
   /** Lifts a run's rules while the pointer is on it. */
@@ -503,11 +576,16 @@ export function NotesPanel() {
   const cursor = useRef<CursorLabel | null>(null);
   /** While true, apply sets rather than moves: a hash or the browser's find is already there. */
   const instant = useRef(false);
+  /**
+   * Where the keyboard goes once a change it made has been drawn. The control that made it is
+   * often gone by then (the sentence rewrites, a run's row closes), and focus would drop to the page.
+   */
+  const focusNext = useRef<(() => HTMLElement | null | undefined) | null>(null);
 
   const [today] = useState(() => localDay(Date.now()));
   const [settled] = useState(() => settle(new Date()));
   const [lastVisit] = useState(() => lastVisitDay(Date.now()));
-  const [landing] = useState(() => byAnchor(decodeURIComponent(window.location.hash.slice(1))));
+  const [landing] = useState(() => byAnchor(readHash()));
   const [tag, setTag] = useState(readTag);
   const [query, setQuery] = useState("");
   const [field, setField] = useState(false);
@@ -525,12 +603,15 @@ export function NotesPanel() {
     [tag, finding, match, unfolded],
   );
   const months = useMemo(() => [...settled.months, ...settled.years.flatMap((y) => y.months)], [settled]);
-  // While finding, the months that hold a match open by themselves.
+  // While finding, the months that hold a match open by themselves, once there are few enough of
+  // them to read down. Before that (a first letter matches nearly every month) the lines carry the
+  // counts, and the column does not lurch open and shut with each key.
   const shown = useMemo(() => {
     if (!finding) return open;
+    const found = months.filter((m) => m.entries.some(match));
+    if (found.length > FIND_OPENS) return open;
     const s = new Set(open);
-    for (const m of months) {
-      if (!m.entries.some(match)) continue;
+    for (const m of found) {
       if (!shut.has(m.id)) s.add(m.id);
       if (m.year && !shut.has(m.year)) s.add(m.year);
     }
@@ -577,6 +658,14 @@ export function NotesPanel() {
     folds.current?.apply(folded, shown, !instant.current && !prefersReducedMotion());
     instant.current = false;
   }, [folded, shown]);
+
+  // After the folds above, so a note that has just unfolded can take focus.
+  useLayoutEffect(() => {
+    const next = focusNext.current;
+    if (!next) return;
+    focusNext.current = null;
+    next()?.focus({ preventScroll: true });
+  });
 
   /** Keeps `el` where it is on screen while the column folds around it. */
   const hold = (el: HTMLElement | null) => {
@@ -674,19 +763,59 @@ export function NotesPanel() {
     folds.current?.hot([]);
     cursor.current?.set(null);
     setUnfolded((prev) => new Set([...prev, ...run]));
+    return run;
+  };
+
+  const inHead = (selector: string) => column.current?.querySelector<HTMLElement>(`.notes-head ${selector}`) ?? null;
+
+  /** A note that has just opened holds focus once, so the next Tab goes on from inside it. */
+  const noteFocus = (id: string) => {
+    const el = column.current?.querySelector<HTMLElement>(`.note[data-id="${CSS.escape(id)}"]`);
+    if (!el) return null;
+    el.tabIndex = -1;
+    el.addEventListener("blur", () => el.removeAttribute("tabindex"), { once: true });
+    return el;
+  };
+
+  /** "All notes.": back to the index, and from the keyboard, back onto the word that was on. */
+  const pressAll = (e: React.MouseEvent) => {
+    const was = tag;
+    clearAll();
+    if (e.detail === 0) focusNext.current = () => (was && inHead(`[data-tag="${CSS.escape(was)}"]`)) || inHead(".notes-lead");
+  };
+
+  /** "four more": the rest of the categories, and from the keyboard, the first of them. */
+  const pressMore = (e: React.MouseEvent) => {
+    const had = new Set(pieces.flatMap((p) => (p.kind === "tag" ? [p.tag] : [])));
+    setMore(true);
+    if (e.detail === 0)
+      focusNext.current = () => [...(column.current?.querySelectorAll<HTMLElement>(".notes-head [data-tag]") ?? [])].find((el) => !had.has(el.dataset.tag!));
   };
 
   const onClick = (e: React.MouseEvent) => {
     const t = e.target as HTMLElement;
+    // Enter or Space on a button, or a screen reader's click: the keyboard has to land somewhere after.
+    const keys = e.detail === 0;
     const tagEl = t.closest<HTMLElement>("[data-tag]");
     if (tagEl) {
-      const next = tagEl.dataset.tag!;
-      filter(tag === next ? null : next, tagEl.closest<HTMLElement>(".note, .notes-line"));
+      const next = tag === tagEl.dataset.tag ? null : tagEl.dataset.tag!;
+      const holder = tagEl.closest<HTMLElement>(".note, .notes-line");
+      const fromHead = tagEl.closest(".notes-head") !== null;
+      filter(next, holder);
+      if (keys)
+        focusNext.current = () => {
+          if (fromHead) return inHead(next ? ".notes-all" : ".notes-lead");
+          if (!holder) return null;
+          // A month's line says the count instead of its tag once a tag is on; its count stays.
+          if (holder.classList.contains("notes-line")) return tagEl.isConnected ? null : holder.querySelector<HTMLElement>(".notes-fold");
+          return folds.current?.leadRow(holder.dataset.id!);
+        };
       return;
     }
     const row = t.closest<HTMLElement>(".note-row");
     if (row) {
-      unfoldRun(row.closest<HTMLElement>(".note")!.dataset.id!);
+      const run = unfoldRun(row.closest<HTMLElement>(".note")!.dataset.id!);
+      if (keys && run.length) focusNext.current = () => noteFocus(run[0]);
       return;
     }
     const line = t.closest<HTMLElement>("[data-toggle]");
@@ -737,7 +866,7 @@ export function NotesPanel() {
   });
 
   const onHash = useEffectEvent(() => {
-    const n = byAnchor(decodeURIComponent(window.location.hash.slice(1)));
+    const n = byAnchor(readHash());
     if (!n) return;
     instant.current = true;
     flushSync(() => {
@@ -809,7 +938,14 @@ export function NotesPanel() {
     <section ref={stage} className="stage stage-notes">
       <div ref={scroll} className="notes-scroll">
         <div ref={column} className="notes-column" onClick={onClick} onPointerOver={onOver} onPointerLeave={onLeave}>
-          <p className="notes-head">
+          <p
+            className="notes-head"
+            onMouseDown={(e) => {
+              // A press on "All notes." or the lead would blur an empty field first, which closes it
+              // and rewrites the sentence under the pointer before the click can land.
+              if (document.activeElement === input.current && (e.target as HTMLElement).closest("button")) e.preventDefault();
+            }}
+          >
             <button type="button" className="notes-lead" onClick={openField}>
               <span className="mask">
                 <span>Notes</span>
@@ -817,7 +953,9 @@ export function NotesPanel() {
               <span className="sr-only"> (find)</span>
             </button>
             {pieces.map((p, i) => {
-              const k = `${mode}/${p.key}`;
+              // The sentence rewrites whole when its mode changes, but "All notes." stays itself, so
+              // focus on it survives the field closing around it.
+              const k = p.kind === "all" ? "all" : `${mode}/${p.key}`;
               const d = { "--d": `${mode === "find" ? 0 : Math.min(i, 8) * 0.03}s` } as CSSProperties;
               const gap = i > 0 && !p.glue ? " " : "";
               if (p.kind === "word")
@@ -862,11 +1000,11 @@ export function NotesPanel() {
                   </Fragment>
                 );
               const text = p.kind === "tag" ? p.tag : p.kind === "more" ? p.text : "All notes.";
-              const onPress = p.kind === "more" ? () => setMore(true) : p.kind === "all" ? clearAll : undefined;
+              const onPress = p.kind === "more" ? pressMore : p.kind === "all" ? pressAll : undefined;
               return (
                 <Fragment key={k}>
                   {gap}
-                  <button type="button" className="notes-tag" data-tag={p.kind === "tag" ? p.tag : undefined} onClick={onPress}>
+                  <button type="button" className={p.kind === "all" ? "notes-tag notes-all" : "notes-tag"} data-tag={p.kind === "tag" ? p.tag : undefined} onClick={onPress}>
                     <span className="mask">
                       <span style={d}>{text}</span>
                     </span>
