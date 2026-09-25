@@ -65,6 +65,9 @@ export default async function CasePage({ params }: PageProps<"/projects/[slug]">
       <Link href={`/projects#${project.slug}`} className="case-back">
         Back
       </Link>
+      {/* The page runs to a few screens under the tab bar, so it wears the rims Notes and Music do. */}
+      <div className="case-rim case-rim-top" aria-hidden="true" />
+      <div className="case-rim case-rim-bottom" aria-hidden="true" />
     </main>
   );
 }

@@ -104,7 +104,30 @@ type Layout = {
 
 /** The heading's line, where the horizon had it and where Notes and Music set theirs. */
 const HEADING_Y = 206;
+/**
+ * Below this height the heading climbs toward the tab bar, about half a
+ * pixel for each pixel lost, so a phone held sideways still has room for the
+ * ball and its caption under it.
+ */
+const SHORT = 600;
+const SHORT_CLIMB = 0.55;
+const HEADING_MIN = 80;
 const HEADING_CLEAR = 24;
+/** The tab bar's foot, with a little air: nothing of an opened project rises past it. */
+const NAV_CLEAR = 56;
+/** What an opened project leaves free at the bottom edge. */
+const OPEN_BOTTOM = 24;
+/** The smallest ball, when even the heading's climb leaves too little room. */
+const D_MIN = 96;
+/**
+ * A wide screen whose caption-under ball would come out smaller than this
+ * sets the caption beside the ball instead, left-aligned, as long as it can
+ * be at least SIDE_MIN_W wide with SIDE_EDGE to spare.
+ */
+const SIDE_FROM = 160;
+const SIDE_MIN_W = 160;
+const SIDE_EDGE = 24;
+const SIDE_BOTTOM = 24;
 /** Room kept over the ball for the loose end and the pieces near the top, at R_REF. */
 const TOP_ROOM = 64;
 /** The radius every px size on the ball is drawn at; the ball scales them with it. */
@@ -200,6 +223,13 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 /** The far side of the thread falls to a quarter of the ink: a wire ball, not a disc. */
 const depthInk = (z: number) => BACK_INK + (1 - BACK_INK) * smooth(clamp01((z + 0.85) / 1.7));
 const blockBounds = (t: Text): [number, number, number, number] => t.textRenderInfo?.blockBounds ?? [0, 0, 0, 0];
+/**
+ * Which scene last took each canvas, by number (a canvas has only the one
+ * context to give; see dispose). A number, so a canvas kept alive never keeps
+ * a whole scene alive with it.
+ */
+const owners = new WeakMap<HTMLCanvasElement, number>();
+let scenes = 0;
 
 /** The year as a number with its fraction: 25 September 2026 is about 2026.73. */
 function fractionalYear(d: Date) {
@@ -479,6 +509,11 @@ export class ThreadScene {
   private cx = 0;
   private cy = 0;
   private capY = 0;
+  /** The caption stands beside the ball (a wide, short screen) from this x, rather than under it. */
+  private capSide = false;
+  private capX = 0;
+  /** A resize can start a layout while the last one waits on its texts: only the newest places anything. */
+  private layoutGen = 0;
 
   // Motion.
   private angle = 0;
@@ -522,6 +557,7 @@ export class ThreadScene {
 
   private ready = false;
   private disposed = false;
+  private serial = ++scenes;
   private pendingOpen: string | null = null;
   private intro: gsap.core.Timeline | null = null;
   private ctx = gsap.context(() => undefined);
@@ -534,6 +570,7 @@ export class ThreadScene {
     private opts: ThreadOptions,
   ) {
     this.renderer = makeRenderer(canvas);
+    owners.set(canvas, this.serial);
     this.idleK = opts.reducedMotion ? 0 : 1;
     this.camera.position.z = 10;
     this.lineMat = new THREE.ShaderMaterial({
@@ -575,9 +612,15 @@ export class ThreadScene {
     this.lineMat.uniforms.uHalf.value = 0.5 + 0.75 / dpr;
     this.glass.resize();
     this.glass.setAxis("y");
-    // Only a phone's standing line scrolls through the rims; on a wide screen they would only
-    // pull the end frames into the edges.
-    this.glass.enabled = !this.opts.reducedMotion && this.vertical;
+  }
+
+  /**
+   * Only a phone's standing line scrolls through the rims. On a wide screen
+   * they would only pull the end frames into the edges, and round a closed
+   * ball they would only smear a short phone's caption.
+   */
+  private get glassOn() {
+    return !this.opts.reducedMotion && this.vertical && !!this.opened;
   }
 
   // ---------------------------------------------------------------- build
@@ -909,14 +952,36 @@ export class ThreadScene {
 
   // ---------------------------------------------------------------- layout
 
+  /** The heading's line at this height: 206, as on the other tabs, higher on a short screen. */
+  private get headingY() {
+    const H = this.height;
+    return H >= SHORT ? HEADING_Y : Math.round(Math.max(HEADING_MIN, HEADING_Y - (SHORT - H) * SHORT_CLIMB));
+  }
+
+  private get headingHalf() {
+    return this.headingTwoLines ? 22 : 11;
+  }
+
+  /** The hover captions' set: centred under the ball, or left-aligned beside it. */
+  private captionsAt(side: boolean, width: number) {
+    this.beads.forEach((b) => {
+      [b.cap.name, b.cap.status, b.cap.why].forEach((m) => {
+        m.t.anchorX = side ? "left" : "center";
+      });
+      b.cap.why.t.textAlign = side ? "left" : "center";
+      b.cap.why.t.maxWidth = width;
+    });
+  }
+
   /** Sizes and places the ball, the heading and the captions; the texts measure first. */
   private async layout() {
+    const gen = ++this.layoutGen;
     const W = this.width;
     const H = this.height;
     const v = this.vertical;
     const capMax = v ? Math.min(WHY_MAX, W - 48) : WHY_MAX;
+    this.captionsAt(false, capMax);
     this.beads.forEach((b) => {
-      b.cap.why.t.maxWidth = capMax;
       if (b.open) {
         const w = v ? Math.max(160, W - Math.round(W * LINE_X) - PHONE_TEXT_INSET - 16) : WHY_MAX;
         b.open.why.t.maxWidth = w;
@@ -924,9 +989,10 @@ export class ThreadScene {
       }
     });
     await Promise.all(this.texts.map((t) => syncText(t)));
-    if (this.disposed) return;
+    if (this.disposed || gen !== this.layoutGen) return;
 
-    // The heading, exactly where the horizon had it.
+    // The heading, where the horizon had it (higher on a short screen).
+    const hy = this.headingY;
     if (this.heading) {
       const { lead, tail } = this.heading;
       const lw = blockBounds(lead.t)[2] - blockBounds(lead.t)[0];
@@ -936,36 +1002,58 @@ export class ThreadScene {
       this.headingTwoLines = total > W - 40;
       if (!this.headingTwoLines) {
         const x0 = (W - total) / 2;
-        this.setBase(lead, x0, HEADING_Y);
-        this.setBase(tail, x0 + lw + space, HEADING_Y);
+        this.setBase(lead, x0, hy);
+        this.setBase(tail, x0 + lw + space, hy);
       } else {
-        this.setBase(lead, (W - lw) / 2, HEADING_Y - 11);
-        this.setBase(tail, (W - tw) / 2, HEADING_Y + 11);
+        this.setBase(lead, (W - lw) / 2, hy - 11);
+        this.setBase(tail, (W - tw) / 2, hy + 11);
       }
     }
-    const headBottom = HEADING_Y + (this.headingTwoLines ? 22 : 11);
+    const headBottom = hy + this.headingHalf;
 
     // The ball: min(420, half the short side), a little larger with more work, and clear of the heading.
     const n = this.projects.length;
     // It grows with the square root of the work: six projects is today's size, sixty is 1.4 times it.
     const growth = 1 + (GROWTH_MAX - 1) * clamp01((Math.sqrt(n) - Math.sqrt(6)) / (Math.sqrt(60) - Math.sqrt(6)));
-    let D = v ? W * PHONE_D : Math.min(D_MAX, 0.5 * Math.min(W, H)) * growth;
+    const want = v ? W * PHONE_D : Math.min(D_MAX, 0.5 * Math.min(W, H)) * growth;
     const capH = this.captionHeight();
-    const topRoom = (d: number) => headBottom + HEADING_CLEAR + TOP_ROOM * (d / (2 * R_REF));
-    const bottomRoom = CAP_GAP * (v ? 0.8 : 1) + capH + 16;
-    // The room over the ball grows with it, so the fit solves for both.
-    const fitD = (H - headBottom - HEADING_CLEAR - bottomRoom) / (1 + TOP_ROOM / (2 * R_REF));
-    D = Math.max(140, Math.min(D, fitD));
+    const gap = CAP_GAP * (v ? 0.8 : 1);
+    // The room over the ball grows with it, so each fit solves for both.
+    const lift = 1 + TOP_ROOM / (2 * R_REF);
+    const avail = H - headBottom - HEADING_CLEAR;
+    const under = Math.min(want, (avail - gap - capH - 16) / lift);
+    // A wide screen too short for a fair ball with the caption under it (a phone held sideways)
+    // sets the caption beside the ball instead, and the ball takes the height.
+    const beside = Math.min(want, (avail - SIDE_BOTTOM) / lift, W - 2 * (CAP_GAP + SIDE_MIN_W + SIDE_EDGE));
+    const side = !v && under < SIDE_FROM && beside > under;
+    const D = Math.max(D_MIN, side ? beside : under);
     this.R = D / 2;
-    const top = topRoom(D) + this.R;
-    const bottom = H - bottomRoom - this.R;
+    const top = headBottom + HEADING_CLEAR + TOP_ROOM * (D / (2 * R_REF)) + this.R;
+    const bottom = H - (side ? SIDE_BOTTOM : gap + capH + 16) - this.R;
     this.cx = W / 2;
     this.cy = Math.max(top, Math.min(H * 0.54, bottom));
-    this.capY = this.cy + this.R + CAP_GAP * (v ? 0.8 : 1);
+    // Under the ball, and never past the bottom edge, even when the ball could not shrink enough.
+    this.capY = Math.min(this.cy + this.R + gap, H - capH - 16);
+    this.capSide = side;
+    this.capX = Math.round(this.cx + this.R + CAP_GAP);
+    if (side) {
+      this.captionsAt(true, Math.min(WHY_MAX, W - this.capX - SIDE_EDGE));
+      await Promise.all(this.beads.flatMap((b) => [b.cap.name.t, b.cap.status.t, b.cap.why.t]).map((t) => syncText(t)));
+      if (this.disposed || gen !== this.layoutGen) return;
+    }
     this.beads.forEach((b) => {
-      this.setBase(b.cap.name, this.cx, this.capY);
-      this.setBase(b.cap.status, this.cx, this.capY + 30);
-      this.setBase(b.cap.why, this.cx, this.capY + 50);
+      if (side) {
+        // Each caption centred on the ball's height, inside the screen.
+        const h = 50 + this.textHeight(b.cap.why);
+        const y = Math.round(Math.max(headBottom + 16, Math.min(this.cy - h / 2, H - 16 - h)));
+        this.setBase(b.cap.name, this.capX, y);
+        this.setBase(b.cap.status, this.capX, y + 30);
+        this.setBase(b.cap.why, this.capX, y + 50);
+      } else {
+        this.setBase(b.cap.name, this.cx, this.capY);
+        this.setBase(b.cap.status, this.cx, this.capY + 30);
+        this.setBase(b.cap.why, this.cx, this.capY + 50);
+      }
       if (b !== this.hovered) {
         [b.cap.name, b.cap.status, b.cap.why].forEach((m) => {
           gsap.killTweensOf(m);
@@ -1038,14 +1126,23 @@ export class ThreadScene {
     const blockH = heads.reduce((s, m, k) => s + this.textHeight(m) + gapsAfter[k], 0);
     let layout: Layout;
     if (!v) {
-      const line = Math.round(H * LINE_Y);
-      const headBottom = HEADING_Y + (this.headingTwoLines ? 22 : 11);
-      const room = dead ? H - 24 - (line + FRAME_OFF) : line - FRAME_OFF - (headBottom + 16);
-      let h = Math.max(FRAME_MIN, Math.min(FRAME_H, room));
+      // The horizon's 58%, unless a short screen needs the line higher, for the words under it,
+      // or lower, for a dead project's words over it and under the tab bar.
+      let line = Math.round(H * LINE_Y);
+      if (dead) line = Math.max(NAV_CLEAR + blockH + 20, Math.min(line, H - OPEN_BOTTOM - FRAME_OFF - FRAME_MIN));
+      else line = Math.min(line, H - OPEN_BOTTOM - 20 - blockH);
+      line = Math.round(line);
+      const headBottom = this.headingY + this.headingHalf;
+      // The frames keep clear of the heading while there is room; past that they cross its line
+      // and it yields (see dimHeading), but they never reach the tab bar or leave the screen.
+      const room = dead ? H - OPEN_BOTTOM - (line + FRAME_OFF) : line - FRAME_OFF - (headBottom + 16);
+      const most = dead ? room : line - FRAME_OFF - NAV_CLEAR;
+      let h = Math.max(24, Math.min(Math.max(FRAME_MIN, Math.min(FRAME_H, room)), most));
       const widths = (hh: number) => bead.pieces.map((pc) => hh * pc.aspect);
       const rowW = (hh: number) => widths(hh).reduce((s, w) => s + w, 0) + FRAME_GAP * (bead.pieces.length - 1);
       const maxRow = W - 2 * MARGIN - MARK_LEAD;
-      if (rowW(h) > maxRow) h = Math.max(FRAME_MIN * 0.75, h * (maxRow / rowW(h)));
+      // A long row shrinks toward the viewport's width (and scrolls past it), but never grows.
+      if (rowW(h) > maxRow) h = Math.min(h, Math.max(FRAME_MIN * 0.75, h * (maxRow / rowW(h))));
       const total = MARK_LEAD + rowW(h);
       const x0 = Math.max(MARGIN, Math.round((W - total) / 2));
       let x = x0 + MARK_LEAD;
@@ -1463,6 +1560,11 @@ export class ThreadScene {
   }
 
   private onCaption(x: number, y: number) {
+    const b = this.hovered;
+    if (this.capSide && b) {
+      const y0 = -b.cap.name.base.y;
+      return x > this.capX - 16 && y > y0 - 8 && y < y0 + 50 + this.textHeight(b.cap.why) + 8;
+    }
     return y > this.capY - 8 && y < this.capY + this.captionHeight() + 8 && Math.abs(x - this.cx) < Math.min(this.width / 2, WHY_MAX / 2 + 16);
   }
 
@@ -1769,6 +1871,7 @@ export class ThreadScene {
     this.dimHeading();
     this.glass.setVelocity(Math.abs(this.scroll.cur - this.lastScroll) / Math.max(dt, 1e-3) / 1500);
     this.lastScroll = this.scroll.cur;
+    this.glass.enabled = this.glassOn;
     this.glass.render(this.scene, this.camera);
   }
 
@@ -2207,7 +2310,12 @@ export class ThreadScene {
     });
   }
 
-  /** The heading yields when an opened project's frames or words reach it; on a phone the standing line always does. */
+  /**
+   * The heading yields when an opened project's frames reach it, or when its
+   * words or settled frames share the heading's line, even off to one side:
+   * two sentences on one line read as one. On a phone the standing line
+   * always takes it.
+   */
   private dimHeading() {
     if (!this.heading) return;
     let on = false;
@@ -2218,18 +2326,21 @@ export class ThreadScene {
       const { lead, tail } = this.heading;
       const hx0 = lead.base.x + lead.box[0];
       const hx1 = tail.base.x + tail.box[2];
-      const hy0 = HEADING_Y - (this.headingTwoLines ? 22 : 11) - 6;
-      const hy1 = HEADING_Y + (this.headingTwoLines ? 22 : 11) + 6;
-      const hit = (x0: number, y0: number, x1: number, y1: number) => x1 > hx0 && x0 < hx1 && y1 > hy0 && y0 < hy1;
+      const hy0 = this.headingY - this.headingHalf - 6;
+      const hy1 = this.headingY + this.headingHalf + 6;
+      const shares = (y0: number, y1: number) => y1 > hy0 && y0 < hy1;
+      const hit = (x0: number, y0: number, x1: number, y1: number) => x1 > hx0 && x0 < hx1 && shares(y0, y1);
       b.pieces.forEach((pc) => {
-        if (pc.ink > 0.3 && hit(pc.sx - pc.sw / 2, pc.sy - pc.sh / 2, pc.sx + pc.sw / 2, pc.sy + pc.sh / 2)) on = true;
+        if (pc.ink <= 0.3) return;
+        const [x0, y0, x1, y1] = [pc.sx - pc.sw / 2, pc.sy - pc.sh / 2, pc.sx + pc.sw / 2, pc.sy + pc.sh / 2];
+        // A piece still riding out counts only where it crosses the heading; a landed frame, by its line.
+        if (pc.landed ? shares(y0, y1) : hit(x0, y0, x1, y1)) on = true;
       });
       const g = this.openGroup.position;
       [b.open.name, b.open.status, b.open.why, b.open.summary, b.open.link].forEach((m) => {
         const bb = blockBounds(m.t);
-        const x = m.base.x + g.x;
         const y = -(m.base.y + g.y);
-        if (m.offset < m.span * 0.9 && hit(x + bb[0], y - bb[3], x + bb[2], y - bb[1])) on = true;
+        if (m.offset < m.span * 0.9 && shares(y - bb[3], y - bb[1])) on = true;
       });
     }
     if (on === this.headingDimmed) return;
@@ -2277,5 +2388,14 @@ export class ThreadScene {
     this.planeGeo.dispose();
     this.glass.dispose();
     this.renderer.dispose();
+    // troika's glyph atlas is shared by every text on the site, and a renderer that drew it stays
+    // reachable through it, context and all, so each visit would leave a live context behind
+    // until the browser starts losing the oldest. Lose this one on purpose. A tick later, and only
+    // if no new scene has taken the canvas: in development React mounts the panel twice on the
+    // same element, and the second scene gets this very context back.
+    const { canvas, renderer, serial } = this;
+    setTimeout(() => {
+      if (owners.get(canvas) === serial) renderer.forceContextLoss();
+    }, 0);
   }
 }
