@@ -44,17 +44,59 @@ export const ELSEWHERE = [
 ] as const;
 
 /**
+ * How Urchi takes a line once it has read it: a slow blink, a puzzled tilt,
+ * a glance away, a slow look round the room, or a long, patient blink.
+ */
+export type UrchiReaction = "slowBlink" | "puzzled" | "glanceAway" | "lookAround" | "longBlink";
+
+/**
  * The owner's lines about Urchi, shown under its name as the hover caption on
  * Space. His voice, never the creature's; no exclamation marks; at most 48
- * characters. One is chosen per visit.
+ * characters. One is chosen per visit. Urchi reads the line when it rises and
+ * then reacts to it, each line in its own way.
  */
-export const URCHI_LINES = [
-  "It keeps the place while I am out.",
-  "It has never asked for anything.",
-  "It watches the pointer. So do I.",
-  "Spikes, two eyes, and a lot of patience.",
-  "It does not know it is the mascot.",
+export const URCHI_LINES: { text: string; reaction: UrchiReaction }[] = [
+  { text: "It keeps the place while I am out.", reaction: "lookAround" },
+  { text: "It has never asked for anything.", reaction: "slowBlink" },
+  { text: "It watches the pointer. So do I.", reaction: "glanceAway" },
+  { text: "Spikes, two eyes, and a lot of patience.", reaction: "longBlink" },
+  { text: "It does not know it is the mascot.", reaction: "puzzled" },
 ];
+
+/**
+ * The captions that replace his line while their state holds (Urchi does not
+ * read these: it is asleep, or busy listening). {time} is his time, h:mm;
+ * {title} is the song. A listening line longer than 48 characters falls back
+ * to `listeningLong`.
+ */
+export const URCHI_STATES = {
+  asleep: "It is {time} here. It is asleep.",
+  listening: "He is playing {title}. It is listening.",
+  listeningLong: "He is listening to something. So is it.",
+};
+
+/**
+ * What Urchi's look at a tab's pill means, said once in the caption: what
+ * changed since the visitor's last visit. {count} is a number word, {date}
+ * that visit's day ("12 September"), {tab} the tab's label.
+ */
+export const URCHI_NEWS = {
+  note: "{count} new note since {date}.",
+  notes: "{count} new notes since {date}.",
+  changed: "{tab} has changed since {date}.",
+};
+
+/** A caption template with its {placeholders} filled. */
+export function fillLine(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (m, k: string) => values[k] ?? m);
+}
+
+/**
+ * When Projects and About last changed, YYYY-MM-DD. Bump these whenever you
+ * change those tabs: Urchi looks up at the pill of a tab that is newer than a
+ * returning visitor's last visit. (Notes date themselves from the newest note.)
+ */
+export const UPDATED = { projects: "2026-09-25", about: "2026-09-25" };
 
 export type Media =
   | { kind: "image"; src: string }

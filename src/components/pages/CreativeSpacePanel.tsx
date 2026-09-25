@@ -3,15 +3,22 @@
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { sfx } from "@/audio/sfx";
-import { MONOGRAM, NAME, ROLE, URCHI_LINES } from "@/content/site";
+import { MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
+import { Motes } from "@/engine/space/Motes";
 import { RoomScene } from "@/engine/space/RoomScene";
 import { runIntro } from "@/engine/space/intro";
+import { comeBack, glanceAt, glanceDown, read, tug } from "@/engine/urchi/acts";
+import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
+import { clock } from "@/engine/urchi/hours";
 import { CursorLabel } from "@/components/CursorLabel";
 import { MaskedChars, MaskedWords } from "@/components/Mask";
 import { Threshold } from "@/components/pages/Threshold";
-import { setFlag } from "@/lib/flags";
+import { getFlags, setFlag } from "@/lib/flags";
 import { DUR, prefersReducedMotion } from "@/lib/motion";
+import { pollNow, type Track } from "@/lib/now";
+import { isTab } from "@/lib/routes";
 import { readResult, resultCaption, todayUTC, writeResult } from "@/lib/threshold";
+import { leftRoute, markNewsTold, newsTold, whatsNew } from "@/lib/visits";
 
 /** The game's door and its stack: Urchi, a gap, the plate. */
 const GAME_HASH = "#threshold";
@@ -24,6 +31,26 @@ const STACK_CLEAR = 48;
 const RESULT_DWELL = 4;
 /** A press that moves less than this (px) and lets go within this (ms) is a click. */
 const CLICK = { slop: 6, ms: 600 };
+/**
+ * What's new (spec S4): the look waits this long after the eyes open (or after the intro hands
+ * over), and for the pointer to be still this long; then its line holds the caption this long.
+ */
+const NEWS = { after: 2.4, afterIntro: 0.8, still: 1, dwell: 4 };
+/** A phone has no hover: the caption rises once, this long after the eyes open, and sinks after `dwell`. */
+const PHONE_CAPTION = { after: 3, dwell: 5 };
+/** While he is listening: a look at the "4" first after this long, then every 60-90s. */
+const LISTEN_GLANCE = { first: [8, 20] as [number, number], every: [60, 90] as [number, number] };
+/** A song "playing" for longer than this is a stale now-playing, and treated as nothing. */
+const STALE_MS = 15 * 60 * 1000;
+/** The listening line is his; longer than this, it is the shorter one. */
+const LINE_MAX = 48;
+
+/** Lines Urchi has read this visit (in memory): later hovers get only a glance down at them. */
+const readLines = new Set<string>();
+/** The phone's one caption, once per visit. */
+let phoneCaptionShown = false;
+/** When this session first saw each now-playing track, for the stale cap. */
+const firstSeen = new Map<string, number>();
 
 /** The scene's side of the game, reachable from the board's React handlers. */
 type Game = {
@@ -35,11 +62,36 @@ type Game = {
   leave(): void;
 };
 
+/** Who holds the caption: a timed line outranks the hover caption (the result most of all). */
+type Slot = "hover" | "auto" | "news" | "result";
+const RANK: Record<Slot, number> = { hover: 1, auto: 1, news: 2, result: 3 };
+
+const rand = (a: number, b: number) => a + Math.random() * (b - a);
+
+/** The words of a caption line, as points (their centres) in client px, left to right. */
+function wordsOf(span: HTMLElement): Point[] {
+  const node = span.firstChild;
+  if (!node || node.nodeType !== Node.TEXT_NODE) return [];
+  const box = (span.parentElement ?? span).getBoundingClientRect();
+  const y = box.top + box.height / 2;
+  const range = document.createRange();
+  const out: Point[] = [];
+  for (const m of (node.textContent ?? "").matchAll(/\S+/g)) {
+    range.setStart(node, m.index!);
+    range.setEnd(node, m.index! + m[0].length);
+    const r = range.getBoundingClientRect();
+    if (r.width) out.push({ x: r.left + r.width / 2, y });
+  }
+  return out;
+}
+
 /**
  * Space, tab 1: Urchi alone in its room. One canvas, the intro's overlays,
- * the caption and the cursor label. Hovering Urchi raises its name over one
- * of his lines; clicking it opens Threshold, which is DOM beside the stage so
- * it stays accessible.
+ * the caption and the cursor label. Urchi pays attention (attention.ts): it
+ * chooses what to look at, watches the motes, looks up at what is new, keeps
+ * his hours and reads his captions. Hovering it raises its name over one of
+ * his lines; clicking it opens Threshold, which is DOM beside the stage so it
+ * stays accessible.
  */
 export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   const stage = useRef<HTMLElement>(null);
@@ -59,39 +111,30 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const stageEl = stage.current!;
     const hashGame = window.location.hash === GAME_HASH;
     const playIntro = intro && !reducedMotion && !hashGame;
+    const phone = matchMedia("(hover: none)").matches;
     const room = new RoomScene(canvas.current!, { reducedMotion });
     const cursor = new CursorLabel(label.current!, stageEl);
-    Object.assign(stageEl, { __room: room }); // handy for debugging and headless QA
+    // Its attention: the eyes look out from between the eyes, in client px.
+    const eyesClient = (): Point => {
+      const r = room.canvas.getBoundingClientRect();
+      const e = room.eyes();
+      return { x: r.left + r.width / 2 + e.x, y: r.top + r.height / 2 - e.y };
+    };
+    let moodChanged = () => {};
+    const att = new Attention(room.urchi.character, { head: eyesClient, reach: () => room.urchiSize.w / 2, reducedMotion, onMood: () => moodChanged() });
+    const motes = new Motes(room, att, { reducedMotion });
+    Object.assign(stageEl, { __room: room, __att: att, __motes: motes }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
     let openTimer: gsap.core.Tween | null = null;
 
-    if (playIntro) {
-      stopIntro = runIntro(
-        {
-          words: gsap.utils.toArray<HTMLElement>(".intro-side .mask > span", side.current!),
-          letters: gsap.utils.toArray<HTMLElement>(".mask > span", monogram.current!),
-          counterInner: counter.current!.firstElementChild as HTMLElement,
-        },
-        room,
-      );
-    } else {
-      // No intro, and nothing to load: Urchi is simply there.
-      gsap.set([side.current, monogram.current, counter.current], { display: "none" });
-      room.showUrchi(0.6);
-      setFlag("loadingComplete", true);
-      setFlag("exploded", true);
-      setFlag("pageReady", true);
-      // Arriving at the door: the board opens once the chrome has landed.
-      if (hashGame) openTimer = gsap.delayedCall(DUR.drop + 0.2, () => openGame());
-    }
-
-    // ---- the caption: Urchi's name over one of his lines, or the game's result
+    // ---- the caption: Urchi's name over one of his lines, a state, what's new, or the game's result
     const capTitle = caption.current!.querySelector("h3")!;
     const capLine = caption.current!.querySelector("p")!;
+    const lineSpan = capLine.querySelector<HTMLElement>(".mask > span")!;
     const captionMasks = () => gsap.utils.toArray<HTMLElement>(".mask > span", caption.current!);
     const raiseCaption = (title: string, sub: string, delay: number) => {
       capTitle.querySelector(".mask > span")!.textContent = title;
-      capLine.querySelector(".mask > span")!.textContent = sub;
+      lineSpan.textContent = sub;
       gsap.fromTo(captionMasks(), { yPercent: 100, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.6, ease: "power3.out", stagger: 0.06, delay, overwrite: true });
     };
     const hideCaption = () => {
@@ -100,20 +143,81 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       else gsap.to(captionMasks(), { yPercent: -100, opacity: 0, duration: 0.4, ease: "power3.out", stagger: 0.04, overwrite: true });
     };
 
-    // Hover raises the caption, leaving drops it; a result caption outranks both while it shows.
-    // One of his lines, chosen once per visit.
-    const line = URCHI_LINES[Math.floor(Math.random() * URCHI_LINES.length)];
+    // One slot: a timed caption (the result, what's new, the phone's one rise) holds it for its
+    // dwell; then it goes back to the hover caption if the pointer is on Urchi, or sinks.
+    let slot: Slot | null = null;
+    let slotTimer: gsap.core.Tween | null = null;
     let overUrchi = false;
-    let resultShown = false;
-    let resultTimer: gsap.core.Tween | null = null;
-    const showUrchiCaption = () => raiseCaption("Urchi", line, 0);
+    const release = () => {
+      slotTimer?.kill();
+      slotTimer = null;
+      slot = null;
+      att.cancel("read");
+      if (overUrchi) showUrchiCaption();
+      else hideCaption();
+    };
+    const say = (kind: Slot, title: string, line: string, o: { dwell?: number; delay?: number } = {}) => {
+      if (slot && RANK[slot] > RANK[kind]) return false;
+      slotTimer?.kill();
+      slotTimer = null;
+      if (kind !== "hover" && kind !== "auto") att.cancel("read");
+      slot = kind;
+      raiseCaption(title, line, o.delay ?? 0);
+      if (o.dwell) slotTimer = gsap.delayedCall(o.dwell, release);
+      return true;
+    };
+
+    // ---- what the hover caption says: his line (one per visit), or his hours' or his music's
+    const line = URCHI_LINES[Math.floor(Math.random() * URCHI_LINES.length)];
+    let playing: Track | null = null;
+    const hoverLine = (): { text: string; readable: boolean } => {
+      if (att.asleep) return { text: fillLine(URCHI_STATES.asleep, { time: clock().text }), readable: false };
+      if (att.listening && playing) {
+        const l = fillLine(URCHI_STATES.listening, { title: playing.title });
+        return { text: l.length > LINE_MAX ? URCHI_STATES.listeningLong : l, readable: false };
+      }
+      return { text: line.text, readable: true };
+    };
+    /** His line rises and Urchi reads it (once per line per visit; after that, a glance down). Not its states: it is asleep, or listening. */
+    const readCaption = (text: string) => {
+      const words = () => wordsOf(lineSpan);
+      if (readLines.has(text)) {
+        att.play("read", 2, () => glanceDown(att, words()), { queue: 0.6 });
+        return;
+      }
+      att.play(
+        "read",
+        2,
+        () => {
+          readLines.add(text); // read once it has begun, not merely asked
+          return read(att, words(), line.reaction);
+        },
+        { queue: 1 },
+      );
+    };
+    const showUrchiCaption = (kind: Slot = "hover", dwell?: number) => {
+      const { text, readable } = hoverLine();
+      if (!say(kind, "Urchi", text, { dwell })) return;
+      if (readable) readCaption(text);
+    };
     const setOverUrchi = (on: boolean) => {
       if (on === overUrchi) return;
       overUrchi = on;
-      cursor.set(on ? "Threshold" : null);
-      if (resultShown) return;
+      cursor.set(on ? (att.asleep ? "Wake" : "Threshold") : null);
+      if (slot && slot !== "hover") return;
       if (on) showUrchiCaption();
-      else hideCaption();
+      else {
+        slot = null;
+        att.cancel("read");
+        hideCaption();
+      }
+    };
+
+    // Falling asleep or waking under the pointer: the caption and the label follow.
+    moodChanged = () => {
+      if (!overUrchi) return;
+      cursor.set(att.asleep ? "Wake" : "Threshold");
+      if (!slot || slot === "hover") showUrchiCaption();
     };
 
     // ---- Threshold: the door, the stack, the result
@@ -138,15 +242,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     };
     const showResult = (date: string, result: number) => {
       const { title, line } = resultCaption(date, result);
-      resultShown = true;
-      resultTimer?.kill();
-      raiseCaption(title, line, 0.2);
+      say("result", title, line, { dwell: RESULT_DWELL, delay: 0.2 });
       if (live.current) live.current.textContent = `${title}. ${line}`;
-      resultTimer = gsap.delayedCall(RESULT_DWELL, () => {
-        resultShown = false;
-        if (overUrchi) showUrchiCaption();
-        else hideCaption();
-      });
     };
     const dropHash = () => {
       if (window.location.hash === GAME_HASH) window.history.replaceState(null, "", window.location.pathname);
@@ -166,9 +263,11 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       pending = null;
       overUrchi = false;
       cursor.set(null);
-      resultTimer?.kill();
-      resultShown = false;
+      slotTimer?.kill();
+      slot = null;
       hideCaption();
+      att.pause(true);
+      motes.hide(true);
       setBoard({ date, drop: stack(reducedMotion ? 0 : 0.9) });
     };
     const closeGame = (abandoned: boolean) => {
@@ -178,6 +277,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       room.dimUrchi(false);
       cursor.set(null);
       dropHash();
+      att.pause(false);
+      motes.hide(false);
       if (!abandoned && pending !== null) showResult(gameDate, pending);
       pending = null;
     };
@@ -200,7 +301,88 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       leave: () => cursor.set(null),
     };
 
-    // ---- pointer: hover and click on Urchi
+    // ---- its life in the room, once its eyes are its own
+    let begun = -1;
+    let newsAt = Infinity;
+    const news = newsTold() ? null : whatsNew();
+    let listenGlance = Infinity;
+    const begin = (afterIntro: boolean) => {
+      if (begun >= 0) return;
+      att.start({ afterIntro });
+      motes.start();
+      begun = att.t;
+      newsAt = att.t + (afterIntro ? NEWS.afterIntro : NEWS.after);
+      // Back from another tab: it is still watching the pill of the tab you left.
+      const left = leftRoute();
+      if (!afterIntro && left && left !== "/" && isTab(left)) {
+        att.play("comeBack", 6, () => comeBack(att, () => pillAt(left), () => !getFlags().transitioning));
+      }
+    };
+    const stopLife = room.onFrame((dt) => {
+      att.update(dt);
+      if (begun < 0 || gameOpen) return;
+      const t = att.t;
+      // What's new: once per visit, when you are still, a tug toward that tab, then his line.
+      if (news && t >= newsAt && att.stillFor >= NEWS.still && !att.asleep && !att.acting) {
+        newsAt = Infinity;
+        markNewsTold();
+        att.play("news", 2, () =>
+          tug(att, () => pillAt(news.href), () => {
+            say("news", news.label, news.line, { dwell: NEWS.dwell });
+            if (live.current) live.current.textContent = news.line;
+            att.nodAt(news.href);
+          }),
+        );
+      }
+      // A phone has no hover: its caption rises once, and it reads it.
+      if (phone && !phoneCaptionShown && t >= begun + PHONE_CAPTION.after && !att.acting && slot === null) {
+        phoneCaptionShown = true;
+        showUrchiCaption("auto", PHONE_CAPTION.dwell);
+      }
+      // While he is listening, it looks up at the "4" now and then.
+      if (att.listening && t >= listenGlance) {
+        listenGlance = t + rand(...LISTEN_GLANCE.every);
+        att.play("listenGlance", 1, () => glanceAt(att, () => pillAt("/music")));
+      }
+    });
+
+    // Is he playing something? The same poll Music uses; a track playing for over 15 minutes is stale.
+    const stopPoll = pollNow((r) => {
+      const now = r.now;
+      let on = false;
+      if (now) {
+        const key = `${now.artist}\u0000${now.title}`;
+        if (!firstSeen.has(key)) firstSeen.set(key, Date.now());
+        on = Date.now() - firstSeen.get(key)! < STALE_MS;
+      }
+      playing = on ? now : null;
+      if (on && !att.listening) listenGlance = att.t + rand(...LISTEN_GLANCE.first);
+      att.setListening(on);
+    });
+
+    if (playIntro) {
+      stopIntro = runIntro(
+        {
+          words: gsap.utils.toArray<HTMLElement>(".intro-side .mask > span", side.current!),
+          letters: gsap.utils.toArray<HTMLElement>(".mask > span", monogram.current!),
+          counterInner: counter.current!.firstElementChild as HTMLElement,
+        },
+        room,
+        () => begin(true),
+      );
+    } else {
+      // No intro, and nothing to load: Urchi is simply there.
+      gsap.set([side.current, monogram.current, counter.current], { display: "none" });
+      room.showUrchi(0.6);
+      begin(false);
+      setFlag("loadingComplete", true);
+      setFlag("exploded", true);
+      setFlag("pageReady", true);
+      // Arriving at the door: the board opens once the chrome has landed.
+      if (hashGame) openTimer = gsap.delayedCall(DUR.drop + 0.2, () => openGame());
+    }
+
+    // ---- pointer: hover and click on Urchi; a tap on the empty room lets a mote go
     let down = { x: 0, y: 0, t: 0 };
     const onMove = (e: PointerEvent) => setOverUrchi(room.urchiHit(e.clientX, e.clientY));
     const onLeave = () => setOverUrchi(false);
@@ -209,7 +391,11 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     };
     const onUp = (e: PointerEvent) => {
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK.slop || performance.now() - down.t > CLICK.ms) return;
-      if (room.urchiHit(e.clientX, e.clientY)) openGame();
+      if (room.urchiHit(e.clientX, e.clientY)) {
+        // Asleep, the first click wakes it; only the next opens the game.
+        if (att.wake()) return;
+        openGame();
+      } else if (room.interactive && !gameOpen) motes.release(e.clientX, e.clientY);
     };
     const onResize = () => {
       room.resize();
@@ -228,7 +414,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     return () => {
       stopIntro?.();
       openTimer?.kill();
-      resultTimer?.kill();
+      slotTimer?.kill();
+      stopPoll();
+      stopLife();
       game.current = null;
       stageEl.removeEventListener("pointermove", onMove);
       stageEl.removeEventListener("pointerleave", onLeave);
@@ -236,6 +424,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       stageEl.removeEventListener("pointerup", onUp);
       window.removeEventListener("resize", onResize);
       cursor.destroy();
+      motes.dispose();
+      att.dispose();
       room.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -258,7 +448,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
           <span>001</span>
         </div>
 
-        {/* Urchi's caption: its name over one of his lines, or the game's result. */}
+        {/* Urchi's caption: its name over one of his lines, a state, what's new, or the game's result. */}
         <div ref={caption} className="space-caption">
           <h3>
             <span className="mask">
@@ -274,7 +464,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         <div ref={label} className="cursor-label" />
       </section>
 
-      {/* The game, beside the stage rather than inside it, so it is not aria-hidden; its result is read out here. */}
+      {/* The game, beside the stage rather than inside it, so it is not aria-hidden; its result (and what's new) is read out here. */}
       <p ref={live} className="sr-only" aria-live="polite" />
       {board && (
         <Threshold

@@ -58,7 +58,7 @@ function workPill(): { x: number; y: number; w: number } | null {
  * its first breath out blows the work up toward the "2" pill as the chrome
  * drops.
  */
-export function runIntro(refs: IntroRefs, room: RoomScene): () => void {
+export function runIntro(refs: IntroRefs, room: RoomScene, onSettled?: () => void): () => void {
   const { words, letters, counterInner } = refs;
   const MIN_A = 1.2;
   const ring = new IntroRing(room, SPACE_ITEMS);
@@ -120,7 +120,13 @@ export function runIntro(refs: IntroRefs, room: RoomScene): () => void {
     const ny = pill ? (pill.y / window.innerHeight) * 2 - 1 : -1;
     const follow = () => urchi.lookAt(look.nx, look.ny);
     firstLook = gsap
-      .timeline({ delay: T.lookAfter, onComplete: () => urchi.lookAt(null) })
+      .timeline({
+        delay: T.lookAfter,
+        onComplete: () => {
+          urchi.lookAt(null);
+          onSettled?.(); // its eyes are its own from here
+        },
+      })
       .to(look, { nx, ny, duration: T.lookFor, ease: "sine.inOut", onUpdate: follow })
       .to({}, { duration: T.lookHold });
   };
