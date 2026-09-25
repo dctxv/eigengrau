@@ -1,4 +1,5 @@
 import { sfx } from "@/audio/sfx";
+import { pointerSeen } from "@/lib/visits";
 import type { LookHow, UrchiCharacter } from "./character";
 import { clock, type Hours } from "./hours";
 import { doze, dozeOff, nod, peek, soundOn, stir, wake } from "./acts";
@@ -63,10 +64,20 @@ const HYSTERESIS = { ratio: 1.2, margin: 0.05, dwell: 0.35 };
 const BORED = { below: 0.45, after: 1.5, grace: 4, check: [3, 6] as [number, number], checkFor: 0.9 };
 /** The pointer. Speeds in px/s. */
 const POINTER = { rest: 0.35, fast: 700, stopAfter: 0.12, motion: 0.25, motionAt: 400, away: 4 };
+/**
+ * A hovered pill is a pet watching you head for the door: a moment, not a stare. Once the pointer
+ * has rested on it `after` seconds its pull fades over `over` seconds to `to` of itself, so a
+ * pointer parked on the "1" goes stale like any other and the room's boredom and motes come back.
+ */
+const PILL_STALE = { after: 3, over: 1.5, to: 0.3 };
 /** Where the pointer left: looked at for up to this long. */
 const EXIT_FOR = 20;
-/** Motes pull once the pointer has been still this long, ramping up over a second. */
-const MOTE_STILL = { after: 3, ramp: 1, bonus: 0.6, faintest: 0.08, bob: [5, 10] as [number, number] };
+/**
+ * Motes pull once the pointer has been still this long, ramping up over a second. Watching one,
+ * the owl's bob comes every `bob` seconds: now and then, so it stays a gesture and the watching
+ * stays still; a bob refused because a tilt is still swinging is tried again after `retry`.
+ */
+const MOTE_STILL = { after: 3, ramp: 1, bonus: 0.6, faintest: 0.08, bob: [12, 25] as [number, number], retry: 0.5 };
 /** A turn wider than this (degrees) gets a blink mid-turn; the character's look angles per unit. */
 const TURN = { blink: 20, yaw: 41.25, pitch: 16, after: 0.14, gap: 1.6 };
 const STARTLE = { gap: 2.5, pause: 0.4, widen: 0.06, widenFor: 0.7 };
@@ -147,6 +158,18 @@ export class Attention {
     this.o = o;
     this.reduced = o.reducedMotion;
     ch.attend();
+    // Back on tab 1 with the pointer resting where it clicked (the "1", or wherever it was for
+    // Back): that is where you are, though it has not moved since. A touch has lifted, so a phone
+    // (like a keyboard, or a first arrival) starts with nobody there, and "you" is straight ahead.
+    const seen = pointerSeen();
+    if (seen && !seen.touch) {
+      const p = this.pointer;
+      p.x = clamp(seen.x, 0, innerWidth);
+      p.y = clamp(seen.y, 0, innerHeight);
+      p.has = true;
+      p.lastMove = -(performance.now() - seen.at) / 1000;
+      p.lastEvtMs = seen.at;
+    }
     this.targets.set("pointer", { id: "pointer", kind: "pointer", weight: 1, at: () => (this.pointer.has ? { x: this.pointer.x, y: this.pointer.y } : null), novelty: 0, spikes: [], born: 0 });
     this.listen();
   }
@@ -596,6 +619,7 @@ export class Attention {
     let s = tg.weight * (FLOOR[tg.kind] + tg.novelty);
     if (tg.kind === "pointer") s += POINTER.motion * Math.min(1, this.pointer.speed / POINTER.motionAt);
     if (tg.kind === "exit") s *= 1 - Math.pow((this.t - tg.born) / EXIT_FOR, 3);
+    if (tg.kind === "pill") s *= lerp(1, PILL_STALE.to, clamp((this.stillFor - PILL_STALE.after) / PILL_STALE.over, 0, 1));
     if (tg.kind === "mote") {
       // once you have been still a while (or gone a while), the faint things in the room get interesting
       // (not while it is still watching the spot where you left)
@@ -643,8 +667,7 @@ export class Attention {
     this.idle.corner = null;
     const cur = this.current!;
     if (cur.kind === "mote" && this.t > this.bobNext && this.t - this.currentSince > 2) {
-      this.ch.bob();
-      this.bobNext = this.t + rand(...MOTE_STILL.bob);
+      this.bobNext = this.t + (this.ch.bob() ? rand(...MOTE_STILL.bob) : MOTE_STILL.retry);
     }
     const settled = cur.kind !== "pointer" || this.t - this.pointer.lastMove > 0.5;
     return { at: curAt, fixate: settled };

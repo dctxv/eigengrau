@@ -32,6 +32,11 @@ const RESULT_DWELL = 4;
 /** A press that moves less than this (px) and lets go within this (ms) is a click. */
 const CLICK = { slop: 6, ms: 600 };
 /**
+ * Seconds the pointer must rest on Urchi before its caption rises. A pointer crossing it on the
+ * way to the tabs is not a hover, and must not spend the line's one reading.
+ */
+const HOVER_REST = 0.35;
+/**
  * What's new (spec S4): the look waits this long after the eyes open (or after the intro hands
  * over), and for the pointer to be still this long; then its line holds the caption this long.
  */
@@ -49,8 +54,13 @@ const LINE_MAX = 48;
 const readLines = new Set<string>();
 /** The phone's one caption, once per visit. */
 let phoneCaptionShown = false;
-/** When this session first saw each now-playing track, for the stale cap. */
-const firstSeen = new Map<string, number>();
+/**
+ * When this session first and last saw each now-playing track (ms), for the stale cap when the
+ * answer does not say how far in he is.
+ */
+const tracksSeen = new Map<string, { first: number; last: number }>();
+/** A song missing from the answers this long (ms) is a new play when it comes back, as Music has it. */
+const FORGET_MS = 3 * 60 * 1000;
 /**
  * What the last poll said (in memory, across tab changes), so coming back to tab 1 at night while
  * he plays something does not show it asleep until this mount's own first poll answers.
@@ -154,16 +164,20 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     };
 
     // One slot: a timed caption (the result, what's new, the phone's one rise) holds it for its
-    // dwell; then it goes back to the hover caption if the pointer is on Urchi, or sinks.
+    // dwell; then it goes back to the hover caption if the pointer rests on Urchi, or sinks.
     let slot: Slot | null = null;
     let slotTimer: gsap.core.Tween | null = null;
+    /** The pointer is on Urchi (the cursor label follows at once)... */
     let overUrchi = false;
+    /** ...and has rested there HOVER_REST: the hover caption is up, or waits for a timed one. */
+    let hovering = false;
+    let restTimer: gsap.core.Tween | null = null;
     const release = () => {
       slotTimer?.kill();
       slotTimer = null;
       slot = null;
       att.cancel("read");
-      if (overUrchi) showUrchiCaption();
+      if (hovering) showUrchiCaption();
       else hideCaption();
     };
     const say = (kind: Slot, title: string, line: string, o: { dwell?: number; delay?: number } = {}) => {
@@ -202,20 +216,23 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         att.play("read", 2, () => glanceDown(att, words()), { queue: 0.6 });
         return;
       }
-      att.play(
-        "read",
-        2,
-        () => {
-          readLines.add(text); // read once it has begun, not merely asked
-          return read(att, words(), line.reaction);
-        },
-        { queue: Infinity },
-      );
+      // read once its last jump has landed: a reading cut off before that leaves the line unread
+      att.play("read", 2, () => read(att, words(), line.reaction, () => readLines.add(text)), { queue: Infinity });
     };
     const showUrchiCaption = (kind: Slot = "hover", dwell?: number) => {
       const { text, readable } = hoverLine();
       if (!say(kind, "Urchi", text, { dwell })) return;
       if (readable) readCaption(text);
+    };
+    /** The pointer has rested on Urchi: its caption rises (or waits for a timed one to finish). */
+    const settleHover = () => {
+      restTimer = null;
+      hovering = true;
+      if (slot && slot !== "hover") return;
+      // You came to it: it stops looking back at the tab you left (or at the "4") and reads.
+      att.cancel("comeBack");
+      att.cancel("listenGlance");
+      showUrchiCaption();
     };
     const setOverUrchi = (on: boolean) => {
       if (on === overUrchi) return;
@@ -223,24 +240,29 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (on) att.rouse();
       overUrchi = on;
       cursor.set(on ? (att.asleep ? "Wake" : "Threshold") : null);
+      restTimer?.kill();
+      restTimer = on ? gsap.delayedCall(HOVER_REST, settleHover) : null;
+      if (on || !hovering) return;
+      hovering = false;
       if (slot && slot !== "hover") return;
-      if (on) {
-        // You came to it: it stops looking back at the tab you left (or at the "4") and reads.
-        att.cancel("comeBack");
-        att.cancel("listenGlance");
-        showUrchiCaption();
-      } else {
-        slot = null;
-        att.cancel("read");
-        hideCaption();
-      }
+      slot = null;
+      att.cancel("read");
+      hideCaption();
     };
 
     // Falling asleep or waking under the pointer: the label follows, and the caption when its words change.
     moodChanged = () => {
-      if (!overUrchi) return;
-      cursor.set(att.asleep ? "Wake" : "Threshold");
-      if (slot && slot !== "hover") return;
+      if (overUrchi) cursor.set(att.asleep ? "Wake" : "Threshold");
+      // The phone's one caption follows too: a tap that wakes it at night must not leave it
+      // saying "asleep" with its eyes open. Awake, the line is his, and it reads it.
+      if (slot === "auto") {
+        if (lineSpan.textContent !== hoverLine().text) {
+          att.cancel("read");
+          showUrchiCaption("auto", PHONE_CAPTION.dwell);
+        }
+        return;
+      }
+      if (!hovering || (slot && slot !== "hover")) return;
       const { text, readable } = hoverLine();
       if (slot === "hover" && lineSpan.textContent === text) {
         if (readable) readCaption(text); // the same line, and awake now to read it
@@ -291,7 +313,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       gameOpen = true;
       gameDate = date;
       pending = null;
-      overUrchi = false;
+      overUrchi = hovering = false;
+      restTimer?.kill();
+      restTimer = null;
       cursor.set(null);
       slotTimer?.kill();
       slot = null;
@@ -376,7 +400,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       }
     });
 
-    // Is he playing something? The same poll Music uses; a track playing for over 15 minutes is stale.
+    // Is he playing something? The same poll Music uses; a track 15 minutes in is stale, and a
+    // replay (Holocene eleven times) is a new play, not the old one gone stale.
     const hear = (track: Track | null) => {
       playing = track;
       if (track && !att.listening) listenGlance = att.t + rand(...LISTEN_GLANCE.first);
@@ -389,13 +414,19 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     if (known) hear(known.track);
     const stopPoll = pollNow((r) => {
       const now = r.now;
+      const at = Date.now();
       let on = false;
-      if (now) {
-        const key = `${now.artist}\u0000${now.title}`;
-        if (!firstSeen.has(key)) firstSeen.set(key, Date.now());
-        on = Date.now() - firstSeen.get(key)! < STALE_MS;
+      const key = now && `${now.artist}\u0000${now.title}`;
+      if (now && key) {
+        const seen = tracksSeen.get(key);
+        const first = seen && at - seen.last < FORGET_MS ? seen.first : at;
+        tracksSeen.set(key, { first, last: at });
+        // how far in: the server's word when it has one, else how long this session has seen it
+        const inSong = typeof now.elapsed === "number" ? now.elapsed * 1000 : at - first;
+        on = inSong < STALE_MS;
       }
-      lastNow = { track: on ? now : null, at: Date.now() };
+      for (const [k, s] of tracksSeen) if (k !== key && at - s.last >= FORGET_MS) tracksSeen.delete(k);
+      lastNow = { track: on ? now : null, at };
       hear(lastNow.track);
       onHeard();
     });
@@ -475,6 +506,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       stopArrive?.();
       openTimer?.kill();
       slotTimer?.kill();
+      restTimer?.kill();
       stopPoll();
       stopLife();
       game.current = null;

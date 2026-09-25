@@ -301,8 +301,11 @@ export type UrchiCharacter = {
   setTilts(gap: [number, number] | null): void;
   /** A slow sway of the head, roll ±`degrees` on a `period`, eased in and out; 0 stops it. */
   sway(degrees: number, period?: number): void;
-  /** An owl's bob: the head side to side three times, about ±3 degrees at 2Hz, judging a distance. */
-  bob(): void;
+  /**
+   * An owl's bob: the head side to side three times, about ±3 degrees at 2Hz, judging a distance.
+   * It holds off the random tilts while it runs, and is refused (false) while a tilt is still swinging.
+   */
+  bob(): boolean;
   /** Woken properly: a slow stretch upward, the face tipping up about 9.5 degrees and the head rising, and back, over 1.2s. */
   stretch(): void;
   /** Hold the head off its aim by these angles in degrees (a sleeper's dip, a nod, a wind-up), on a spring of `speed`. */
@@ -445,7 +448,8 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   // down. The tilt pivots low in the head, like a neck, through a soft spring.
   const TILT = { pivot: 250, maxSameSide: 2 };
   const rand = (a: number, b: number) => a + Math.random() * (b - a);
-  const tilt = { roll: spring(), yaw: spring(), pitch: spring(), speed: 5.5, side: 0, lastSide: 0, streak: 0, next: rand(2, 5), resettled: false };
+  // `at`: when the last move began (the owl's bob waits for a tilt to finish swinging)
+  const tilt = { roll: spring(), yaw: spring(), pitch: spring(), speed: 5.5, side: 0, lastSide: 0, streak: 0, next: rand(2, 5), resettled: false, at: -99 };
   /** The gap between moves (the attention hooks can stretch it, or stop the tilts: `on` false). */
   const tilts = { on: true, min: 4, max: 9 };
   /** With the random tilts off, how long a cued tilt holds before the head comes level. */
@@ -484,6 +488,7 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
         else { tiltTo(tilt.side); tilt.resettled = true; }   // same side, new angle (once in a row): not a new tilt
       }
       tilt.speed = rand(3.5, 8);                // this move's pace: slow lean .. quick perk
+      tilt.at = t;
       const sooner = tilts.min <= 4 && Math.random() < 0.1;   // no early ones when the tilts are spaced out (drowsy)
       tilt.next = t + (sooner ? rand(1.5, 2.5) : rand(tilts.min, rest ? tilts.max + 1 : tilts.max));
     }
@@ -630,8 +635,10 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   const pose = { yaw: spring(), pitch: spring(), roll: spring(), speed: 6 };
   // The sway (listening): roll on a slow sine whose depth eases in and out.
   const swaying = { amp: spring(), period: 3.4, phase: 0 };
-  // The owl's bob: three swings side to side at 2Hz.
-  const BOB = { roll: 3 * D2R, shift: 10, hz: 2, cycles: 3 };
+  // The owl's bob: three swings side to side at 2Hz. It keeps clear of the curious tilt: not within
+  // `clear` seconds of a tilt's start or while the tilt is more than `settled` from where it is
+  // going, and no random tilt until `after` seconds past its end, so it reads as a gesture of its own.
+  const BOB = { roll: 3 * D2R, shift: 10, hz: 2, cycles: 3, clear: 1, settled: 1.5 * D2R, after: 0.6 };
   let bobStart = -1, shift = 0;
   // The stretch: one slow hump up and back.
   const STRETCH = { seconds: 1.2, pitch: 9.5 * D2R, rise: 16 };
@@ -993,6 +1000,7 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
       tilt.streak = side === tilt.lastSide ? tilt.streak + 1 : 1; tilt.lastSide = side;
       tiltTo(side, degrees); tilt.resettled = false;
       tilt.speed = rand(6, 8);   // a perk rather than a lean
+      tilt.at = S.t;
       if (tilts.on) tilt.next = S.t + rand(tilts.min, tilts.max);
       else cuedUntil = S.t + rand(...CUED_HOLD);
     },
@@ -1004,8 +1012,13 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
       swaying.amp.target = Math.abs(degrees) * D2R; swaying.period = Math.max(0.5, period);
     },
     bob() {
-      if (reduceMotion || bobStart >= 0) return;
+      // Not over a tilt still swinging: its 6-15 degrees would swamp the bob's 3.
+      const swinging = S.t - tilt.at < BOB.clear || Math.abs(tilt.roll.v - tilt.roll.target) > BOB.settled;
+      if (reduceMotion || bobStart >= 0 || swinging) return false;
       bobStart = S.t;
+      // and no random tilt starts while it judges the distance
+      tilt.next = Math.max(tilt.next, S.t + BOB.cycles / BOB.hz + BOB.after);
+      return true;
     },
     stretch() {
       if (reduceMotion) return;
