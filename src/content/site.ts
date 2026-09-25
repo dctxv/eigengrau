@@ -9,6 +9,11 @@ export const ROLE = "Basic Human";
 export const TAGLINE = "Interfaces, motion and small tools, built with care.";
 export const SITE_URL = "https://eigengrau.example";
 export const YEAR = 2026;
+/**
+ * Where he lives, as an IANA time zone ("Europe/London"). Urchi keeps these hours (asleep at night)
+ * and Music reads the week's listening in them. null keeps the visitor's own hours until it is set.
+ */
+export const TIME_ZONE: string | null = null; // TODO(darius): set your zone
 
 /** About page. Three lines, about twelve words. */
 export const STATEMENT = [

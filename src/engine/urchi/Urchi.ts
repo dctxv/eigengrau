@@ -24,6 +24,8 @@ export type UrchiHostOptions = {
   /** Write depth, for a perspective scene whose other objects pass in front of and behind it. */
   depth?: boolean;
   reducedMotion?: boolean;
+  /** Mesh units per canvas pixel (see UrchiOptions.cell): coarser for a small Urchi, so its rim stays one pixel. */
+  cell?: number;
 };
 
 /**
@@ -46,7 +48,7 @@ export class Urchi {
   private texture: THREE.CanvasTexture;
 
   constructor(o: UrchiHostOptions = {}) {
-    this.character = createUrchi({ reducedMotion: o.reducedMotion });
+    this.character = createUrchi({ reducedMotion: o.reducedMotion, cell: o.cell });
     const tex = new THREE.CanvasTexture(this.character.canvas);
     // Raw colour, as every texture on the site, and hard pixels when scaled up.
     tex.colorSpace = THREE.NoColorSpace;

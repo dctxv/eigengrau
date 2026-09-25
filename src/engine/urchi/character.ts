@@ -166,10 +166,26 @@ function colourwayFor(params: URLSearchParams): Colourway {
   return (drawn = COLOURWAYS[COLOURWAYS.length - 1]);
 }
 
-export type UrchiOptions = { reducedMotion?: boolean };
+/** This visit's colourway, as drawn (or forced with ?col=) by the first Urchi on the page; null before any Urchi exists. */
+export function drawnColourway(): { name: string; iris: string; pupilLeft: string; pupilRight: string } | null {
+  if (!drawn) return null;
+  return { name: drawn[0], iris: drawn[2], pupilLeft: drawn[3], pupilRight: drawn[4] || drawn[3] };
+}
+
+export type UrchiOptions = {
+  reducedMotion?: boolean;
+  /**
+   * Mesh units per canvas pixel: 7.5 (the default) paints the 187 x 164 head of the standalone page.
+   * A coarser cell paints a smaller canvas whose rim is still exactly one pixel, for a small Urchi
+   * (the About mark, the favicon) that must stay crisp instead of being minified.
+   */
+  cell?: number;
+  /** false: no window listeners, so the gaze never follows the pointer (the favicon). Default true. */
+  input?: boolean;
+};
 
 export type UrchiCharacter = {
-  /** The painted head, VBW / CELL by VBH / CELL pixels (187 x 164); transparent around the rim. */
+  /** The painted head, VBW / CELL by VBH / CELL pixels (187 x 164 at the default cell); transparent around the rim. */
   readonly canvas: HTMLCanvasElement;
   /** One frame: steps the springs and repaints. dt in seconds. */
   update(dt: number): void;
@@ -211,13 +227,13 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   const EYES = MESH.eyes || [];
   // canvas in the SVG's coordinates, one pixel per CELL units; it covers x -701.25..701.25 and
   // y -674..556, wider and taller than the SVG's viewBox so a tilted head never gets cut off
-  const CELL = 7.5, VBX = URCHI_FRAME.x, VBY = URCHI_FRAME.y, VBW = URCHI_FRAME.w, VBH = URCHI_FRAME.h;
+  const CELL = o.cell && o.cell > 0 ? o.cell : 7.5, VBX = URCHI_FRAME.x, VBY = URCHI_FRAME.y, VBW = URCHI_FRAME.w, VBH = URCHI_FRAME.h;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-  canvas.width = VBW / CELL; canvas.height = VBH / CELL;
+  canvas.width = Math.ceil(VBW / CELL); canvas.height = Math.ceil(VBH / CELL);
   const COLOR = { base: "#040404" };
   const BASE = 1.5;   // dark base grown beyond the silhouette (units), so joins between planes show dark
-  const rimMask = new Uint8Array((VBW / CELL) * (VBH / CELL));
+  const rimMask = new Uint8Array(canvas.width * canvas.height);
   /** The last frame's pixels, for alphaAt. */
   let lastPx: Uint8ClampedArray | null = null;
 
@@ -255,7 +271,7 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
     P.has = true; S.lastMove = S.t;
   }
   let release = 0;
-  if (!reduceMotion) {
+  if (!reduceMotion && o.input !== false) {
     on("pointermove", pointerAt, { passive: true });
     on("pointerdown", pointerAt, { passive: true });
     // a touch has no hover: hold the gaze where the finger was for a moment, then drift back
