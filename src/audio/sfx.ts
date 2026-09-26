@@ -2,9 +2,9 @@
  * Sound (spec 11). Two sampled files in public/audio: a click for opening a
  * project and an ambient bed that loops with a crossfade at the seam. The
  * other cues are synthesised, and ticks can come as a train placed on the
- * audio clock. Music adds a third voice: a song's preview heard
- * through the wall, with the bed ducking under it. Off by default, remembered
- * in localStorage; nothing is fetched until sound is turned on.
+ * audio clock. Music adds a third voice: a song's preview heard through the
+ * wall, with the bed ducking under it. Off by default, remembered in
+ * localStorage; nothing is fetched until sound is turned on.
  */
 type Name = "click" | "tab" | "slide" | "focus" | "close" | "tick" | "done";
 type Synth = Exclude<Name, "click">;

@@ -125,6 +125,8 @@ class Folds {
   private items = new Map<string, Item>();
   /** Each container's notes in order: "recent", or a month's id. Runs never cross a container. */
   private lists = new Map<string, string[]>();
+  /** The note above each one in its container. A note's gap depends only on whether it and that one are folded. */
+  private above = new Map<string, string>();
   private groups = new Map<string, Group>();
   private shape = new Map<string, Shape>();
   private open: ReadonlySet<string> = EMPTY;
@@ -137,7 +139,9 @@ class Folds {
       const item = { id, el, c, full: el.querySelector<HTMLElement>(".note-full")!, row: el.querySelector<HTMLElement>(".note-row")!, rule: el.querySelector<HTMLElement>(".note-rule")! };
       this.items.set(id, item);
       if (!this.lists.has(c)) this.lists.set(c, []);
-      this.lists.get(c)!.push(id);
+      const list = this.lists.get(c)!;
+      if (list.length) this.above.set(id, list[list.length - 1]);
+      list.push(id);
     });
     column.querySelectorAll<HTMLElement>(".notes-group").forEach((el) => {
       const id = el.dataset.g!;
@@ -238,7 +242,6 @@ class Folds {
     }
 
     setting.forEach((id) => this.sync(id));
-    reshaping.forEach((id) => this.reshape(id));
 
     // Every size and place is read before anything is written, and every height things open to
     // after, so the page lays out twice however much moves, not once for each note and month. What
@@ -300,6 +303,19 @@ class Folds {
     });
     unfolding.forEach((id, i) => {
       if (unfoldSeen[i]) this.unfold(id, unfoldRect[i].height, unfoldTo[i], atRest[i], unfoldAt[i]);
+    });
+    // A gap opens or closes as the note above it starts to open or close, not before, so a note
+    // never touches the one above while that one still waits its turn in the riffle.
+    const movesAt = new Map<string, number>();
+    folding.forEach((id, i) => {
+      if (foldSeen[i]) movesAt.set(id, foldAt[i] + CLOSE_AT);
+    });
+    unfolding.forEach((id, i) => {
+      if (unfoldSeen[i]) movesAt.set(id, unfoldAt[i]);
+    });
+    reshaping.forEach((id) => {
+      const up = this.above.get(id);
+      this.reshape(id, (up && movesAt.get(up)) || 0);
     });
     closing.forEach((g, i) => {
       if (closeSeen[i]) this.collapse(g, closeRect[i].height);
@@ -411,17 +427,18 @@ class Folds {
   }
 
   /**
-   * Still folded (or still open), only its place in a run changed. A fold still waiting for its turn
-   * in a riffle would set the margin it was given when it was queued, over this one, and split the
-   * run; overwrite "auto" reaches only tweens already running. So the margin comes out of every
-   * tween on the note, started or not, and a waiting fold still closes the row.
+   * Still folded (or still open), only its place in a run changed; its gap moves `delay` from now.
+   * A fold still waiting for its turn in a riffle would set the margin it was given when it was
+   * queued, over this one, and split the run; overwrite "auto" reaches only tweens already running.
+   * So the margin comes out of every tween on the note, started or not, and a waiting fold still
+   * closes the row.
    */
-  private reshape(id: string) {
+  private reshape(id: string, delay: number) {
     const it = this.items.get(id)!;
     const s = this.shape.get(id)!;
     it.el.toggleAttribute("data-thin", s.thin);
     gsap.killTweensOf(it.el, "marginTop");
-    gsap.to(it.el, { marginTop: s.margin, duration: FOLD, ease: EASE.inout });
+    gsap.to(it.el, { marginTop: s.margin, duration: FOLD, ease: EASE.inout, delay });
   }
 
   /** The line stays as the header; its notes, or its months, rise under it one after another. Synced and measured already. */
