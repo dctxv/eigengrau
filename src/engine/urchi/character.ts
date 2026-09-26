@@ -21,7 +21,9 @@ import MESH_DATA from "./mesh.json";
  * `smooth` paints the same head without the pixels, for the site's Space and
  * About: the canvas follows the size it is shown at (setResolution), edges keep
  * their anti-aliasing, and the white rim is the silhouette's outline, as wide
- * as one art pixel was, instead of the ring of pixels around it.
+ * as one art pixel was (or as the host holds it, setRim), instead of the ring
+ * of pixels around it. A frame that would draw what is already there is not
+ * painted again, so a still Urchi costs its host no upload.
  *
  * The mesh is baked into urchi/index.html by urchi/tools/build-mascot.mjs;
  * `npm run urchi:sync` copies it to mesh.json beside this file.
@@ -230,8 +232,11 @@ export type UrchiOptions = {
 export type UrchiCharacter = {
   /** The painted head, VBW / CELL by VBH / CELL pixels (187 x 164 at the default cell); transparent around the rim. */
   readonly canvas: HTMLCanvasElement;
-  /** One frame: steps the springs and repaints. dt in seconds. */
-  update(dt: number): void;
+  /**
+   * One frame: steps the springs and repaints, unless nothing it draws has moved since the last
+   * paint (the canvas already shows this frame). Returns whether it painted. dt in seconds.
+   */
+  update(dt: number): boolean;
   /** Eyes shut (the closed-lid arc) until openEyes. */
   closeEyes(): void;
   openEyes(seconds: number): void;
@@ -271,6 +276,11 @@ export type UrchiCharacter = {
    * next update paints it. A smooth Urchi's host keeps this at the size it is shown, in device pixels.
    */
   setResolution(boxPx: number): void;
+  /**
+   * A smooth rim's width in mesh units, as the host wants it (Space holds it between 2 and 3.5
+   * screen px); null is one art pixel, 7.5 units. Never under a canvas pixel and a quarter.
+   */
+  setRim(units: number | null): void;
 
   // ---- attention hooks (Space's attention system drives these; all inert until called)
   /**
@@ -383,8 +393,10 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   /** A smooth frame's silhouette and its canvas transform, for alphaAt. */
   let lastHead: Path2D | null = null;
   let lastToCanvas: CanvasTransform6 | null = null;
-  /** A smooth rim's width in mesh units: one art pixel (7.5), and never under a canvas pixel and a quarter. */
-  const rimWidth = () => Math.max(7.5, 1.25 * CELL);
+  /** The host's rim, in mesh units (setRim); null for one art pixel. */
+  let rim: number | null = null;
+  /** A smooth rim's width in mesh units: one art pixel (7.5) or the host's, and never under a canvas pixel and a quarter. */
+  const rimWidth = () => Math.max(rim ?? 7.5, 1.25 * CELL);
 
   // ------------------------------------------------------------------ look
   // the cursor at a screen edge turns the head about 41 degrees (up/down 17.5 / 15)
@@ -924,8 +936,24 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
     return Math.max(blinkAmount, eyeLids[i].v, restLid.v);
   }
 
+  /**
+   * What render() read for the last paint. A frame whose every input is within DRAWN_EPS of it
+   * would draw the same picture (a hundredth of a canvas pixel at most), so the canvas keeps it
+   * and a host can skip its upload. Null paints the next frame whatever (a new size, the first).
+   */
+  let lastDrawn: number[] | null = null;
+  const DRAWN_EPS = 1e-5;
+  function paint(yaw: number, pitch: number, roll: number): boolean {
+    const now = [yaw, pitch, roll, lidOf(0), lidOf(1), gaze.x.v, gaze.y.v, gaze.h.v, gaze.conv.v, wide.v, shift, rise, reveal, CELL, rimWidth()];
+    const was = lastDrawn;
+    if (was && now.every((v, i) => Math.abs(v - was[i]) < DRAWN_EPS)) return false;
+    lastDrawn = now;
+    render(yaw, pitch, roll);
+    return true;
+  }
+
   // The standalone page's frame, called by the host's ticker instead of its own.
-  function frame(dtSeconds: number) {
+  function frame(dtSeconds: number): boolean {
     const dt = Math.min(0.05, Math.max(0.001, dtSeconds));
     S.t += dt;
     let tx = 0, ty = 0;   // a gaze target outranks the pointer
@@ -968,7 +996,7 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
     rise -= STRETCH.rise * reach;
     const extra = reduceMotion || FORCED ? { yaw: 0, pitch: 0, roll: 0 } : { yaw: pose.yaw.v, pitch: pose.pitch.v - STRETCH.pitch * reach, roll: pose.roll.v + swaying.amp.v * Math.sin(swaying.phase) + bobRoll };
     const roll = FORCED_ROLL ?? tilt.roll.v + extra.roll;
-    render(S.yaw.v + tilt.yaw.v + away.turn.v + extra.yaw, S.pitch.v + tilt.pitch.v + nod + extra.pitch, roll);
+    return paint(S.yaw.v + tilt.yaw.v + away.turn.v + extra.yaw, S.pitch.v + tilt.pitch.v + nod + extra.pitch, roll);
   }
   blinkAmount = FORCED_BLINK ?? 0;
   breathe(0);
@@ -1027,7 +1055,10 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
       CELL = next;
       canvas.width = Math.ceil(VBW / CELL); canvas.height = Math.ceil(VBH / CELL);
       rimMask = new Uint8Array(canvas.width * canvas.height);
-      revealMask = null; revealDist = null; lastPx = null; lastHead = null;
+      revealMask = null; revealDist = null; lastPx = null; lastHead = null; lastDrawn = null;
+    },
+    setRim(units) {
+      rim = units === null ? null : Math.max(0, units);
     },
     alphaAt(u, v) {
       if (SMOOTH) {

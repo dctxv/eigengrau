@@ -5,7 +5,7 @@ import gsap from "gsap";
 import { sfx } from "@/audio/sfx";
 import { MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
 import { Motes } from "@/engine/space/Motes";
-import { RoomScene } from "@/engine/space/RoomScene";
+import { RoomScene, URCHI_TURN } from "@/engine/space/RoomScene";
 import { runIntro } from "@/engine/space/intro";
 import { comeBack, glanceAt, glanceDown, read, tug } from "@/engine/urchi/acts";
 import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
@@ -27,6 +27,12 @@ const PLATE_MARGIN = 32;
 const STACK_GAP = 24;
 /** Room the stack keeps above and below it: clear of the nav, off the bottom edge. */
 const STACK_CLEAR = 48;
+/**
+ * Turned to the board or past it, the head's ear tips rise over where they rest (URCHI_TURN.rise).
+ * They may take this much of the clear above the stack and still stop short of the tab bar, which
+ * ends about 36px down; the stack makes room for the rest.
+ */
+const STACK_EARS = 8;
 /** Seconds the result caption holds the slot before the hover caption may return. */
 const RESULT_DWELL = 4;
 /** A press that moves less than this (px) and lets go within this (ms) is a click. */
@@ -140,6 +146,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       return { x: r.left + r.width / 2 + e.x, y: r.top + r.height / 2 - e.y };
     };
     let moodChanged = () => {};
+    /** It is being found asleep (a night arrival): the head is on its pillow already, not settling onto it. */
+    let arriving = false;
     const att = new Attention(room.urchi.character, { head: eyesClient, reach: () => room.urchiSize.w / 2, reducedMotion, onMood: () => moodChanged() });
     const motes = new Motes(room, att, { reducedMotion });
     Object.assign(stageEl, { __room: room, __att: att, __motes: motes }); // handy for debugging and headless QA
@@ -252,6 +260,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
 
     // Falling asleep or waking under the pointer: the label follows, and the caption when its words change.
     moodChanged = () => {
+      // Asleep for the night, the head settles onto its pillow as the lids close (already there
+      // when it is found asleep), and rises as it wakes.
+      room.settleUrchi(att.mood === "asleep", arriving);
       if (overUrchi) cursor.set(att.asleep ? "Wake" : "Threshold");
       // The phone's one caption follows too: a tap that wakes it at night must not leave it
       // saying "asleep" with its eyes open. Awake, the line is his, and it reads it.
@@ -281,16 +292,24 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const plateSize = () => Math.min(PLATE_MAX, window.innerWidth - PLATE_MARGIN, window.innerHeight - PLATE_MARGIN);
     /**
      * Urchi, a gap and the plate form one centred stack; returns the plate's drop below the centre.
-     * Urchi steps down to the largest whole pixel scale whose head fits above the plate, so its
-     * pixels stay square; when not even one screen pixel per art pixel fits, it dims instead.
+     * Urchi shrinks, as far as it must and no further, until its head fits above the plate with room
+     * for its ears as it turns. Where only its smallest head (one screen pixel per art pixel) fits,
+     * it takes that and its ears borrow the clear; where not even that fits at rest, it dims instead.
      */
     const stack = (duration: number) => {
+      const H = window.innerHeight;
       const plate = plateSize();
-      const step = room.stepFitting(window.innerHeight - 2 * STACK_CLEAR - STACK_GAP - plate);
-      const fits = step > 0;
-      room.liftUrchi(fits ? (STACK_GAP + plate) / 2 : 0, duration, fits ? room.pixelAt(step) / room.pixel : 1);
+      const fit = H - 2 * STACK_CLEAR - STACK_GAP - plate; // the head's room at rest
+      const turned = (fit + STACK_EARS) / (1 + URCHI_TURN.rise); // and with its ears' rise
+      const head = Math.min(room.urchiSize.h, Math.max(Math.min(fit, turned), room.minHead));
+      const fits = fit >= room.minHead;
+      // Centred, unless the ears' rise needs the stack lower (never off the bottom's clear).
+      const ears = Math.max(0, URCHI_TURN.rise * head - STACK_EARS);
+      const tall = head + STACK_GAP + plate;
+      const top = Math.min(Math.max((H - tall) / 2, STACK_CLEAR + ears), H - STACK_CLEAR - tall);
+      room.liftUrchi(fits ? H / 2 - top - head / 2 : null, duration, head / room.urchiSize.h);
       room.dimUrchi(!fits);
-      return fits ? (room.headAt(step) + STACK_GAP) / 2 : 0;
+      return fits ? top + head + STACK_GAP + plate / 2 - H / 2 : 0;
     };
     const showResult = (date: string, result: number) => {
       const { title, line } = resultCaption(date, result);
@@ -327,7 +346,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const closeGame = (abandoned: boolean) => {
       gameOpen = false;
       setBoard(null);
-      room.liftUrchi(0, reducedMotion ? 0 : 0.9);
+      room.liftUrchi(null, reducedMotion ? 0 : 0.9);
       room.dimUrchi(false);
       cursor.set(null);
       dropHash();
@@ -362,7 +381,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let listenGlance = Infinity;
     const begin = (afterIntro: boolean) => {
       if (begun >= 0) return;
+      arriving = !afterIntro;
       att.start({ afterIntro });
+      arriving = false;
       motes.start();
       begun = att.t;
       newsAt = att.t + (afterIntro ? NEWS.afterIntro : NEWS.after);

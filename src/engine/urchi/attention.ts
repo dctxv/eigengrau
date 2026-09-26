@@ -85,8 +85,8 @@ const STARTLE = { gap: 2.5, pause: 0.4, widen: 0.06, widenFor: 0.7 };
 const ALERT = { base: 0.6, tau: 10, idleFrom: 20, idleOver: 100, idleMax: 0.3, listening: 0.15 };
 /** Stillness, in seconds without the pointer: longer blinks from `heavy`, a doze at `doze`; at night, back to sleep at `night`. */
 const IDLE = { heavy: 45, doze: 90, night: 40 };
-/** Asleep: a pointer within this many px of the head (or a tap) opens one eye. */
-const NEAR = 160;
+/** Asleep: a pointer within this share of its box of the head's edge (or a tap) opens one eye, so a bigger head notices from further. */
+const NEAR = 0.3;
 /** Once woken in this session, it stays up for this long across tabs (ms). */
 const STAYS_UP = 3 * 60 * 1000;
 /** In memory for the session: when it was last woken. */
@@ -738,7 +738,8 @@ export class Attention {
     } else if (this.mood === "asleep") {
       const you = this.you();
       const h = this.o.head();
-      const near = you && Math.hypot(you.x - h.x, you.y - h.y) - this.o.reach() < NEAR && still < 1;
+      const reach = this.o.reach(); // half its box
+      const near = you && Math.hypot(you.x - h.x, you.y - h.y) - reach < NEAR * 2 * reach && still < 1;
       if (near && !this.act) this.play("peek", 5, () => peek(this), { sleeping: true });
     }
     this.apply();

@@ -7,9 +7,11 @@ import type { RoomScene } from "./RoomScene";
 /**
  * The ring, in CSS px on a wide screen: twelve thumbnails pop in round the monogram and turn
  * slowly while the counter finishes. On a narrow screen the whole ring scales to fit 80% of the
- * width (the thumbnails less, so they stay legible).
+ * width (the thumbnails less, so they stay legible). Where Urchi is drawn larger than 3 screen px
+ * per art pixel it grows with Urchi, so it still has somewhere to draw in to round the bigger
+ * eyes; never so far that it reaches past `maxH` of the height from the centre.
  */
-const RING = { count: 12, r0: 255, r1: 265, thumb: 60, turn: 0.14, span: 590, minFit: 0.35, minThumbFit: 0.7 };
+const RING = { count: 12, r0: 255, r1: 265, thumb: 60, turn: 0.14, span: 590, minFit: 0.35, minThumbFit: 0.7, maxH: 0.42 };
 /**
  * The draw-in: the ring closes round Urchi's eyes, this far clear of them, its thumbnails
  * shrinking to this width. Both are for 3 screen px per art pixel and scale with Urchi.
@@ -109,9 +111,11 @@ export class IntroRing {
     this.playVideos(true);
   }
 
-  /** The ring's scale on this viewport: 1 on a wide screen, down to fit 80% of a narrow one. */
+  /** The ring's scale on this viewport: 1 on a wide screen (more beside a larger Urchi), down to fit 80% of a narrow one. */
   private get fit() {
-    return THREE.MathUtils.clamp((this.room.width * 0.8) / RING.span, RING.minFit, 1);
+    const reach = RING.r1 + RING.thumb / 2;
+    const grow = THREE.MathUtils.clamp(this.room.pixel / 3, 1, Math.max(1, (RING.maxH * this.room.height) / reach));
+    return THREE.MathUtils.clamp((this.room.width * 0.8) / (RING.span * grow), RING.minFit, 1) * grow;
   }
 
   private get thumbFit() {

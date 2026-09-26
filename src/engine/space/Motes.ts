@@ -38,9 +38,16 @@ const MOTE = {
   /** Near its face: within this share of Urchi's box width of its eyes, once watched for a moment. */
   near: 0.6,
   nearAfter: 1,
-  /** A resting mote waits at least this long, then the top of a breath lifts it off at this speed. */
+  /** Born in the open, at least this share of its box from its eyes. */
+  clear: 0.75,
+  /**
+   * A resting mote waits at least this long, then the top of a breath lifts it off at this speed,
+   * away from a point this share of its box below the eyes (about the middle of its face).
+   */
   rest: 0.8,
   lift: 8,
+  liftFrom: 0.09,
+  /** Its size: one of Urchi's art pixels, on whole device pixels, never under this (CSS px). */
   minPx: 2,
 };
 
@@ -188,7 +195,7 @@ export class Motes {
     }
     // somewhere in the open: clear of Urchi, the tabs and the caption
     const head = this.room.eyes();
-    const clear = this.room.urchiSize.w * 0.75;
+    const clear = this.room.urchiSize.w * MOTE.clear;
     for (let k = 0; k < 20; k++) {
       const x = rand(-w + MOTE.margin, w - MOTE.margin);
       const y = rand(-h + MOTE.bottom, h - MOTE.top);
@@ -228,8 +235,8 @@ export class Motes {
       this.next = this.t + rand(...MOTE.every);
       if (this.room.interactive) this.arrive();
     }
-    const px = Math.max(MOTE.minPx, this.room.pixel);
     const ratio = this.room.ratio;
+    const px = Math.max(MOTE.minPx, Math.max(1, Math.round(this.room.pixel * ratio)) / ratio);
     const snap = (v: number) => Math.round(v * ratio) / ratio;
     const W = this.room.width, H = this.room.height;
     const face = this.room.eyes();
@@ -325,7 +332,7 @@ export class Motes {
     const head = this.room.eyes();
     m.resting = false;
     m.breathLow = false;
-    m.heading = Math.atan2(m.y - head.y + 40, m.x - head.x);
+    m.heading = Math.atan2(m.y - head.y + MOTE.liftFrom * this.room.urchiSize.w, m.x - head.x);
     m.speed = MOTE.lift;
     m.ghost = this.t + 1.5;
   }
