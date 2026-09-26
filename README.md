@@ -11,7 +11,9 @@ A minimal WebGL portfolio: five "pages" that behave like one app.
 | About `5` | `/about` | One large serif statement with Urchi as the small mark after "things.", the status line, and three words beneath for elsewhere. |
 
 A persistent chrome layer (monogram, pill tabs, sound chip) floats above page
-panels that slide horizontally when you change tab. The intro plays only on a
+panels that slide horizontally when you change tab. While they slide, and only
+then, faint one-pixel stars pass at about a third of their speed: the same
+ones all visit, back the other way on the way back. The intro plays only on a
 hard load of `/`: name, role, counter and ring; then the ring draws in, Urchi's
 eyes open alone, its head builds out from them, and its first breath blows the
 pieces up toward the "2" as the chrome drops. The favicon is a live Urchi in
@@ -117,7 +119,7 @@ src/app/api/preview/     a song's 30s preview from the iTunes Search API, proxie
 src/app/api/cover/[id]/  album art proxied same-origin, cached for a day
 src/app/threshold/       redirects to /#threshold, the game's door
 src/components/Shell.tsx chrome + the horizontal page slider
-src/components/chrome/   Nav, Tab (pill morph), FloatingLogo (exclusion blend), SoundChip, LiveIcon (the favicon's Urchi)
+src/components/chrome/   Nav, Tab (pill morph), FloatingLogo (exclusion blend), SoundChip, LiveIcon (the favicon's Urchi), Between (the stars between the tabs)
 src/components/pages/    one client panel per tab: canvas + DOM overlays; NotesPanel and MusicPanel are plain DOM; Threshold is the game's board
 src/engine/space/        Urchi's room (RoomScene), the intro's ring (IntroRing) and timeline (intro.ts), the motes (Motes.ts), and call and response (Call.ts)
 src/engine/projects/     the wound thread (ThreadScene) and its edge-glass post pass (edgeGlass)
