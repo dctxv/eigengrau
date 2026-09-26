@@ -23,6 +23,10 @@ const POLL = { live: 20_000, quiet: 60_000 };
 const STATE_EVERY = 30_000;
 /** Resting on a title this long plays it through the wall. */
 const DWELL_MS = 600;
+/** A pointer this near the tab bar's row (px) is at the room's door. */
+const DOOR_BAND = 12;
+/** A pointer still this long (ms), or a keyboard, has come to rest, rather than being on its way somewhere. */
+const SETTLE_MS = 300;
 /** The stack's lines leave before the sleeve moves to the middle of the room. */
 const FOLD_MS = 560;
 /** The sleeve's glide between the week and the room, and how long the words under it wait for it. */
@@ -50,6 +54,15 @@ function firstSoundOffHover() {
   if (toldSoundOff) return false;
   toldSoundOff = true;
   return true;
+}
+
+/** Whether a focus was a keyboard's (a browser too old to say counts it as one). */
+function keyed(el: Element) {
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return true;
+  }
 }
 
 const keyOf = (t: Track) => `${t.artist}\u0000${t.title}`;
@@ -779,6 +792,8 @@ export function MusicPanel() {
   const touch = useRef(false);
   const armed = useRef<string | null>(null);
   const pinned = useRef(false);
+  /** The visitor is at the room's door or may be on the way: the pointer on the tab bar, a keyboard's focus in the chrome, or either still moving (see Preview.atDoor). */
+  const door = useRef(false);
   /** The room's colour; none under prefers-contrast: more, which keeps the room eigengrau. */
   const light = useRef<RoomLight | null>(null);
   const lightBox = useRef<HTMLDivElement>(null);
@@ -795,7 +810,7 @@ export function MusicPanel() {
 
   // ---------------------------------------------------------------- the song through the wall
 
-  /** Leave: the door closes over 1.2s and the song goes back into the bed. */
+  /** Leave: the door closes over 1.2s and the song goes back into the bed, unless the visitor is on their way out (see Preview.stop). */
   const hush = useCallback(() => {
     if (dwell.current !== null) window.clearTimeout(dwell.current);
     dwell.current = null;
@@ -861,8 +876,12 @@ export function MusicPanel() {
     void v.ended.then(() => {
       light.current?.ended(n);
       if (voice.current === v) voice.current = null;
-      // Resting on the attribution keeps it until the pointer leaves it.
-      if (!pinned.current) setHearing((h) => (h?.n === n ? null : h));
+      // Its thirty seconds, and the decoded song under them, are nobody's to keep now.
+      if (carried?.preview === v) carried = null;
+      // Resting on the attribution keeps it until the pointer leaves it. The song showing is always the latest heard,
+      // so the number says whether it is this one; a plain value, not an updater made in here, which React may keep a
+      // while, and with it this song's decoded thirty seconds.
+      if (!pinned.current && heardN.current === n) setHearing(null);
     });
   }, []);
 
@@ -884,6 +903,7 @@ export function MusicPanel() {
       }
       asking.current = null;
       voice.current = v;
+      v.atDoor(door.current);
       carried = { preview: v, key: keyOf(t), cover: t.coverId };
       const n = ++heardN.current;
       setHearing({ key: keyOf(t), link: v.link, duration: v.duration, at: v.heardAt, n, closing: false });
@@ -910,11 +930,60 @@ export function MusicPanel() {
       light.current?.reopen(back.key, back.cover, n, door.at, door.over);
       onEnd(v, n);
     }
+    // The tab bar is the room's door. A pointer on its row, or a focus out in the chrome (the pills, the sound
+    // chip), is on its way out, and a visitor still moving may be: a pointer, or keys walking the focus back past
+    // the titles. So a song whose door is shutting waits at the wall for the slide instead of going into the bed;
+    // one come to rest in the room lets it go.
+    const nav = document.querySelector<HTMLElement>("nav[data-navbar]");
+    let band: [number, number] | null = null;
+    let pointerThere = false;
+    let focusThere = false;
+    let moving = false;
+    let settle: number | null = null;
+    const tell = () => {
+      door.current = pointerThere || focusThere || moving;
+      voice.current?.atDoor(door.current);
+    };
+    const settled = () => {
+      settle = null;
+      moving = false;
+      tell();
+    };
+    const stir = () => {
+      if (settle !== null) window.clearTimeout(settle);
+      settle = window.setTimeout(settled, SETTLE_MS);
+      moving = true;
+    };
     // A key pressed means the next focus is a keyboard's, even on a touch screen: it chooses as a pointer's rest does.
     const onKey = () => {
       touch.current = false;
+      stir();
+      tell();
+    };
+    const onMove = (e: globalThis.PointerEvent) => {
+      if (e.pointerType === "touch" || !nav) return;
+      if (!band) {
+        const r = nav.getBoundingClientRect();
+        band = [r.top - DOOR_BAND, r.bottom + DOOR_BAND];
+      }
+      stir();
+      pointerThere = e.clientY >= band[0] && e.clientY <= band[1];
+      tell();
+    };
+    // Only a keyboard's focus: a click on the sound chip or a pill leaves the focus there, and the pointer says where it went.
+    const onFocus = (e: FocusEvent) => {
+      const el = e.target;
+      focusThere = e.type === "focusin" && el instanceof Element && el !== document.body && !stage.current?.contains(el) && keyed(el);
+      tell();
+    };
+    const onResize = () => {
+      band = null;
     };
     window.addEventListener("keydown", onKey);
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("resize", onResize);
+    document.addEventListener("focusin", onFocus);
+    document.addEventListener("focusout", onFocus);
     // Leaving Music, the page stops asking for songs as the slide begins; the song already playing is sfx's to keep or close.
     const offWhere = onWhere((w) => {
       if (w.path === "/music") return;
@@ -952,6 +1021,11 @@ export function MusicPanel() {
     return () => {
       stop();
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("resize", onResize);
+      if (settle !== null) window.clearTimeout(settle);
+      document.removeEventListener("focusin", onFocus);
+      document.removeEventListener("focusout", onFocus);
       offWhere();
       if (foldTimer.current !== null) window.clearTimeout(foldTimer.current);
       if (dwell.current !== null) window.clearTimeout(dwell.current);

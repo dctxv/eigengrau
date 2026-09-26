@@ -225,7 +225,9 @@ function ambientStop() {
  * while the bed ducks 6 dB. Keep resting on it and the door opens: over 3s
  * the filter opens to 12 kHz, the song rises to about -6 dB and the bed sits
  * 10 dB down. Leave and the door closes over 1.2s and the song fades back
- * into the bed.
+ * into the bed: once the door has opened it shuts to the wall first, and
+ * goes into the bed from there, so a slide that starts meanwhile can still
+ * carry the song out of the room (see `walk`).
  */
 const WALL_HZ = 700;
 const OPEN_HZ = 12000;
@@ -261,8 +263,21 @@ const AWAY = [
 ] as const;
 /** A jump between rooms (reduced motion, a slide cut short): quick, but not a click. */
 const JUMP = 0.3;
-/** Too close to its stop to call it back (s): the audio thread may already have it. */
+/** Too close to a song starting into the bed to call it back (s): the audio thread may already have begun. */
 const UNSTOP = 0.03;
+/**
+ * How far through its opening the door must be for the song to stay in the
+ * room when the visitor leaves. Before that it is still a song through the
+ * wall, heard for a moment, and it closes as ever: nobody should carry 28s
+ * of muffled music into Notes for resting two seconds on a title.
+ */
+const OPENED = 0.5;
+/**
+ * A door shut on the way out waits at the wall this long (s) after the
+ * visitor seems to have stopped, before the song goes into the bed: a pause
+ * on the way to the tab bar is not a decision to stay.
+ */
+const PAUSE = 0.6;
 
 /**
  * What the Music page gets back: how long the song runs, where it lives on
@@ -275,11 +290,24 @@ export type Preview = {
   heardAt: number;
   ended: Promise<void>;
   /**
-   * Closes the door over 1.2s. Once the visitor has left Music's room the
-   * song is no longer the page's to stop: only its end, sound turned off or
-   * a hidden tab ends it.
+   * Closes the door, as the pointer or the focus leaves the title. A song
+   * still behind the wall (its door less than half open) fades back into the
+   * bed over 1.2s, as ever. Once its door is open, the door shuts to the wall
+   * over 1.2s and the song goes into the bed from there over 0.6s more; it
+   * waits at the wall while the visitor may be leaving (`atDoor`), and a
+   * slide carries it out. Once the visitor has left Music's room the song is
+   * no longer the page's to stop: only its end, sound turned off or a hidden
+   * tab ends it.
    */
   stop: () => void;
+  /**
+   * The visitor is at Music's door or may be on the way there (the page
+   * says: the pointer on the tab bar, a keyboard's focus in the chrome, or
+   * either still moving), or has settled in the room. A door shutting waits
+   * at the wall while they might be leaving, for the slide that takes the
+   * song out with them.
+   */
+  atDoor: (on: boolean) => void;
   /** Whether it still plays on: not closing, not ended. */
   readonly sounding: boolean;
   /**
@@ -296,16 +324,35 @@ type Voice = {
   level: GainNode;
   wet: GainNode;
   pan: StereoPannerNode | null;
-  /** Context times: when the door starts to open, and when the song ends. */
-  doorAt: number;
+  /** Context times: when the door counts as open (see `OPENED`), and when the song ends. */
+  openedAt: number;
   end: number;
-  /** When hush began to close the door and when the song is due to stop (context time); null while it plays on. */
-  hushedAt: number | null;
-  stopAt: number | null;
+  /** How it is closing; null while it plays on. */
+  close: Close | null;
+  /** Whether the visitor is at Music's door or on the way (see `atDoor`). */
+  door: boolean;
   /** The tab the visitor is in, and how many rooms lie between it and Music: 0 in the room. */
   tab: string;
   away: number;
   back: Preview["back"];
+};
+/**
+ * A song closing. The pointer or the focus leaving its title, once its door
+ * has opened, shuts the door to the wall (by `wallAt`) and only then lets the
+ * song go into the bed: until it starts to, a slide carries the song out of
+ * the room instead, and while the visitor is at the door or on the way it
+ * waits at the wall. Every other close (sound turned off, the tab hidden, a
+ * newer song, a song still behind the wall) only ends it: `carry` is false
+ * and nothing brings it back.
+ */
+type Close = {
+  carry: boolean;
+  /** Where the door shuts to: the wall, or less if the song was already there. */
+  wall: { hz: number; level: number; bed: number };
+  wallAt: number;
+  /** When it starts into the bed, and when it stops (context time); both null while it waits at the door. */
+  fadeAt: number | null;
+  stopAt: number | null;
 };
 /** The song sounding, open or closing; a newer one takes its place. */
 let voice: Voice | null = null;
@@ -408,16 +455,32 @@ function bedTo(v: Voice, level: number, now: number, at: number, over: number, e
   bed.gain.linearRampToValueAtTime(1, v.end);
 }
 
-/** Closes the door on the song playing, if any, over `over` seconds; the bed comes back as it goes. A close already sooner stands. */
-function hush(over = DOOR_CLOSE) {
-  const v = voice;
+/** Stops the song's source at `when`; the last stop called is the one that counts. False once it has stopped. */
+function stopSource(v: Voice, when: number): boolean {
+  try {
+    v.src.stop(when);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ends the song over `over` seconds: the lowpass goes back to the wall, the
+ * song fades into the bed as the bed comes back, and it stops. Nothing brings
+ * it back. A close that ends it sooner stands.
+ */
+function finish(v: Voice, over: number) {
   const c = ctx;
-  if (!v || !c) return;
+  if (!c) return;
   const t = c.currentTime;
-  const stopAt = t + over + 0.05;
-  if (v.stopAt !== null && v.stopAt <= stopAt) return;
-  v.hushedAt ??= t;
-  v.stopAt = stopAt;
+  const stop = t + over + 0.05;
+  const was = v.close;
+  if (was && was.stopAt !== null && was.stopAt <= stop) {
+    was.carry = false;
+    return;
+  }
+  v.close = { carry: false, wall: { hz: WALL_HZ, level: 0, bed: 1 }, wallAt: t + over, fadeAt: t, stopAt: stop };
   [v.lp.frequency, v.level.gain, v.wet.gain].forEach((p) => hold(p, t));
   v.lp.frequency.exponentialRampToValueAtTime(Math.min(WALL_HZ, Math.max(1, v.lp.frequency.value)), t + over);
   v.level.gain.linearRampToValueAtTime(0, t + over);
@@ -425,11 +488,101 @@ function hush(over = DOOR_CLOSE) {
     hold(bed.gain, t);
     bed.gain.linearRampToValueAtTime(1, t + over);
   }
-  try {
-    v.src.stop(stopAt);
-  } catch {
-    /* already stopped */
+  stopSource(v, stop);
+}
+
+/** Ends the song playing, if any (sound turned off, the tab hidden, a newer song). */
+function hush(over: number) {
+  if (voice) finish(voice, over);
+}
+
+/**
+ * The pointer or the focus left the title of a song whose door is open: the
+ * door shuts to the wall over 1.2s, as the door's clock has it, and the song
+ * goes into the bed from there. Until it starts to, a slide carries it out of
+ * the room instead (see `walk`), and while the visitor is at the door or on
+ * the way it waits at the wall (see `atDoor`). So leaving a title for the tab
+ * bar never lets the song fall quiet before the slide can pick it up, however
+ * long the way or the pause there.
+ */
+function shut(v: Voice) {
+  const c = ctx;
+  if (!c) return;
+  const t = c.currentTime;
+  const k: Close = {
+    carry: true,
+    wall: {
+      hz: Math.min(WALL_HZ, Math.max(1, v.lp.frequency.value)),
+      level: Math.min(WALL_LEVEL, v.level.gain.value),
+      bed: Math.max(BED_DUCK.wall, bed?.gain.value ?? 1),
+    },
+    wallAt: t + DOOR_CLOSE,
+    fadeAt: null,
+    stopAt: null,
+  };
+  v.close = k;
+  drawShut(v, k, t);
+}
+
+/**
+ * Draws a door shutting, from `now`: on to the wall by `wallAt`, then into
+ * the bed over the wall's own 0.6s and stop, though never sooner than
+ * `PAUSE` after the visitor stopped; or, while the visitor is at the door or
+ * on the way, waiting at the wall for the song's own end. Redrawn from where
+ * it is whenever that changes, so it never jumps.
+ */
+function drawShut(v: Voice, k: Close, now: number) {
+  const { hz, level, bed: duck } = k.wall;
+  [v.lp.frequency, v.level.gain, v.wet.gain].forEach((p) => hold(p, now));
+  if (k.wallAt > now) {
+    v.lp.frequency.exponentialRampToValueAtTime(hz, k.wallAt);
+    v.level.gain.linearRampToValueAtTime(level, k.wallAt);
+    v.wet.gain.linearRampToValueAtTime(ROOM_WET.wall, k.wallAt);
   }
+  const wall = Math.max(now, k.wallAt);
+  if (v.door) {
+    k.fadeAt = null;
+    k.stopAt = null;
+    stopSource(v, v.end);
+  } else {
+    const fadeAt = Math.max(wall, now + PAUSE);
+    k.fadeAt = fadeAt;
+    k.stopAt = fadeAt + WALL_IN + 0.05;
+    v.level.gain.setValueAtTime(level, fadeAt);
+    v.level.gain.linearRampToValueAtTime(0, fadeAt + WALL_IN);
+    stopSource(v, k.stopAt);
+  }
+  if (!bed) return;
+  // The bed ducks as it would under the wall, and is back to full as the song goes, or by its end.
+  hold(bed.gain, now);
+  if (v.end <= wall + 0.05) {
+    bed.gain.linearRampToValueAtTime(1, Math.max(now + 0.05, v.end));
+    return;
+  }
+  if (k.wallAt > now) bed.gain.linearRampToValueAtTime(duck, k.wallAt);
+  const full = k.fadeAt === null ? v.end : Math.min(v.end, k.fadeAt + WALL_IN);
+  const rise = Math.max(wall, k.fadeAt === null || full === v.end ? full - 1 : k.fadeAt);
+  // Already on its way back up (the song's last second): it goes on from where it is.
+  if (rise > now) bed.gain.setValueAtTime(duck, rise);
+  bed.gain.linearRampToValueAtTime(1, full);
+}
+
+/**
+ * The visitor is at Music's door or on the way (`on`), or has settled back in
+ * the room. A door shutting waits at the wall while they might be leaving,
+ * and goes on into the bed once they have settled. Once the song has started
+ * into the bed it goes on going. Only Music's room has the door: a page still
+ * sliding away after the visitor has gone has no say.
+ */
+function atDoor(v: Voice, on: boolean) {
+  if (v.away !== 0 || v.door === on) return;
+  v.door = on;
+  const k = v.close;
+  const c = ctx;
+  if (!k?.carry || !c) return;
+  const now = c.currentTime;
+  if (k.fadeAt !== null && now > k.fadeAt - UNSTOP) return;
+  drawShut(v, k, now);
 }
 
 /**
@@ -437,36 +590,33 @@ function hush(over = DOOR_CLOSE) {
  * Music's room and plays on to its end, heard from wherever they are: through
  * more walls the further they go, from Music's side, and moving over the
  * slide's second along the slide's own ease, so walking away sounds like
- * walking away. A door still closing (the pointer left the title for the tab
- * bar) turns into the distance instead, if the song has not stopped yet. Come
- * back while it plays and the door reopens over 1.5s. A song still behind the
- * wall when the visitor leaves closes as it always has.
+ * walking away. A door the pointer or the focus is shutting (it left the
+ * title for the tab bar) turns into the distance instead, from wherever it
+ * has got to, as long as the song has not started into the bed; a door shut
+ * any other way (sound turned off, the tab hidden, a newer song) stays
+ * shut, and with sound off nothing moves at all. Come back while it plays and
+ * the door reopens over 1.5s. A song still behind the wall when the visitor
+ * leaves (its door less than half open) closes as it always has.
  */
 function walk(w: Where) {
   const v = voice;
   const c = ctx;
-  if (!v || !c) return;
+  if (!v || !c || !enabled) return;
   // Notes and About are both next door, but on either side: a walk between them still moves the song across.
   const tab = tabOf(w.path);
   if (tab === v.tab) return;
   const away = roomsAway(tab);
   const now = c.currentTime;
-  if (v.away === 0) {
-    if ((v.hushedAt ?? now) < v.doorAt) {
-      hush();
-      return;
-    }
-    if (v.stopAt !== null) {
-      if (now > v.stopAt - UNSTOP) return;
-      try {
-        v.src.stop(v.end); // the last stop called is the one that counts
-      } catch {
-        return;
-      }
-      v.stopAt = null;
-      v.hushedAt = null;
-    }
-  } else if (v.stopAt !== null) return; // closing for good: sound off, or the tab hidden
+  const k = v.close;
+  if (k) {
+    if (!k.carry || (k.fadeAt !== null && now > k.fadeAt - UNSTOP) || !stopSource(v, v.end)) return;
+    v.close = null;
+  } else if (v.away === 0 && now < v.openedAt) {
+    finish(v, DOOR_CLOSE);
+    return;
+  }
+  // Another room: whether the visitor is at Music's door is for Music's page to say again when they are back.
+  v.door = false;
   v.tab = tab;
   v.away = away;
   const at = now + Math.max(0, (w.at - performance.now()) / 1000);
@@ -518,7 +668,8 @@ async function listen(url: string, signal?: AbortSignal): Promise<Preview | null
     return null;
   }
   if (signal?.aborted || !enabled || !atHome()) return null;
-  hush();
+  // A newer song takes the room: the last one goes into the bed as this one comes up behind the wall.
+  hush(WALL_IN);
 
   const src = c.createBufferSource();
   src.buffer = buffer;
@@ -542,6 +693,7 @@ async function listen(url: string, signal?: AbortSignal): Promise<Preview | null
   const end = t + buffer.duration;
   const doorAt = Math.min(t + WALL_IN + DOOR_WAIT, end);
   const openAt = Math.min(doorAt + DOOR_OPEN, end);
+  const openedAt = Math.min(doorAt + DOOR_OPEN * OPENED, end);
   const tail = Math.max(openAt, end - 1);
   lp.frequency.setValueAtTime(WALL_HZ, t);
   lp.frequency.setValueAtTime(WALL_HZ, doorAt);
@@ -562,7 +714,7 @@ async function listen(url: string, signal?: AbortSignal): Promise<Preview | null
   bed.gain.setValueAtTime(BED_DUCK.open, tail);
   bed.gain.linearRampToValueAtTime(1, end);
 
-  const v: Voice = { src, lp, level, wet, pan, doorAt, end, hushedAt: null, stopAt: null, tab: HOME, away: 0, back: null };
+  const v: Voice = { src, lp, level, wet, pan, openedAt, end, close: null, door: false, tab: HOME, away: 0, back: null };
   const ended = new Promise<void>((resolve) => {
     src.onended = () => {
       [src, lp, level, wet, walls, fade, pan].forEach((n) => n?.disconnect());
@@ -578,10 +730,15 @@ async function listen(url: string, signal?: AbortSignal): Promise<Preview | null
     heardAt: heardAt(c, t),
     ended,
     stop: () => {
-      if (voice === v && v.away === 0) hush();
+      if (voice !== v || v.away !== 0 || v.close) return;
+      if (c.currentTime < v.openedAt) finish(v, DOOR_CLOSE);
+      else shut(v);
+    },
+    atDoor: (on) => {
+      if (voice === v) atDoor(v, on);
     },
     get sounding() {
-      return voice === v && v.stopAt === null;
+      return voice === v && !v.close;
     },
     get back() {
       return v.back;
