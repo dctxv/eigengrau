@@ -1,5 +1,11 @@
+import dynamic from "next/dynamic";
 import { notFound } from "next/navigation";
-import { SuitSheet } from "./SuitSheet";
+
+/**
+ * The sheet itself, only in development: a production build never follows the import (the branch
+ * is dead there), so the sheet's code is not in the site's chunks at all.
+ */
+const SuitSheet = process.env.NODE_ENV === "production" ? null : dynamic(() => import("./SuitSheet").then((m) => m.SuitSheet));
 
 /**
  * The spacesuit's preview sheet, for review while it is being made: development only (a
@@ -12,6 +18,6 @@ import { SuitSheet } from "./SuitSheet";
  * (what a suited frame costs to paint) and host (the three.js host with the suit on).
  */
 export default function SuitPreview() {
-  if (process.env.NODE_ENV === "production") notFound();
+  if (!SuitSheet) notFound();
   return <SuitSheet />;
 }

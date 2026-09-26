@@ -24,6 +24,8 @@ type Win = { x: number; y: number; w: number; h: number };
 
 const FIGURE: Win = { x: -660, y: -400, w: 1320, h: 2000 };
 const HELMET: Win = { x: -610, y: -410, w: 1220, h: 1040 };
+/** The figure in any pose of the head and any turn of its own: the suit's canvas frame itself, so nothing is ever cut off. */
+const WHOLE: Win = { ...URCHI_SUIT_FRAME };
 const INK = "#e9e9e2";
 const BG = "#16161d";
 
@@ -67,12 +69,48 @@ function blit(g: CanvasRenderingContext2D, ch: UrchiCharacter, win: Win, dx: num
 /** The box width in canvas px that paints a window `h` device px tall at its own resolution. */
 const boxFor = (win: Win, h: number) => (URCHI_BOX.w * h) / win.h;
 
-function label(g: CanvasRenderingContext2D, text: string, x: number, y: number, px: number) {
-  g.font = `500 ${px}px Grotesk, ui-sans-serif, system-ui, sans-serif`;
+/** A label centred on x, its top at y, `px` tall, or smaller if it would be wider than `fit`. */
+function label(g: CanvasRenderingContext2D, text: string, x: number, y: number, px: number, fit = Infinity) {
+  const font = (size: number) => `500 ${size}px Grotesk, ui-sans-serif, system-ui, sans-serif`;
+  g.font = font(px);
+  const wide = g.measureText(text).width;
+  if (wide > fit) g.font = font(Math.max(6, Math.floor((px * fit) / wide)));
   g.fillStyle = INK;
   g.textAlign = "center";
   g.textBaseline = "top";
   g.fillText(text, x, y);
+}
+
+/**
+ * `n` figures, a window `win` each with a label under it, laid out in whichever number of columns
+ * shows them largest on a W x H screen (a short last row centred): for cell i, where its figure
+ * goes (top left, width, height) and where its label goes (middle, top, the width it may take).
+ */
+function tiles(n: number, W: number, H: number, win: Win, labelPx: number) {
+  let cols = 1, h = 0;
+  for (let c = 1; c <= n; c++) {
+    const rows = Math.ceil(n / c), fit = Math.min(H / rows - labelPx * 2.2, ((W / c) * 0.94 * win.h) / win.w);
+    if (fit > h) { h = fit; cols = c; }
+  }
+  const rows = Math.ceil(n / cols), cw = W / cols, rh = H / rows, w = (win.w * h) / win.h;
+  return (i: number) => {
+    const r = Math.floor(i / cols), inRow = r === rows - 1 ? n - r * cols : cols, c = i % cols;
+    const mid = (W - inRow * cw) / 2 + (c + 0.5) * cw, y = r * rh + (rh - h - labelPx * 1.8) / 2;
+    return { x: mid - w / 2, y, w, h, labelX: mid, labelY: y + h + labelPx * 0.4, fit: cw * 0.96 };
+  };
+}
+
+/** Each shot painted in its tile, labelled. */
+function drawTiles(g: CanvasRenderingContext2D, W: number, H: number, dpr: number, win: Win, shots: [string, Shot][]) {
+  g.fillStyle = BG;
+  g.fillRect(0, 0, W, H);
+  const labelPx = Math.round(12 * dpr), at = tiles(shots.length, W, H, win, labelPx);
+  shots.forEach(([name, shot], i) => {
+    const t = at(i), ch = still(shot, boxFor(win, t.h));
+    blit(g, ch, win, t.x, t.y, t.h);
+    ch.dispose();
+    label(g, name, t.labelX, t.labelY, labelPx, t.fit);
+  });
 }
 
 /** The sheet, laid out as the reference: four views of the figure over four looks of the helmet. */
@@ -126,38 +164,47 @@ function reach(ch: UrchiCharacter): [number, number] {
 }
 
 /**
- * The figure as small as it will be on other tabs: 150, 165 and 180px tall, rim to rim (the
- * helmet then about 64 to 76px), smooth and in hard pixels, on eigengrau: the sizes across and
- * the two paints down on a wide screen, the sizes down and the paints across on a narrow one.
+ * The figure as small as it will be on other tabs: 150, 165 and 180px tall, rim to rim, turned to
+ * you and turned 41 degrees (the gaze's reach), smooth and in hard pixels, on eigengrau, each at
+ * its own size (never scaled), a row to each size, wrapped to the screen; on a screen too small
+ * for them all, the hard pixels are left out.
  */
 function drawSmall(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
   g.fillStyle = BG;
   g.fillRect(0, 0, W, H);
-  const labelPx = Math.round(13 * dpr);
-  // the figure's reach and the helmet's, rim to rim, in mesh units, from one large painting
-  const probe = still({ yaw: -12 }, 700), [top, bottom] = reach(probe), [left, right] = across(probe);
-  probe.dispose();
-  const helmetProbe = still({ yaw: -12, part: "helmet" }, 700), [ht, hb] = reach(helmetProbe);
+  const labelPx = Math.round(11 * dpr), gap = 24 * dpr, margin = 16 * dpr;
+  const kinds: [string, Shot][] = [["", { yaw: 0 }], [", yaw 41", { yaw: 41 }], [", pixels", { yaw: 0, smooth: false }], [", yaw 41, pixels", { yaw: 41, smooth: false }]];
+  // each look's reach rim to rim (top, bottom, left, right, in mesh units), from one large painting
+  const reaches = kinds.map(([, shot]) => { const p = still({ ...shot, smooth: true }, 700), r = [...reach(p), ...across(p)]; p.dispose(); return r; });
+  const helmetProbe = still({ part: "helmet" }, 700), [ht, hb] = reach(helmetProbe);
   helmetProbe.dispose();
-  const sizes = [150, 165, 180], gap = 30 * dpr;
-  // the figure's own width at each size, rim to rim
-  const widthAt = (css: number) => ((right - left) * css * dpr) / (bottom - top);
-  const narrow = sizes.reduce((sum, css) => sum + widthAt(css) + gap, gap) > W;
-  sizes.forEach((css, i) => {
-    const unit = (css * dpr) / (bottom - top), h = FIGURE.h * unit, w = widthAt(css);
-    for (const [k, smooth] of [true, false].entries()) {
-      // where this figure's left rim and top rim go
-      const x = narrow ? gap + k * (widthAt(180) + gap) : gap + sizes.slice(0, i).reduce((sum, c) => sum + widthAt(c) + gap, 0);
-      const y = narrow ? (52 + i * 220) * dpr : (70 + k * 250) * dpr;
-      const ch = still({ smooth, yaw: -12 }, URCHI_BOX.w * unit);
-      g.imageSmoothingEnabled = smooth;
-      blit(g, ch, FIGURE, x - (left - FIGURE.x) * unit, y - (top - FIGURE.y) * unit, h);
-      g.imageSmoothingEnabled = true;
-      ch.dispose();
-      const text = `${css}px (helmet ${Math.round(((hb - ht) * css) / (bottom - top))}px)`;
-      if (k === 0) label(g, text, narrow ? gap + widthAt(180) + gap / 2 : x + w / 2, narrow ? y - 24 * dpr : 30 * dpr, labelPx);
+  const place = (only: number) => {
+    const cells: { css: number; k: number; x: number; y: number; w: number; h: number }[] = [];
+    let x = margin, y = margin, rowH = 0, row: typeof cells = [];
+    const endRow = () => { const spare = W - margin - (x - gap); for (const c of row) c.x += spare / 2; y += rowH + labelPx * 2.4 + gap / 2; x = margin; rowH = 0; row = []; };
+    for (const css of [150, 165, 180]) for (let k = 0; k < only; k++) {
+      const [top, bottom, left, right] = reaches[k], h = css * dpr, w = ((right - left) * h) / (bottom - top);
+      // a row to each size, wrapped if it will not fit
+      if (row.length && (k === 0 || x + w > W - margin)) endRow();
+      const c = { css, k, x, y, w, h };
+      cells.push(c); row.push(c);
+      x += w + gap; rowH = Math.max(rowH, h);
     }
-  });
+    endRow();
+    return { cells, height: y };
+  };
+  let plan = place(4);
+  if (plan.height > H) plan = place(2);
+  for (const { css, k, x, y, w, h } of plan.cells) {
+    const [top, bottom, left] = reaches[k], unit = h / (bottom - top), shot = kinds[k][1];
+    const ch = still(shot, URCHI_BOX.w * unit);
+    g.imageSmoothingEnabled = shot.smooth !== false;
+    blit(g, ch, WHOLE, x - (left - WHOLE.x) * unit, y - (top - WHOLE.y) * unit, WHOLE.h * unit);
+    g.imageSmoothingEnabled = true;
+    ch.dispose();
+    label(g, `${css}px${kinds[k][0]}`, x + w / 2, y + h + labelPx * 0.5, labelPx, w + gap * 0.9);
+    if (k === 0) label(g, `helmet ${Math.round(((hb - ht) * css) / (bottom - top))}px`, x + w / 2, y + h + labelPx * 1.6, Math.round(labelPx * 0.85), w + gap * 0.9);
+  }
 }
 
 /**
@@ -254,64 +301,31 @@ function drawOne(g: CanvasRenderingContext2D, W: number, H: number) {
   ch.dispose();
 }
 
-/** The suit building itself, setSuit from nothing to all of it: outward from the neck ring, the ears and spikes folding in. */
+/**
+ * The suit building itself, setSuit from a tenth to all of it: the body outward from the neck ring
+ * while the ears and spikes fold in, then the helmet rising over the head.
+ */
 function drawReveal(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
-  g.fillStyle = BG;
-  g.fillRect(0, 0, W, H);
-  const steps = [0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 1];
-  const cw = W / steps.length, h = Math.min(H * 0.92, (cw * FIGURE.h) / FIGURE.w);
-  steps.forEach((suit, i) => {
-    const ch = still({ suit, yaw: -10 }, boxFor(FIGURE, h));
-    blit(g, ch, FIGURE, i * cw + (cw - (FIGURE.w * h) / FIGURE.h) / 2, 0, h);
-    ch.dispose();
-    label(g, `setSuit(${suit})`, (i + 0.5) * cw, h, Math.round(11 * dpr));
-  });
+  const steps = Array.from({ length: 10 }, (_, i) => (i + 1) / 10);
+  drawTiles(g, W, H, dpr, WHOLE, steps.map((suit) => [`setSuit(${suit})`, { suit, yaw: -10 }]));
 }
 
 /** The head's looks, and the body following a third of its turn and half its tilt, never its nod. */
 function drawFollow(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
-  g.fillStyle = BG;
-  g.fillRect(0, 0, W, H);
   const looks: Shot[] = [{ yaw: -41, pitch: -8 }, { yaw: -20, pitch: 10, roll: -12 }, { yaw: 0 }, { yaw: 22, pitch: -15, roll: 14 }, { yaw: 41, pitch: 12 }, { yaw: 12, roll: -20 }];
-  const cw = W / looks.length, h = Math.min(H * 0.92, (cw * FIGURE.h) / FIGURE.w);
-  looks.forEach((p, i) => {
-    const ch = still(p, boxFor(FIGURE, h));
-    blit(g, ch, FIGURE, i * cw + (cw - (FIGURE.w * h) / FIGURE.h) / 2, 0, h);
-    ch.dispose();
-    label(g, `yaw ${p.yaw ?? 0} pitch ${p.pitch ?? 0} roll ${p.roll ?? 0}`, (i + 0.5) * cw, h, Math.round(11 * dpr));
-  });
+  drawTiles(g, W, H, dpr, WHOLE, looks.map((p) => [`yaw ${p.yaw ?? 0} pitch ${p.pitch ?? 0} roll ${p.roll ?? 0}`, p]));
 }
 
 /** The figure turned all the way round, 30 degrees at a time. */
 function drawTurn(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
-  g.fillStyle = BG;
-  g.fillRect(0, 0, W, H);
-  const cols = 6, rows = 2, cw = W / cols, rh = H / rows, h = Math.min(rh * 0.9, (cw * FIGURE.h) / FIGURE.w);
-  for (let i = 0; i < 12; i++) {
-    const turn = i * 30;
-    const ch = still({ turn }, boxFor(FIGURE, h));
-    const x = (i % cols) * cw + (cw - (FIGURE.w * h) / FIGURE.h) / 2, y = Math.floor(i / cols) * rh;
-    blit(g, ch, FIGURE, x, y, h);
-    ch.dispose();
-    label(g, `turn ${turn}`, (i % cols + 0.5) * cw, y + h, Math.round(11 * dpr));
-  }
+  drawTiles(g, W, H, dpr, WHOLE, Array.from({ length: 12 }, (_, i) => [`turn ${i * 30}`, { turn: i * 30 }]));
 }
 
 /** The helmet at the far corners of what the head can do: the eyes stay whole in the visor, nothing pokes out. */
 function drawPoses(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
-  g.fillStyle = BG;
-  g.fillRect(0, 0, W, H);
   const poses: Shot[] = [];
   for (const pitch of [-42, 0, 34]) for (const yaw of [-56, -40, 0, 40, 56]) poses.push({ yaw, pitch, roll: (yaw || 1) * pitch >= 0 ? 22 : -22, wide: 0.12, part: "helmet" });
-  const WIN: Win = { x: -660, y: -560, w: 1320, h: 1220 };
-  const cols = 5, rows = 3, cw = W / cols, rh = H / rows, h = Math.min(rh * 0.9, (cw * WIN.h) / WIN.w);
-  poses.forEach((p, i) => {
-    const ch = still(p, boxFor(WIN, h));
-    const x = (i % cols) * cw + (cw - (WIN.w * h) / WIN.h) / 2, y = Math.floor(i / cols) * rh;
-    blit(g, ch, WIN, x, y, h);
-    ch.dispose();
-    label(g, `yaw ${p.yaw} pitch ${p.pitch} roll ${p.roll}`, (i % cols + 0.5) * cw, y + h, Math.round(11 * dpr));
-  });
+  drawTiles(g, W, H, dpr, { x: -660, y: -560, w: 1320, h: 1220 }, poses.map((p) => [`yaw ${p.yaw} pitch ${p.pitch} roll ${p.roll}`, p]));
 }
 
 /**
@@ -346,7 +360,7 @@ function runLeak(g: CanvasRenderingContext2D, W: number, H: number) {
     eyes: { outside: 0, worst: 0, eyePixels: 0 },
     fails: [] as string[],
     // controls, which must find leaks, or the check proves nothing: the bare head (ears and spikes
-    // not tucked, not clipped; half a suit tucks nothing) and a helmet half built
+    // not tucked, not clipped; a fifth of a suit tucks nothing yet) and a helmet half risen
     controls: { bareHead: 0, halfHelmet: 0, poses: 0 },
   };
   poses.forEach((p) => {
@@ -359,7 +373,7 @@ function runLeak(g: CanvasRenderingContext2D, W: number, H: number) {
     out.eyes.outside += e; out.eyes.worst = Math.max(out.eyes.worst, e); out.eyes.eyePixels += et;
     if (out.controls.poses < 24) {
       out.controls.poses++;
-      out.controls.bareHead += count(pixels({ ...p, suit: 0.5, layer: "tucked" }), helmet)[0];
+      out.controls.bareHead += count(pixels({ ...p, suit: 0.2, layer: "tucked" }), helmet)[0];
       out.controls.halfHelmet += count(pixels({ ...p, layer: "head" }), pixels({ ...p, suit: 0.5, layer: "helmet" }))[0];
     }
     if (n || e) out.fails.push(`yaw ${p.yaw!.toFixed(1)} pitch ${p.pitch!.toFixed(1)} roll ${p.roll!.toFixed(1)}: ${n} head px outside the helmet, ${e} eye px off the glass`);
