@@ -178,8 +178,8 @@ class Folds {
   /**
    * Every note and group to its new state: moved, or with `animate` false set there at once. With
    * `listen`, it returns the riffle: when, in seconds from now, each note in view that folds or
-   * unfolds starts to move, for a tick each. Folds run top down RIFFLE apart; unfolds run the other
-   * way, bottom up, on the STAGGER they have always risen on. `lift` is how far the column is
+   * unfolds starts to move, for a tick each. Folds run top down RIFFLE apart; unfolds keep the
+   * STAGGER they have always risen on, top down too. `lift` is how far the column is
    * gliding up as this happens (a find from far down scrolls to the top): the riffle belongs to the
    * notes the reader lands on, so "in view" is judged there, and "near" in both places.
    */
@@ -233,9 +233,9 @@ class Folds {
       foldIn.forEach((seen) => {
         if (seen && n < RIFFLE_MAX) ticks.push(n++ * RIFFLE);
       });
-      // Unfolds the other way, bottom up.
+      // Unfolds on their old stagger, top down.
       let k = 0;
-      unfoldIn.reverse().forEach((seen) => {
+      unfoldIn.forEach((seen) => {
         if (seen) ticks.push(Math.min(k++, ENTER_COUNT) * STAGGER);
       });
       return ticksOf(ticks);
@@ -258,8 +258,9 @@ class Folds {
     const foldSeen = foldRect.map(near);
     const unfoldSeen = unfoldRect.map(near);
     // When each starts, and a tick for each in view. Folds riffle down what can be seen; unfolds
-    // riffle back up it, STAGGER apart from the lowest and capped as they always were. Either way,
-    // those just off screen go with their neighbours.
+    // rise down it as they always have, STAGGER apart and capped. Either way, those just off screen
+    // go with their neighbours. (Unfolds stay top down for everyone: most visitors have sound off,
+    // and the notes by the heading, where "All notes" was pressed, should open first.)
     const ticks: number[] = [];
     let n = 0;
     const foldAt = foldRect.map((r) => {
@@ -272,7 +273,7 @@ class Folds {
     });
     const unfoldAt = unfoldRect.map(() => 0);
     let k = 0;
-    for (let i = unfolding.length - 1; i >= 0; i--) {
+    for (let i = 0; i < unfolding.length; i++) {
       if (!unfoldSeen[i]) continue;
       const at = Math.min(k, ENTER_COUNT) * STAGGER;
       if (inView(unfoldRect[i], lift)) {
