@@ -193,6 +193,12 @@ const decoded = new Set<string>();
 let idle: number | null = null;
 let saveLater: number | null = null;
 const listeners = new Set<(id: string) => void>();
+/**
+ * Covers that failed to load or could not be read: no colour for now, so
+ * nothing waits on them for ever. Kept in memory only, and read after all if
+ * the cover loads later: a proxy's bad minute is not the record's colour.
+ */
+const unreadable = new Set<string>();
 
 /**
  * Sleeves whose strongest hue is only a small accent (a red sticker on a grey
@@ -234,9 +240,18 @@ function save() {
 
 function learnt(id: string, t: Tone | null) {
   tones.set(id, t);
+  unreadable.delete(id);
   waiting.delete(id);
   decoded.delete(id);
   saveLater ??= window.setTimeout(save, 400);
+  listeners.forEach((l) => l(id));
+}
+
+function missed(id: string) {
+  waiting.delete(id);
+  decoded.delete(id);
+  if (tones.has(id) || unreadable.has(id)) return;
+  unreadable.add(id);
   listeners.forEach((l) => l(id));
 }
 
@@ -250,10 +265,7 @@ function drain(d?: IdleDeadline) {
     const img = waiting.get(id);
     const t = img ? read(img) : undefined;
     if (t !== undefined) learnt(id, t);
-    else {
-      waiting.delete(id);
-      decoded.delete(id);
-    }
+    else missed(id);
   }
   if (decoded.size) idle = whenIdle(drain);
 }
@@ -265,12 +277,13 @@ function overridden(id: string, t: Tone | null | undefined): Tone | null | undef
   return { ...fromLch(t?.L ?? 0.6, o.C ?? 0.1, o.h), s: o.s ?? 1 };
 }
 
-/** A cover's tone: null for a grey record, undefined while it has not been read yet. */
+/** A cover's tone: null for a grey record (or one that cannot be read), undefined while it has not been read yet. */
 export function toneOf(id: string | null | undefined): Tone | null | undefined {
   if (!id) return null;
   restore();
   const key = hash(id);
-  return overridden(key, tones.get(key));
+  const t = tones.get(key);
+  return overridden(key, t === undefined && unreadable.has(key) ? null : t);
 }
 
 /**
@@ -306,7 +319,12 @@ export function learnTone(id: string, img: HTMLImageElement) {
   else queue();
 }
 
-/** Told each time a cover has been read. Returns the unsubscribe. */
+/** Call from a cover <img>'s error: it has no colour to give, and whatever waits on it stops waiting. */
+export function missTone(id: string) {
+  missed(hash(id));
+}
+
+/** Told each time a cover has been read, or has turned out unreadable. Returns the unsubscribe. */
 export function onTone(l: (id: string) => void): () => void {
   listeners.add(l);
   return () => {
@@ -324,8 +342,29 @@ export const CAPS = {
   preview: { L: 0.215, C: 0.03, share: 0.4 },
   live: { L: 0.235, C: 0.045, share: 0.5 },
 } as const;
-/** Ink on every tone keeps at least this contrast (it is 14.8:1 on eigengrau). */
+/** Ink on every tone keeps at least this contrast (it is 14.8:1 on eigengrau), measured under the dither's lightest grain. */
 export const MIN_CONTRAST = 13.4;
+
+/** The dither's grains, white or black at an alpha: +2.7, +0.9, -0.9 and -2.6 levels on eigengrau. */
+const GRAIN: [number, number][] = [
+  [255, 3],
+  [255, 1],
+  [0, 9],
+  [0, 27],
+];
+/**
+ * A colour as the screen shows it under the lightest grain, at its worst:
+ * each channel rounded up, the grain laid over it, and rounded up again. The
+ * ink's contrast is kept here rather than on the smooth colour, so no grain
+ * of the room takes it under 13.4:1.
+ */
+function underGrain(c: Rgb): Rgb {
+  const [v, alpha] = GRAIN[0];
+  return c.map((x) => {
+    const level = Math.ceil(x - 1e-9);
+    return Math.ceil(level + ((v - level) * alpha) / 255 - 1e-9);
+  }) as Rgb;
+}
 
 /** 1 inside the yellows (70-115°), easing to 0 over ten degrees either side. */
 function yellowness(h: number) {
@@ -346,9 +385,9 @@ function amberTurn(h: number) {
  * hue within the caps. Darkened, a yellow reads as olive, so yellows get 0.7x
  * the chroma and turn toward amber. Lightness follows the cover's (a dark
  * sleeve lifts the room less); chroma gives way where sRGB cannot show it,
- * and lightness wherever ink would fall under 13.4:1. How much of this the
- * room takes is the tone's strength times the door's envelope, applied by the
- * caller.
+ * and lightness wherever ink would fall under 13.4:1, even on the dither's
+ * lightest grain. How much of this the room takes is the tone's strength
+ * times the door's envelope, applied by the caller.
  */
 export function bend(t: Tone, live: boolean): Lab {
   const cap = live ? CAPS.live : CAPS.preview;
@@ -359,7 +398,7 @@ export function bend(t: Tone, live: boolean): Lab {
   let lab = fromLch(L, C, h - amberTurn(h));
   // Out of gamut, clipping would change the hue; giving up chroma keeps it.
   while (!inGamut(lab) && C > 0.001) lab = fromLch(L, (C *= 0.95), h - amberTurn(h));
-  while (contrast(INK_RGB, rgbOf(lab)) < MIN_CONTRAST && L > EIGENGRAU.L - 0.02) {
+  while (contrast(INK_RGB, underGrain(rgbOf(lab))) < MIN_CONTRAST && L > EIGENGRAU.L - 0.02) {
     L -= 0.001;
     lab = { ...lab, L };
   }
@@ -429,10 +468,8 @@ export function dither(): string {
     const g = c.getContext("2d");
     if (!g) return "none";
     const img = g.createImageData(64, 64);
-    // +2.7, +0.9, -0.9 and -2.6 levels on eigengrau
-    const levels: [number, number][] = [[255, 3], [255, 1], [0, 9], [0, 27]];
     for (let i = 0; i < 64 * 64; i++) {
-      const [v, a] = levels[(Math.random() * 4) | 0];
+      const [v, a] = GRAIN[(Math.random() * GRAIN.length) | 0];
       img.data.set([v, v, v, a], i * 4);
     }
     g.putImageData(img, 0, 0);
