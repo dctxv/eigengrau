@@ -231,12 +231,15 @@ const VEIL_FEATHER = 44;
 /**
  * Under a hover caption the same veil, closer and shorter, so that where the
  * ball reaches into the caption's slot the words sit on the dark. The chosen
- * project's own pieces keep half their ink there: they are what the words
- * are about.
+ * project's own pieces are what the words are about, so the veil takes less
+ * of them: only what lies under each line of words, within CAP_LINE_PAD.
+ * There it takes as much as it takes of anything else: at half its ink a
+ * bright cover still swallowed the 11px status line.
  */
 const CAP_VEIL_PAD = 12;
 const CAP_VEIL_FEATHER = 20;
-const CAP_PIECE_INK = 0.5;
+const CAP_LINE_PAD = 4;
+const CAP_LINE_FEATHER = 12;
 /** A caption steps down to clear its own pieces by this much, while it stays this far off the bottom edge. */
 const CAP_CLEAR = 12;
 const CAP_FOOT = 24;
@@ -449,7 +452,9 @@ void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(
  * project opens; faded by depth, and softly blurred when it hangs inside.
  * Under a hover caption it thins by uVeilK, only where it lies within
  * uVeilPad of the words (uVeil, CSS px) and over a uVeilSoft edge, so a big
- * cover half under a caption keeps its other half.
+ * cover half under a caption keeps its other half. The chosen project's own
+ * pieces thin by uLineK instead, and only under the words themselves, line
+ * by line, so a cover beside a short name keeps its colour.
  */
 const pieceFrag = /* glsl */ `
 uniform sampler2D uMap;
@@ -461,17 +466,29 @@ uniform float uPlaneAspect;
 uniform float uFade;
 uniform float uBlur;
 uniform vec4 uVeil;
+uniform vec4 uLineName;
+uniform vec4 uLineStatus;
+uniform vec4 uLineWhy;
 uniform float uVeilK;
+uniform float uLineK;
 uniform float uVeilPad;
 uniform float uVeilSoft;
+uniform float uLinePad;
+uniform float uLineSoft;
 uniform float uDpr;
 uniform float uViewH;
 varying vec2 vUv;
+float near(vec4 r, vec2 p, float pad, float soft) {
+  vec2 d = max(max(r.xy - pad - p, 0.0), p - r.zw - pad);
+  return 1.0 - smoothstep(0.0, soft, length(d));
+}
 float veil() {
-  if (uVeilK < 0.001) return 1.0;
+  if (uVeilK + uLineK < 0.001) return 1.0;
   vec2 p = vec2(gl_FragCoord.x / uDpr, uViewH - gl_FragCoord.y / uDpr);
-  vec2 d = max(max(uVeil.xy - uVeilPad - p, 0.0), p - uVeil.zw - uVeilPad);
-  return 1.0 - uVeilK * (1.0 - smoothstep(0.0, uVeilSoft, length(d)));
+  float line = max(near(uLineName, p, uLinePad, uLineSoft), max(near(uLineStatus, p, uLinePad, uLineSoft), near(uLineWhy, p, uLinePad, uLineSoft)));
+  // The two shares hand over as one (they always add up to the whole veil), so the words'
+  // ground never brightens while a piece changes from one to the other.
+  return 1.0 - uVeilK * near(uVeil, p, uVeilPad, uVeilSoft) - uLineK * line;
 }
 vec2 fit(vec2 uv, float img, float plane) {
   vec2 s = vec2(1.0);
@@ -605,9 +622,16 @@ export class ThreadScene {
   private veil = { x0: 0, y0: 0, x1: 0, y1: 0, k: 0 };
   /** The same for the hover caption's words (not padded), eased so that a caption giving way to another never jumps. */
   private capVeil = { x0: 0, y0: 0, x1: 0, y1: 0, k: 0 };
-  /** The caption veil as the pieces' shader reads it: the uniforms every piece shares. */
+  /** The caption veil as the pieces' shader reads it: the uniforms every piece shares, the lines eased as the box is. */
   private pieceVeil = {
     uVeil: { value: new THREE.Vector4() },
+    uLineName: { value: new THREE.Vector4() },
+    uLineStatus: { value: new THREE.Vector4() },
+    uLineWhy: { value: new THREE.Vector4() },
+    uVeilPad: { value: CAP_VEIL_PAD },
+    uVeilSoft: { value: CAP_VEIL_FEATHER },
+    uLinePad: { value: CAP_LINE_PAD },
+    uLineSoft: { value: CAP_LINE_FEATHER },
     uDpr: { value: 1 },
     uViewH: { value: 1 },
   };
@@ -812,8 +836,7 @@ export class ThreadScene {
         uFade: { value: 0 },
         uBlur: { value: 0 },
         uVeilK: { value: 0 },
-        uVeilPad: { value: CAP_VEIL_PAD },
-        uVeilSoft: { value: CAP_VEIL_FEATHER },
+        uLineK: { value: 0 },
         ...this.pieceVeil,
       },
       vertexShader: pieceVert,
@@ -1171,6 +1194,13 @@ export class ThreadScene {
     this.setBase(b.cap.why, this.cx, y + 50);
   }
 
+  /** One of a caption's lines at rest on screen, px: x0, y0, x1, y1. */
+  private lineBox(m: Masked): [number, number, number, number] {
+    const bb = blockBounds(m.t);
+    const y = -m.base.y;
+    return [m.base.x + bb[0], y - bb[3], m.base.x + bb[2], y - bb[1]];
+  }
+
   /** A caption's words at rest on screen, px: x0, y0, x1, y1. */
   private captionBox(b: Bead): [number, number, number, number] {
     let x0 = Infinity;
@@ -1178,12 +1208,11 @@ export class ThreadScene {
     let x1 = -Infinity;
     let y1 = -Infinity;
     [b.cap.name, b.cap.status, b.cap.why].forEach((m) => {
-      const bb = blockBounds(m.t);
-      const y = -m.base.y;
-      x0 = Math.min(x0, m.base.x + bb[0]);
-      x1 = Math.max(x1, m.base.x + bb[2]);
-      y0 = Math.min(y0, y - bb[3]);
-      y1 = Math.max(y1, y - bb[1]);
+      const [a, c, d, e] = this.lineBox(m);
+      x0 = Math.min(x0, a);
+      y0 = Math.min(y0, c);
+      x1 = Math.max(x1, d);
+      y1 = Math.max(y1, e);
     });
     return [x0, y0, x1, y1];
   }
@@ -1191,8 +1220,9 @@ export class ThreadScene {
   /**
    * Where a caption under the ball would land on its own project's pieces,
    * hanging low on the ball: how far it steps down to clear them by
-   * CAP_CLEAR, never nearer the bottom edge than CAP_FOOT. What it cannot
-   * clear, the veil dims to half under the words.
+   * CAP_CLEAR, never nearer the bottom edge than CAP_FOOT. Where the ball
+   * already reaches into the caption's slot that is only a few px, so what it
+   * cannot clear the veil dims under each line (see CAP_LINE_PAD).
    */
   private captionClear(b: Bead) {
     if (this.capSide) return 0;
@@ -1655,8 +1685,10 @@ export class ThreadScene {
       this.close();
       return "close";
     }
-    // The chosen project's caption answers for it, over whatever of the ball lies under it.
-    const b = this.onCaption(x, y, touch) ? this.hovered : this.beadAt(x, y);
+    // The chosen project's caption answers for it where the veil has thinned the ball under its
+    // words. Anywhere else a piece answers first, and a finger that finds none still finds the
+    // caption's slot.
+    const b = (this.onCaption(x, y) ? this.hovered : null) ?? this.beadAt(x, y) ?? (touch && this.onCaption(x, y, true) ? this.hovered : null);
     if (!b) {
       if (this.hovered) this.setHover(null);
       return "none";
@@ -1700,9 +1732,9 @@ export class ThreadScene {
   }
 
   /**
-   * On the chosen project's caption: its words and the veil's pad round them
-   * for the pointer; a finger gets a little more, and the slot's whole width
-   * under the ball.
+   * On the chosen project's caption: its words and the veil's pad round them;
+   * for a finger that missed everything else, a little more, and the slot's
+   * whole width under the ball.
    */
   private onCaption(x: number, y: number, touch = false) {
     const b = this.hovered;
@@ -2060,10 +2092,20 @@ export class ThreadScene {
       cv.y0 += (y0 - cv.y0) * f;
       cv.x1 += (x1 - cv.x1) * f;
       cv.y1 += (y1 - cv.y1) * f;
+      const u = this.pieceVeil;
+      u.uVeil.value.set(cv.x0, cv.y0, cv.x1, cv.y1);
+      const lines: [THREE.Vector4, Masked][] = [
+        [u.uLineName.value, b.cap.name],
+        [u.uLineStatus.value, b.cap.status],
+        [u.uLineWhy.value, b.cap.why],
+      ];
+      lines.forEach(([r, m]) => {
+        const [a, c, d, e] = this.lineBox(m);
+        r.set(r.x + (a - r.x) * f, r.y + (c - r.y) * f, r.z + (d - r.z) * f, r.w + (e - r.w) * f);
+      });
     }
     cv.k += ((on ? 1 : 0) - cv.k) * k;
     if (cv.k < 0.001) cv.k = 0;
-    this.pieceVeil.uVeil.value.set(cv.x0, cv.y0, cv.x1, cv.y1);
 
     const v = this.veil;
     const o = this.opened?.open;
@@ -2415,12 +2457,12 @@ export class ThreadScene {
       const over = Math.max(SIDE_MARGIN - (s.x - w / 2), s.x + w / 2 - (this.width - SIDE_MARGIN));
       if (over > 0) ink *= 1 - smooth(clamp01(over / SIDE_MARGIN));
       // Under an opened project's words the veil takes the whole piece; under a caption, the
-      // shader takes only what lies under the words, and the chosen project's own keep half.
+      // shader takes only what lies under the words. The chosen project's own pieces thin only
+      // under the words themselves; they change over as its stretch comes to full ink.
       ink *= this.veilOf(this.veil, 0, VEIL_FEATHER, s.x, s.y);
-      const own = b === this.hovered;
-      u.uVeilK.value = opened ? 0 : cv * (1 - (own ? CAP_PIECE_INK : VEIL_INK));
-      u.uVeilPad.value = own ? 0 : CAP_VEIL_PAD;
-      u.uVeilSoft.value = own ? CAP_CLEAR : CAP_VEIL_FEATHER;
+      const own = opened ? 0 : cv * b.hl;
+      u.uVeilK.value = opened ? 0 : (cv - own) * (1 - VEIL_INK);
+      u.uLineK.value = own * (1 - VEIL_INK);
       if (!pc.onBall) ink = 0;
       if (b.i > drawn) ink = 0;
       let blur = b.side < 0 ? 0.45 : 0;
