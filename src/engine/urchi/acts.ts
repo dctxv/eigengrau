@@ -332,3 +332,258 @@ export function* restOn(a: Attention, mote: () => Point | null): Act {
     a.look(null);
   }
 }
+
+// ------------------------------------------------------------------ call and response (panel 2, N5)
+
+/** Straight out of the screen: at the person, rather than at the hand on the pointer. */
+const face = (a: Attention): (() => Point) => () => {
+  const h = a.head();
+  return { x: h.x, y: h.y };
+};
+
+/**
+ * Listening to a rhythm it does not blink, from a tap until this long and a second more after it
+ * (holdBlinks): past the 900ms of quiet that ends the rhythm, so an answer (or its slow blink of
+ * trust) never opens with an ordinary blink it did not mean.
+ */
+const HEED_STARE = 0.3;
+
+/**
+ * A rhythm being tapped in its room: it watches your hand without blinking, head level (no
+ * curious tilts while it concentrates), and each tap lands with the smallest flinch of the
+ * pupils. The motes those taps let go are not what it is watching. It runs until the rhythm
+ * ends; `taps` counts them.
+ */
+export function* heed(a: Attention, taps: () => number): Act {
+  let seen = taps();
+  try {
+    a.steady(true);
+    a.look("you", "quick");
+    a.holdBlinks(HEED_STARE);
+    for (;;) {
+      if (taps() !== seen) {
+        seen = taps();
+        a.ch.dip();
+        a.holdBlinks(HEED_STARE);
+      }
+      yield 0;
+    }
+  } finally {
+    a.steady(false);
+    a.look(null);
+  }
+}
+
+/**
+ * One blink of an answer: `at` is when the lids meet (performance.now() ms), which is when its pat
+ * is heard; `close`, `hold` and `open` are seconds, shortened to fit a quick rhythm. `own` marks
+ * the beat it adds itself.
+ */
+export type Beat = { at: number; close: number; hold: number; open: number; own?: boolean };
+
+/**
+ * After an answer's last beat, no ordinary blink for this long and a second more (holdBlinks):
+ * the longest gap it answers is 900ms, so a blink 1.6s on is not taken for a beat.
+ */
+const ANSWER_AFTER = 0.6;
+
+/** Waits, a frame at a time, until performance.now() reaches `ms`: the answer keeps real time, as its pats do. */
+function* untilMs(ms: number): Act {
+  while (performance.now() < ms) yield 0;
+}
+
+/**
+ * Its answer: it looks up from your hand to you, leans in (`lean`, with the face tipped `pitch`
+ * degrees down), holds its breath and gives your rhythm back as slow blinks. `start` is asked for
+ * the beats once it has begun to lean (so a queued answer is timed from when it really starts,
+ * and its pats with it); `end` is told when it stops, finished or cut short. On a beat of its own
+ * it tips its head a little, as if the last one were its idea. Reduced motion: no lean and no
+ * tilt; the lids shut and open on the beats.
+ */
+export function* answer(a: Attention, start: () => Beat[], o: { lean: (on: boolean) => void; pitch: number; end: (finished: boolean) => void }): Act {
+  let finished = false;
+  try {
+    a.steady(true);
+    a.look(face(a), "quick");
+    if (!a.reduced) {
+      o.lean(true);
+      a.ch.pose(0, o.pitch, 0, 5);
+    }
+    const beats = start();
+    const last = beats[beats.length - 1];
+    if (beats[0]) a.holdBlinks((beats[0].at - performance.now()) / 1000 + beats[0].hold);
+    for (const b of beats) {
+      yield* untilMs(b.at - b.close * 1000);
+      // a late frame closes them quicker, so the lids still meet on the beat, with its pat
+      const left = Math.max(0, (b.at - performance.now()) / 1000);
+      // no ordinary blink of its own in the middle of your rhythm, nor so soon after it that it reads as one more beat
+      a.holdBlinks(left + b.hold + b.open + (b === last ? ANSWER_AFTER : 0));
+      a.ch.pauseBreath(1);
+      a.ch.setLids(1, 1, Math.min(b.close, left));
+      if (b.own) a.ch.tiltToward(Math.random() < 0.5 ? -1 : 1, 5);
+      yield* untilMs(b.at + b.hold * 1000);
+      a.ch.setLids(0, 0, b.open);
+    }
+    finished = true; // every beat given; what follows is only the lean easing off
+    if (last) yield* untilMs(last.at + (last.hold + last.open) * 1000 + 450);
+  } finally {
+    a.ch.setLids(0, 0, 0.12);
+    o.lean(false);
+    a.restPose(4);
+    a.steady(false);
+    a.look(null);
+    o.end(finished);
+  }
+}
+
+/**
+ * You tapped its version back: a cat's slow blink of trust, the lids closing slowly, resting shut
+ * and opening onto soft eyes, which `soften` keeps for a while; a small nod goes with it.
+ * Reduced motion: the lids shut and open onto soft eyes, and nothing else moves.
+ */
+export function* trust(a: Attention, soften: () => void): Act {
+  try {
+    a.holdBlinks(3.5); // nothing quick before the slow one
+    a.steady(true);
+    a.look(face(a));
+    yield 0.3;
+    a.ch.setLids(1, 1, 0.6);
+    a.ch.pose(0, 4, 0, 2.5);
+    yield 0.6;
+    soften(); // under the closed lids, so they open onto soft eyes
+    yield 0.7;
+    a.ch.setLids(0, 0, 0.9);
+    a.restPose(2);
+    yield 1.2;
+  } finally {
+    a.ch.setLids(0, 0, 0.3);
+    a.restPose();
+    a.steady(false);
+    a.look(null);
+  }
+}
+
+/**
+ * At his night a rhythm reaches it in its sleep: the breath catches, the head shifts on its
+ * pillow, one eye opens a crack toward the taps and closes again, and a long breath out settles
+ * it. No answer and no pats: it is his night. Reduced motion: only the eye.
+ */
+export function* murmur(a: Attention, from: Point | null): Act {
+  const h = a.head();
+  const eye = from && from.x > h.x ? 1 : 0;
+  const side = eye ? 1 : -1;
+  try {
+    a.ch.pauseBreath(0.6);
+    yield 0.45;
+    a.ch.pose(side * 3, 9, side * 4, 2.2);
+    a.ch.setLids(eye === 0 ? 0.64 : 1, eye === 1 ? 0.64 : 1, 0.5); // a crack: from 0.78 on, an eye is drawn shut
+    yield 1;
+    a.ch.setLids(1, 1, 0.6);
+    a.ch.deepBreath(1.3, 2.4, 1.6);
+    yield 1.4;
+    a.restPose(1.5);
+    yield 2.4;
+  } finally {
+    if (a.mood !== "awake") a.ch.setLids(1, 1, 0.3);
+    a.restPose();
+  }
+}
+
+/** Awake at his night (you woke it) and tapped at: one long, heavy blink, and no more than that. */
+export function* drowse(a: Attention): Act {
+  try {
+    a.look(face(a));
+    yield 0.3;
+    a.ch.slowBlink(0.9);
+    a.ch.pose(0, 3, 0, 2);
+    yield 1.8;
+  } finally {
+    a.restPose();
+    a.look(null);
+  }
+}
+
+/** More taps than it can follow: a puzzled tilt, and it lets the rhythm go. */
+export function* lost(a: Attention): Act {
+  try {
+    a.look("you");
+    a.ch.tiltToward(Math.random() < 0.5 ? -1 : 1, 11);
+    if (a.reduced) a.eyes(0, -0.6); // no tilt without motion: the pupils roll up instead
+    yield 1.4;
+  } finally {
+    a.eyes(null);
+    a.look(null);
+  }
+}
+
+// ------------------------------------------------------------------ caught in the act (panel 2, N3)
+
+/**
+ * A blink it was part way through when the tab went away (a hidden page draws nothing, so it is
+ * still under way on return) may hold the pose up this much longer (s): the hold is of open eyes.
+ */
+const CAUGHT_BLINK_LATE = 0.45;
+
+/**
+ * Waits until the eyes have been open (under 0.6 shut: past any resting lid, which stops at half)
+ * for `seconds` in all, or `late` seconds more than that have gone by.
+ */
+function* openFor(a: Attention, seconds: number, late: number): Act {
+  const end = a.t + seconds + late;
+  let open = 0, last = a.t;
+  while (open < seconds && a.t < end) {
+    yield 0;
+    if (a.ch.shut < 0.6) open += a.t - last;
+    last = a.t;
+  }
+}
+
+/** What it was found doing: facing into a corner, staring up at a pill, or halfway through a stretch. */
+export type Caught = { kind: "corner" | "pill"; at: Where } | { kind: "stretch"; roll: number };
+
+/**
+ * Back after a while away, you find it doing something it would not do while watched. It is
+ * already there on the first frame, and holds it for 350-500ms of open eyes (the stretch's are
+ * shut) so the eye can land on it; then it startles, turns to you (blinking as it turns, as any
+ * wide turn does) and carries on.
+ * Reduced motion: the pose (the pupils off at the corner or the pill), then a cut to you.
+ */
+export function* caught(a: Attention, pose: Caught): Act {
+  const hold = rand(0.35, 0.5);
+  try {
+    a.holdBlinks(hold + CAUGHT_BLINK_LATE); // no blink of its own over the pose: the eye has to land on it
+    if (pose.kind === "stretch") {
+      // at the top of a stretch: face tipped up, eyes squeezed shut, a little off level
+      a.look(face(a), "snap");
+      a.ch.pose(0, -13, pose.roll, 60);
+      a.ch.setLids(1, 1, 0);
+    } else {
+      a.look(pose.at, "snap");
+      // Reduced motion keeps the head front, so the pupils go as far as they reach that way on their own.
+      const p = typeof pose.at === "function" ? pose.at() : pose.at;
+      if (a.reduced && p) {
+        const h = a.head();
+        const dx = (p.x - h.x) / innerWidth, dy = (p.y - h.y) / innerHeight;
+        const k = 1 / Math.max(Math.abs(dx), Math.abs(dy), 1e-3);
+        a.eyes(clamp(dx * k, -1, 1), clamp(dy * k, -1, 1));
+      }
+    }
+    if (pose.kind === "stretch") yield hold;
+    else yield* openFor(a, hold, CAUGHT_BLINK_LATE);
+    a.eyes(null);
+    const you = a.you();
+    if (you) a.startle(you);
+    else a.ch.pauseBreath(0.4);
+    if (pose.kind === "stretch") {
+      a.ch.setLids(0, 0, 0.1);
+      a.restPose(14);
+    }
+    a.look("you", "quick");
+    yield 1;
+  } finally {
+    if (a.mood === "awake") a.ch.setLids(0, 0, 0.1);
+    a.eyes(null);
+    a.restPose();
+    a.look(null);
+  }
+}

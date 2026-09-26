@@ -87,6 +87,12 @@ const ALERT = { base: 0.6, tau: 10, idleFrom: 20, idleOver: 100, idleMax: 0.3, l
 const IDLE = { heavy: 45, doze: 90, night: 40 };
 /** Asleep: a pointer within this share of its box of the head's edge (or a tap) opens one eye, so a bigger head notices from further. */
 const NEAR = 0.3;
+/**
+ * Soft eyes (a cat's trust, after you tap its own version of a rhythm back): a heavier resting
+ * lid (heavier still under reduced motion, where the lid is most of what shows), slower blinks
+ * held a little longer, and a slower breath. Content, not sleepy: the lid stays under half.
+ */
+const SOFT = { lid: 0.34, lidReduced: 0.45, period: 5.6, gap: [5, 9] as [number, number], hold: 0.3 };
 /** Once woken in this session, it stays up for this long across tabs (ms). */
 const STAYS_UP = 3 * 60 * 1000;
 /** In memory for the session: when it was last woken. */
@@ -136,6 +142,8 @@ export class Attention {
   private held: Point | null = null;
   private last = { nx: 0, ny: 0, has: false };
   private blinkAt = -1;
+  /** No blink of its own (not even a wide turn's) until then: an act is blinking on purpose. */
+  private blinksHeld = -1;
   private lastBlinkCue = -99;
   private lastStartle = -99;
   private arousal = 0;
@@ -146,6 +154,8 @@ export class Attention {
   private nextClock = 0;
   private applied = "";
   private steadying = false;
+  /** Soft-eyed until then (attention seconds). */
+  private softUntil = -1;
   private pointer = {
     x: 0, y: 0, has: false, touch: false, vx: 0, vy: 0, speed: 0,
     /** Last event of any kind, last move, when it left the window, when it last went fast. */
@@ -241,6 +251,17 @@ export class Attention {
    */
   rouse() {
     if (this.mood === "dozing" && this.canStir()) this.play("stir", 8, () => stir(this, true), { sleeping: true });
+  }
+
+  /** Soft eyes for `seconds` from now (see SOFT): it trusts you. */
+  soften(seconds: number) {
+    this.softUntil = this.t + seconds;
+    this.apply(true);
+  }
+
+  /** Soft-eyed now: awake, and trusting you for a while yet. */
+  get soft() {
+    return this.mood === "awake" && this.t < this.softUntil;
   }
 
   /** A doze can be broken once it has settled (not while its lids are still closing). */
@@ -374,6 +395,21 @@ export class Attention {
     if (on === this.steadying) return;
     this.steadying = on;
     this.apply(true);
+  }
+
+  /**
+   * For acts: no blink of its own for `seconds` and a second more, neither a wide turn's nor an
+   * ordinary one (the answer's blinks must not get an extra one before, among or just after
+   * them, where it would read as one more beat). The character keeps its next ordinary blink at
+   * least a second past the eyes opening, so opening eyes that are already open, every frame of
+   * the hold (see update), moves nothing and holds those back. Acts only run once the intro has
+   * opened its eyes, so this never opens shut ones.
+   */
+  holdBlinks(seconds: number) {
+    if (seconds <= 0 || !this.started) return;
+    this.blinksHeld = Math.max(this.blinksHeld, this.t + seconds);
+    this.blinkAt = -1;
+    this.ch.openEyes(0);
   }
 
   /** For acts: the head back to the mood's own pose (level awake, dipped asleep). */
@@ -546,6 +582,7 @@ export class Attention {
   update(dt: number) {
     this.t += dt;
     if (!this.started) return;
+    if (this.t < this.blinksHeld) this.ch.openEyes(0); // see holdBlinks
     this.sense(dt);
     this.moodStep();
     if (this.paused) {
@@ -707,7 +744,7 @@ export class Attention {
     const ny = p ? clamp((p.y / innerHeight) * 2 - 1, -1, 1) : 0;
     if (this.last.has && how !== "snap") {
       const turn = Math.hypot((nx - this.last.nx) * TURN.yaw, (ny - this.last.ny) * TURN.pitch);
-      if (turn > TURN.blink && this.t - this.lastBlinkCue > TURN.gap && this.mood === "awake") {
+      if (turn > TURN.blink && this.t - this.lastBlinkCue > TURN.gap && this.mood === "awake" && this.t >= this.blinksHeld) {
         this.lastBlinkCue = this.t;
         this.blinkAt = this.t + TURN.after;
       }
@@ -758,13 +795,21 @@ export class Attention {
     if (sfx.enabled) period = Math.max(period, 5.2);
     let lid = 0.15 * clamp((0.5 - a) / 0.5, 0, 1);
     if (late || this.listening) lid = Math.max(lid, this.reduced ? 0.45 : 0.2);
+    let gap = [lerp(2.5, 5, drowsy), lerp(5.5, 9, drowsy)];
+    let hold = lerp(0.15, 0.6, heavy);
+    if (this.soft) {
+      period = Math.max(period, SOFT.period);
+      lid = Math.max(lid, this.reduced ? SOFT.lidReduced : SOFT.lid);
+      gap = [Math.max(gap[0], SOFT.gap[0]), Math.max(gap[1], SOFT.gap[1])];
+      hold = Math.max(hold, SOFT.hold);
+    }
     const s = asleep
       ? { period: this.mood === "asleep" ? 6.5 : 6.2, depth: this.mood === "asleep" ? 1.4 : 1.25, gap: [6, 12], hold: 0.15, lid: 0, tilts: null, sway: 0, darts: "still" as const }
       : {
           period,
           depth: 1,
-          gap: [lerp(2.5, 5, drowsy), lerp(5.5, 9, drowsy)],
-          hold: lerp(0.15, 0.6, heavy),
+          gap,
+          hold,
           lid,
           tilts: this.listening || this.steadying ? null : late ? [8, 14] : [4, 9],
           sway: this.listening ? 2.5 : 0,

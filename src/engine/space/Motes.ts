@@ -22,6 +22,8 @@ const MOTE = {
   /** Levels above eigengrau, of 255: a new one's range, and a released one's. */
   levels: [3, 12] as [number, number],
   released: 4,
+  /** A released mote's novelty when it came with a rhythm Urchi was listening to: less than a mote arriving on its own. */
+  quiet: 0.2,
   /** Drift, px/s: never faster than the top of this. */
   speed: [4, 12] as [number, number],
   life: [10, 25] as [number, number],
@@ -115,13 +117,18 @@ export class Motes {
     else this.next = this.t + rand(...MOTE.first);
   }
 
-  /** A tap on empty space: a mote there, and Urchi winds up and turns to it. */
-  release(clientX: number, clientY: number) {
-    if (this.hidden || this.next < 0) return;
+  /**
+   * A tap on empty space: a mote there, and Urchi winds up and turns to it. `heeding`: the tap is
+   * one of a rhythm Urchi is listening to, so the mote still goes but is no more interesting than
+   * any other, and Urchi keeps its eyes on you. Returns the mote's target id, or null.
+   */
+  release(clientX: number, clientY: number, heeding = false): string | null {
+    if (this.hidden || this.next < 0) return null;
     const p = this.room.toRoom(clientX, clientY);
-    const m = this.make(p.x, p.y, this.levelNow(MOTE.released), true);
+    const m = this.make(p.x, p.y, this.levelNow(MOTE.released), true, heeding);
     this.att.quiet("pointer");
-    this.att.play("windUp", 3, () => windUp(this.att, () => this.clientOf(m, 0)), { queue: 0.5 });
+    if (!heeding) this.att.play("windUp", 3, () => windUp(this.att, () => this.clientOf(m, 0)), { queue: 0.5 });
+    return m.id;
   }
 
   /** What a new mote's level is: the visitor's Threshold result once today's is played. */
@@ -131,7 +138,7 @@ export class Motes {
     return fallback ?? Math.round(rand(MOTE.levels[0], MOTE.levels[1]));
   }
 
-  private make(x: number, y: number, level: number, released = false): Mote {
+  private make(x: number, y: number, level: number, released = false, quiet = false): Mote {
     // past three, the oldest fades
     const live = this.motes.filter((m) => m.out < 0);
     if (live.length >= MOTE.max) this.fadeOut(live[0], MOTE.fade);
@@ -168,8 +175,8 @@ export class Motes {
       mesh,
     };
     this.motes.push(m);
-    // a new one is a little interesting; one you let go of is very
-    this.att.add({ id: m.id, kind: "mote", weight: 0.8, level, at: () => this.clientOf(m, 0.35) }, released ? 1.2 : 0.45);
+    // a new one is a little interesting; one you let go of is very, unless it came with a rhythm it was listening to
+    this.att.add({ id: m.id, kind: "mote", weight: 0.8, level, at: () => this.clientOf(m, 0.35) }, released ? (quiet ? MOTE.quiet : 1.2) : 0.45);
     return m;
   }
 

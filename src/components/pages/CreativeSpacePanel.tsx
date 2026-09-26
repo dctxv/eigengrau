@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { sfx } from "@/audio/sfx";
 import { MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
+import { Call } from "@/engine/space/Call";
 import { Motes } from "@/engine/space/Motes";
 import { RoomScene, URCHI_TURN } from "@/engine/space/RoomScene";
 import { runIntro } from "@/engine/space/intro";
-import { comeBack, glanceAt, glanceDown, read, tug } from "@/engine/urchi/acts";
+import { caught, comeBack, glanceAt, glanceDown, read, tug, type Caught } from "@/engine/urchi/acts";
 import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
 import { clock } from "@/engine/urchi/hours";
 import { CursorLabel } from "@/components/CursorLabel";
@@ -76,6 +77,13 @@ let lastNow: { track: Track | null; at: number } | null = null;
 const NOW_FRESH_MS = 2 * 60 * 1000;
 /** At night, with nothing known yet, Urchi waits this long (ms, at most) for the poll before it appears. */
 const NIGHT_WAIT = 800;
+/**
+ * Caught in the act (panel 2, N3): back on the tab after at least `away` ms elsewhere, you may
+ * find it doing something it would not do while watched; at most once every `every` ms.
+ */
+const CAUGHT = { away: 45 * 1000, every: 10 * 60 * 1000 };
+/** When it was last caught (Date.now() ms, in memory): wall time, since a phone put away may stop the page's own clock. */
+let caughtAt = -Infinity;
 
 /** The scene's side of the game, reachable from the board's React handlers. */
 type Game = {
@@ -150,7 +158,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let arriving = false;
     const att = new Attention(room.urchi.character, { head: eyesClient, reach: () => room.urchiSize.w / 2, reducedMotion, onMood: () => moodChanged() });
     const motes = new Motes(room, att, { reducedMotion });
-    Object.assign(stageEl, { __room: room, __att: att, __motes: motes }); // handy for debugging and headless QA
+    const call = new Call(room, att, motes, { reducedMotion });
+    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
     let stopArrive: (() => void) | null = null;
     let openTimer: gsap.core.Tween | null = null;
@@ -339,6 +348,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       slotTimer?.kill();
       slot = null;
       hideCaption();
+      call.abort();
       att.pause(true);
       motes.hide(true);
       setBoard({ date, drop: stack(reducedMotion ? 0 : 0.9) });
@@ -493,20 +503,57 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       stopArrive = () => window.clearTimeout(arriveTimer);
     }
 
-    // ---- pointer: hover and click on Urchi; a tap on the empty room lets a mote go
+    // ---- caught in the act: back on the tab after a while away, it was doing something else
+    let hiddenAt = -1;
+    /** What it is caught doing: facing into a top corner, staring up at the "2", or halfway through a stretch (not under reduced motion, where the head stays still). */
+    const pose = (): Caught => {
+      const r = Math.random() * (reducedMotion ? 0.7 : 1);
+      const side = Math.random() < 0.5 ? -1 : 1;
+      if (r < 0.4 || (r < 0.7 && !pillAt("/projects"))) return { kind: "corner", at: { x: (0.5 + side * 0.48) * window.innerWidth, y: 0.03 * window.innerHeight } };
+      if (r < 0.7) return { kind: "pill", at: () => pillAt("/projects") };
+      return { kind: "stretch", roll: side * 5 };
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        call.stop();
+        return;
+      }
+      const now = Date.now();
+      const away = hiddenAt < 0 ? 0 : now - hiddenAt;
+      hiddenAt = -1;
+      if (away < CAUGHT.away || now - caughtAt < CAUGHT.every) return;
+      // Never while it sleeps or dozes, in the intro, with the game up, mid-rhythm or mid-slide.
+      if (begun < 0 || gameOpen || att.asleep || call.busy || getFlags().transitioning) return;
+      // Played now, before the page's first frame back, so that frame already shows it.
+      if (att.play("caught", 6, () => caught(att, pose()))) caughtAt = now;
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    // ---- pointer: hover and click on Urchi; a tap on the empty room lets a mote go, and a rhythm of them gets an answer
     let down = { x: 0, y: 0, t: 0 };
+    // Quick taps must stay taps: no double-tap zoom on a phone (a pinch still zooms).
+    stageEl.style.touchAction = "manipulation";
     const onMove = (e: PointerEvent) => setOverUrchi(room.urchiHit(e.clientX, e.clientY));
     const onLeave = () => setOverUrchi(false);
     const onDown = (e: PointerEvent) => {
       down = { x: e.clientX, y: e.clientY, t: performance.now() };
+      call.press(down.t);
     };
     const onUp = (e: PointerEvent) => {
-      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK.slop || performance.now() - down.t > CLICK.ms) return;
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK.slop || performance.now() - down.t > CLICK.ms) {
+        call.abort();
+        return;
+      }
       if (room.urchiHit(e.clientX, e.clientY)) {
+        call.abort();
         // Asleep, the first click wakes it; only the next opens the game.
         if (att.wake()) return;
         openGame();
-      } else if (room.interactive && !gameOpen) motes.release(e.clientX, e.clientY);
+      } else if (room.interactive && !gameOpen) {
+        if (begun >= 0) call.tap(e.clientX, e.clientY, down.t);
+        else motes.release(e.clientX, e.clientY);
+      }
     };
     const onResize = () => {
       room.resize();
@@ -536,7 +583,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       stageEl.removeEventListener("pointerdown", onDown);
       stageEl.removeEventListener("pointerup", onUp);
       window.removeEventListener("resize", onResize);
+      document.removeEventListener("visibilitychange", onVisibility);
       cursor.destroy();
+      call.dispose();
       motes.dispose();
       att.dispose();
       room.dispose();

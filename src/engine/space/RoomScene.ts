@@ -58,6 +58,13 @@ const PLACE = { eyes: 0.55, caption: 64, chin: 64, outline: 4 };
  * wakes. It never sinks the chin into the caption's band.
  */
 const SETTLE = { smaller: 0.04, sink: 0.02, down: 4, up: 1.2 };
+/**
+ * Leaning in to answer a rhythm (panel 2, N5): the head comes `closer` (a share of its size) over
+ * `in` seconds and goes back over `out`, the act tipping the face a few degrees down with it, so
+ * it reads as closeness rather than zoom. Under the 6% the panel allows a lean: the blinks are
+ * what it has come closer to show.
+ */
+const LEAN = { closer: 0.04, in: 0.45, out: 0.7 };
 const DIM_FADE = 0.15;
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
@@ -108,6 +115,8 @@ export class RoomScene {
   private stack = { k: 0, y: 0, zoom: 1 };
   /** The night's settle, 0 awake .. 1 on its pillow. Tweened. */
   private settle = { v: 0 };
+  /** Leaning in, 0 .. 1. Tweened. */
+  private lean = { v: 0 };
   private opts: RoomOptions;
   private hooks = new Set<(dt: number) => void>();
   private tick: (time: number, dt: number) => void;
@@ -232,6 +241,12 @@ export class RoomScene {
     gsap.to(this.settle, { v: asleep ? 1 : 0, duration, ease: "sine.inOut", overwrite: true });
   }
 
+  /** Leaning in to answer (true) or back (false); not under reduced motion, where the answer is the lids alone. */
+  leanUrchi(on: boolean) {
+    if (this.opts.reducedMotion) return;
+    gsap.to(this.lean, { v: on ? 1 : 0, duration: on ? LEAN.in : LEAN.out, ease: "sine.inOut", overwrite: true });
+  }
+
   /** On a short viewport Urchi dims instead of rising. */
   dimUrchi(on: boolean) {
     this.urchi.fade(on ? DIM_FADE : 1, 0.6, on ? 0 : 0.2);
@@ -245,11 +260,11 @@ export class RoomScene {
     return this.urchi.hit(p.x, p.y);
   }
 
-  /** The head's centre above the room's centre, and its size against rest: home (settled, at night) blended into the stack. */
+  /** The head's centre above the room's centre, and its size against rest: home (settled, at night) blended into the stack, leaning in or not. */
   private pose() {
     const s = this.settle.v, k = this.stack.k;
     const rest = this.home - this.sink * s;
-    return { y: rest + (this.stack.y - rest) * k, zoom: this.stack.zoom * (1 - SETTLE.smaller * s) };
+    return { y: rest + (this.stack.y - rest) * k, zoom: this.stack.zoom * (1 - SETTLE.smaller * s) * (1 + LEAN.closer * this.lean.v) };
   }
 
   /**
@@ -281,6 +296,7 @@ export class RoomScene {
     gsap.ticker.remove(this.tick);
     gsap.killTweensOf(this.stack);
     gsap.killTweensOf(this.settle);
+    gsap.killTweensOf(this.lean);
     gsap.killTweensOf(this.urchi);
     this.hooks.clear();
     this.urchi.dispose();
