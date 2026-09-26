@@ -63,6 +63,8 @@ type Piece = {
   sh: number;
   sz: number;
   ink: number;
+  /** Its longitude on the ball, radians, while the whirr needs it: it crosses the front where angle + lon is a whole turn. */
+  lon: number;
 };
 
 type Bead = {
@@ -308,13 +310,106 @@ const CROWD = 40;
 /** Past this many projects the hung pieces start to shrink. */
 const CROWD_FROM = 12;
 
+// The supernova's charge (milestone A): spin the ball hard enough, for long enough, and it pulls in.
+/**
+ * The threshold is a surface speed, |ω|·R, px/s, so a bigger ball is no
+ * harder: 3.33 rad/s at R_REF, within 5% of 33⅓ rpm.
+ */
+const NOVA_S0 = 700;
+/**
+ * Only the hand counts, never the ball coasting: a drag that moved within
+ * NOVA_DRAG_MS, a wheel over the ball within NOVA_WHEEL_MS (not trackpad
+ * momentum), or an arrow held past NOVA_KEY_MS, which then spins the ball
+ * freely, NOVA_KEY_ACCEL rad/s² up to NOVA_KEY_MAX rad/s.
+ */
+const NOVA_DRAG_MS = 120;
+/**
+ * A finger's flick is over in a tenth of a second, where a mouse's drag
+ * lasts: on touch the drag counts for this long after it last moved, so
+ * three or four hard flicks set it off on a phone, and one is a near miss.
+ */
+const NOVA_FLICK_MS = 220;
+const NOVA_WHEEL_MS = 150;
+const NOVA_KEY_MS = 800;
+const NOVA_KEY_ACCEL = 2.5;
+const NOVA_KEY_MAX = 6.5;
+/**
+ * The wheel over the ball may turn it at up to 1.6·S0 (4 rad/s elsewhere,
+ * as ever). A notched mouse wheel spun hard settles near 2-2.6 rad/s and
+ * never gets there: it steps (see NOVA_NOTCH). Past R_REF each wheel step
+ * turns the ball by the same distance on its surface rather than the same
+ * angle, so a big ball is not a notched wheel's way in either.
+ */
+const NOVA_WHEEL_MAX = 1.6;
+const WHEEL_TURN = 0.0025;
+const WHEEL_MAX = 4;
+/**
+ * Trackpad momentum is a run of steadily falling steps, each within
+ * NOVA_RUN_GAP ms of the last: NOVA_RUN_FALLS falls in a row and it is the
+ * ball coasting, until a step grows again.
+ */
+const NOVA_RUN_GAP = 120;
+const NOVA_RUN_FALLS = 4;
+/** A wheel step this big (px) that comes the same size as the last, or a whole multiple of it, is a notch. */
+const NOVA_NOTCH = 40;
+/**
+ * The charge c (0..1) rises at NOVA_RISE + NOVA_RISE_MORE·min(1, (S − S0)/S0)
+ * a second while driven at S0 or more, and drains at NOVA_DRAIN otherwise.
+ * Between strokes, the ball still turning at S0 or more within
+ * NOVA_BETWEEN_MS of the hand leaving it, it neither rises nor drains, so
+ * flicks in a row add up (three or four hard ones on a phone) while one
+ * flick, or a trackpad's momentum, only ever lets go.
+ */
+const NOVA_RISE = 0.35;
+const NOVA_RISE_MORE = 0.65;
+const NOVA_DRAIN = 0.6;
+const NOVA_BETWEEN_MS = 400;
+/** The point of no return: from here it finishes by itself, spinning at S0 at least. */
+const NOVA_COMMIT = 0.8;
+/**
+ * A skater pulling her arms in: R_eff = R·(1 − NOVA_PULL·c), and the spin
+ * drawn is ω·(R/R_eff)², to NOVA_SPIN_MAX times.
+ */
+const NOVA_PULL = 0.45;
+const NOVA_SPIN_MAX = 3.3;
+/** At full charge: the far side's ink, the pieces' size and ink, and the heading's ink. */
+const NOVA_BACK_INK = 0.5;
+const NOVA_PIECE_SCALE = 0.6;
+const NOVA_PIECE_INK = 0.6;
+const NOVA_HEADING = 0.5;
+/** The tick's playbackRate at full charge: faster and higher, never louder. */
+const NOVA_RATE = 1.25;
+/**
+ * From NOVA_WHIRR_FROM a train on the audio clock adds a tick as each piece,
+ * and each turn of the thread, crosses the front, thinned so it rises to
+ * about NOVA_WHIRR_MAX a second at full charge whatever the ball holds, and
+ * placed NOVA_WHIRR_AHEAD seconds ahead of the ball at a time.
+ */
+const NOVA_WHIRR_FROM = 0.5;
+const NOVA_WHIRR_MAX = 40;
+const NOVA_WHIRR_AHEAD = 0.06;
+const NOVA_WHIRR_GAIN = [0.2, 0.35] as const;
+/** Until the collapse exists, full charge holds the tightest ball this long (s) and lets go. */
+const NOVA_HOLD = 0.6;
+/** After it lets go the charge is capped at NOVA_COOL_CAP for NOVA_COOL ms: it tightens a little and lets go. */
+const NOVA_COOL = 25000;
+const NOVA_COOL_CAP = 0.35;
+/**
+ * Let go short of the point of no return, the ball opens again and over,
+ * to 1 + NOVA_SIGH of its size (less after a smaller charge), and settles:
+ * a sigh. Nothing chooses while it is this tight (NOVA_QUIET) or tighter.
+ */
+const NOVA_SIGH = 0.03;
+const NOVA_SIGH_BACK = 0.7;
+const NOVA_QUIET = 0.1;
+
 const smooth = (t: number) => t * t * (3 - 2 * t);
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
 const inOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 const outCubic = (t: number) => 1 - (1 - t) ** 3;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-/** The far side of the thread falls to a quarter of the ink: a wire ball, not a disc. */
-const depthInk = (z: number) => BACK_INK + (1 - BACK_INK) * smooth(clamp01((z + 0.85) / 1.7));
+/** The far side of the thread falls to a quarter of the ink: a wire ball, not a disc. A charging ball's far side brightens. */
+const depthInk = (z: number, back = BACK_INK) => back + (1 - back) * smooth(clamp01((z + 0.85) / 1.7));
 const blockBounds = (t: Text): [number, number, number, number] => t.textRenderInfo?.blockBounds ?? [0, 0, 0, 0];
 /**
  * Which scene last took each canvas, by number (a canvas has only the one
@@ -607,6 +702,8 @@ export class ThreadScene {
   private lastScroll = 0;
   private dotGeo = new THREE.CircleGeometry(1, 20);
   private planeGeo = new THREE.PlaneGeometry(1, 1);
+  /** Scratch for blending a sample toward the unleaning thread. */
+  private tmp = new THREE.Vector3();
 
   // The thread: M samples on the unit sphere, evenly spaced along it, and their tangents.
   /** The arc between samples: STEP, or half of it on a big ball. */
@@ -614,6 +711,16 @@ export class ThreadScene {
   private M = 0;
   private P = new Float32Array(0);
   private TG = new Float32Array(0);
+  /**
+   * The same thread wound with no lean (WOBBLE 0), sample for sample, and its
+   * tangents: a charging ball's thread blends toward it by `bend`, so its
+   * rings come true and parallel.
+   */
+  private P0 = new Float32Array(0);
+  private TG0 = new Float32Array(0);
+  private bend = 0;
+  /** How many turns the thread makes, pole to pole: each one ticks in the whirr. */
+  private turns = 1;
   private T0 = 0;
   private T1 = 1;
   // This frame, per sample: screen position, depth, ink, normal; and which bead's stretch it is.
@@ -707,6 +814,44 @@ export class ThreadScene {
     uDpr: { value: 1 },
     uViewH: { value: 1 },
   };
+
+  /**
+   * The supernova's charge (milestone A): see NOVA_S0 on. `c` is the charge;
+   * `peak` the most it reached since it last sighed; `committed` past the
+   * point of no return; `hold` the seconds left at the tightest ball;
+   * `coolUntil` when the cooldown ends (ms). When the hand last drove it at
+   * S0 or more, last dragged it (and whether with a finger) and last wheeled
+   * it over the ball (ms); the way it last turned. The held arrow: which,
+   * since when (ms), its free spin's speed and whether it has begun. The
+   * wheel's run, for telling a trackpad's momentum from a hand. The sigh's
+   * swell: its size now, how far into it (s, -1: none), how big and how long
+   * it takes to go out. The whirr: the angle
+   * its ticks are placed up to, the way they were placed, the ball's drawn
+   * spin (rad/s, eased), and the trains still to sound, with when they end.
+   */
+  private nova = {
+    c: 0,
+    peak: 0,
+    committed: false,
+    hold: 0,
+    coolUntil: 0,
+    drove: -Infinity,
+    dragAt: -Infinity,
+    finger: false,
+    wheelAt: -Infinity,
+    sign: 1,
+    key: { dir: 0, at: 0, spin: 0, free: false },
+    run: { t: -Infinity, d: 0, falls: 0, coasting: false },
+    swell: { v: 0, t: -1, amount: 0, out: 0 },
+    placed: null as number | null,
+    placedDir: 0,
+    lastA: 0,
+    whirl: 0,
+    trains: [] as { cancel: () => void; until: number }[],
+  };
+  /** The heading's ink as an opened project leaves it (see dimHeading); a charge takes it down further. */
+  private headInk = { v: 1 };
+  private headInkSet = 1;
 
   private ready = false;
   private disposed = false;
@@ -939,6 +1084,7 @@ export class ThreadScene {
       sh: 0,
       sz: -1,
       ink: 0,
+      lon: 0,
     };
     bead.pieces.push(piece);
     this.pieces.push(piece);
@@ -997,10 +1143,10 @@ export class ThreadScene {
     // walks round from turn to turn, so neighbouring turns cross the way wound thread does instead
     // of stacking like a spring. The lean fades out at the poles.
     const K = Math.ceil(turns * 1440);
-    const at = (s: number, out: THREE.Vector3) => {
+    const at = (s: number, out: THREE.Vector3, wobble = WOBBLE) => {
       const lat0 = -Math.PI / 2 + Math.PI * s;
       const lon = Math.PI * 2 * turns * s;
-      const lat = lat0 + WOBBLE * Math.cos(lat0) * Math.sin(lon * WOBBLE_RATE);
+      const lat = lat0 + wobble * Math.cos(lat0) * Math.sin(lon * WOBBLE_RATE);
       return out.set(Math.cos(lat) * Math.sin(lon), Math.sin(lat), Math.cos(lat) * Math.cos(lon));
     };
     const arc = new Float64Array(K + 1);
@@ -1015,6 +1161,8 @@ export class ThreadScene {
     const total = arc[K];
     const M = Math.max(2, Math.ceil(total / this.arcStep) + 1);
     const P = new Float32Array(M * 3);
+    // The same places along the spiral wound with no lean: same longitudes, true latitudes.
+    const P0 = new Float32Array(M * 3);
     let k = 0;
     for (let i = 0; i < M; i++) {
       const target = (total * i) / (M - 1);
@@ -1022,17 +1170,25 @@ export class ThreadScene {
       const f = (target - arc[k]) / Math.max(1e-9, arc[k + 1] - arc[k]);
       at((k + clamp01(f)) / K, a);
       P.set([a.x, a.y, a.z], i * 3);
+      at((k + clamp01(f)) / K, b, 0);
+      P0.set([b.x, b.y, b.z], i * 3);
     }
-    const TG = new Float32Array(M * 3);
-    for (let i = 0; i < M; i++) {
-      const p = Math.max(0, i - 1) * 3;
-      const q = Math.min(M - 1, i + 1) * 3;
-      a.set(P[q] - P[p], P[q + 1] - P[p + 1], P[q + 2] - P[p + 2]).normalize();
-      TG.set([a.x, a.y, a.z], i * 3);
-    }
+    const tangents = (src: Float32Array) => {
+      const out = new Float32Array(M * 3);
+      for (let i = 0; i < M; i++) {
+        const p = Math.max(0, i - 1) * 3;
+        const q = Math.min(M - 1, i + 1) * 3;
+        a.set(src[q] - src[p], src[q + 1] - src[p + 1], src[q + 2] - src[p + 2]).normalize();
+        out.set([a.x, a.y, a.z], i * 3);
+      }
+      return out;
+    };
     this.M = M;
     this.P = P;
-    this.TG = TG;
+    this.TG = tangents(P);
+    this.P0 = P0;
+    this.TG0 = tangents(P0);
+    this.turns = turns;
     this.SX = new Float32Array(M);
     this.SY = new Float32Array(M);
     this.SZ = new Float32Array(M);
@@ -1536,12 +1692,19 @@ export class ThreadScene {
     const b = Math.min(M - 1, a + 1);
     const f = c - a;
     const P = this.P;
-    return out.set(lerp(P[a * 3], P[b * 3], f), lerp(P[a * 3 + 1], P[b * 3 + 1], f), lerp(P[a * 3 + 2], P[b * 3 + 2], f));
+    out.set(lerp(P[a * 3], P[b * 3], f), lerp(P[a * 3 + 1], P[b * 3 + 1], f), lerp(P[a * 3 + 2], P[b * 3 + 2], f));
+    const w = this.bend;
+    if (w <= 0) return out;
+    const Q = this.P0;
+    return out.lerp(this.tmp.set(lerp(Q[a * 3], Q[b * 3], f), lerp(Q[a * 3 + 1], Q[b * 3 + 1], f), lerp(Q[a * 3 + 2], Q[b * 3 + 2], f)), w).normalize();
   }
 
   private sampleTan(i: number, out: THREE.Vector3) {
     const k = Math.max(0, Math.min(this.M - 1, Math.round(i))) * 3;
-    return out.set(this.TG[k], this.TG[k + 1], this.TG[k + 2]);
+    out.set(this.TG[k], this.TG[k + 1], this.TG[k + 2]);
+    const w = this.bend;
+    if (w <= 0) return out;
+    return out.lerp(this.tmp.set(this.TG0[k], this.TG0[k + 1], this.TG0[k + 2]), w).normalize();
   }
 
   /** Spin about the ball's own axis, then the tilt toward you. */
@@ -1632,7 +1795,8 @@ export class ThreadScene {
 
   // ---------------------------------------------------------------- travel
 
-  wheel(deltaX: number, deltaY: number) {
+  /** The wheel, in px (the panel normalises its deltaMode), and where the pointer is: over the ball it may drive the charge. */
+  wheel(deltaX: number, deltaY: number, clientX?: number, clientY?: number) {
     if (!this.ready) return;
     const d = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
     if (this.opened) {
@@ -1640,13 +1804,64 @@ export class ThreadScene {
       return;
     }
     this.stopTurn();
-    if (this.opts.reducedMotion) this.angle += d * 0.002;
-    else this.vel = THREE.MathUtils.clamp(this.vel + d * 0.0025, -4, 4);
+    if (this.opts.reducedMotion) {
+      this.angle += d * 0.002;
+      return;
+    }
+    // True to the surface past R_REF (see NOVA_WHEEL_MAX); at R_REF and under, the wheel it always was.
+    const surface = Math.min(1, R_REF / this.R);
+    const over = clientX !== undefined && clientY !== undefined && this.overBall(clientX, clientY);
+    const most = over ? (NOVA_WHEEL_MAX * NOVA_S0) / this.R : WHEEL_MAX * surface;
+    this.vel = THREE.MathUtils.clamp(this.vel + d * WHEEL_TURN * surface, -most, most);
+    if (this.byHand(d) && over) this.nova.wheelAt = performance.now();
   }
 
-  /** A press on the stage: a drag spins the ball (or scrolls the opened line); a still press is a tap. */
-  press(x: number, y: number) {
+  /** Over the ball as it stands at rest, and the room its pieces hang in: a tightening ball does not slip out from under a still pointer. */
+  private overBall(clientX: number, clientY: number) {
+    const rect = this.canvas.getBoundingClientRect();
+    return Math.hypot(clientX - rect.left - this.cx, clientY - rect.top - this.cy) <= this.R + 24;
+  }
+
+  /**
+   * Whether this wheel step is the hand driving the ball. Not a trackpad's
+   * momentum, a run of steadily falling steps (see NOVA_RUN_FALLS): a step
+   * that falls never counts, and once the run is plainly momentum even the
+   * steps before it stop counting, until a finger pushes again. Nor a notched
+   * wheel's steps, which come the same size again (or a few at once, a whole
+   * multiple of it) and are big: they turn the ball as they always did, and
+   * never charge it however fast the wheel is spun.
+   */
+  private byHand(d: number) {
+    const r = this.nova.run;
+    const now = performance.now();
+    const m = Math.abs(d);
+    const last = Math.abs(r.d);
+    const fresh = now - r.t > NOVA_RUN_GAP || Math.sign(d) !== Math.sign(r.d) || !last;
+    let hand = true;
+    if (fresh) {
+      r.falls = 0;
+      r.coasting = false;
+    } else if (m < last) {
+      hand = false;
+      if (++r.falls >= NOVA_RUN_FALLS && !r.coasting) {
+        r.coasting = true;
+        this.nova.wheelAt = -Infinity;
+      }
+    } else {
+      // Falls in a row only; and a run that was momentum stays it until a step plainly grows.
+      r.falls = 0;
+      if (m > last * 1.1 + 1) r.coasting = false;
+    }
+    if (!fresh && m >= NOVA_NOTCH && Math.abs(m / last - Math.round(m / last)) < 1e-3) hand = false;
+    r.t = now;
+    r.d = d;
+    return hand && !r.coasting;
+  }
+
+  /** A press on the stage: a drag spins the ball (or scrolls the opened line); a still press is a tap. `touch`: a finger. */
+  press(x: number, y: number, touch = false) {
     this.drag = { x, y, t: performance.now(), moved: false };
+    this.nova.finger = touch;
   }
 
   /** Returns true while the press has become a drag. */
@@ -1668,8 +1883,10 @@ export class ThreadScene {
       this.scroll.cur = THREE.MathUtils.clamp(this.scroll.cur - along, 0, this.scroll.max);
     } else {
       const turn = dx / Math.max(60, this.R);
-      this.angle += turn;
+      // The hand turns the ball true to its surface; a charged ball, pulled in, spins faster than the hand.
+      this.angle += turn * this.spinK;
       this.vel = this.opts.reducedMotion ? 0 : lerp(this.vel, turn / dt, 0.5);
+      if (dx) this.nova.dragAt = now;
     }
     d.x = x;
     d.y = y;
@@ -1713,9 +1930,20 @@ export class ThreadScene {
     });
   }
 
-  /** Arrow keys: the next project along the thread, turned to the front; opened, if one was open. */
-  step(dir: 1 | -1) {
-    if (!this.ready) return;
+  /**
+   * Arrow keys: the next project along the thread, turned to the front;
+   * opened, if one was open. On the ball a held arrow steps once, and past
+   * NOVA_KEY_MS winds it instead (see novaStep), so its repeats step no
+   * further; with reduced motion, or a project open, they step on as ever.
+   */
+  step(dir: 1 | -1, repeat = false) {
+    if (!this.ready || this.novaBound) return;
+    if (!this.opts.reducedMotion && !this.opened) {
+      if (repeat) return;
+      this.nova.key = { dir, at: performance.now(), spin: 0, free: false };
+      // Still pulled in from a charge: the arrow only winds it again, it does not choose.
+      if (this.novaQuiet) return;
+    }
     const list = this.order.filter((b) => b.project);
     if (!list.length) return;
     const from = this.opened ?? (this.hovered?.project ? this.hovered : null);
@@ -1730,6 +1958,13 @@ export class ThreadScene {
     this.keyHold = true;
     this.turnTo(b, this.dur(0.8));
     if (b !== this.hovered) this.setHover(b);
+  }
+
+  /** An arrow let go (or any, with no `dir`: the window lost the keys): its free spin ends, and the ball coasts. */
+  keyUp(dir?: 1 | -1) {
+    const k = this.nova.key;
+    if (!k.dir || (dir && dir !== k.dir)) return;
+    this.nova.key = { dir: 0, at: 0, spin: 0, free: false };
   }
 
   // ---------------------------------------------------------------- hover
@@ -1764,6 +1999,8 @@ export class ThreadScene {
       this.setCoverHot(pc && pc.index === 0 ? pc : null);
       return;
     }
+    // A ball pulled tight chooses nothing: it is the one thing happening.
+    if (this.novaQuiet) return;
     // Over the chosen project's caption the choice holds: where the ball reaches under the
     // words, its thinned rings are not there to be chosen.
     if (this.onCaption(at.x, at.y)) {
@@ -1876,6 +2113,8 @@ export class ThreadScene {
       this.openBead(again);
       return "open";
     }
+    // A ball pulled tight chooses nothing, and opens nothing.
+    if (!this.opened && this.novaQuiet) return "none";
     if (this.opened) {
       // The second half of the double click that opened it is not a click on empty space. After
       // that, empty space winds it back from wherever the unspool has got to.
@@ -2266,6 +2505,236 @@ export class ThreadScene {
     });
   }
 
+  // ---------------------------------------------------------------- the supernova's charge
+
+  /**
+   * Whether the ball can charge at all: not with reduced motion (it has no
+   * free spin there), not before the thread has wound itself, not while a
+   * project is out or winding back, and not during a slide or on another tab.
+   */
+  private get novaOn() {
+    if (this.opts.reducedMotion || !this.ready || !this.cursorOn || this.draw.value < 1 || this.opened) return false;
+    return !this.opts.isCurrent || this.opts.isCurrent();
+  }
+
+  /** Past the point of no return, or holding at the tightest: the charge finishes whatever the hand does. */
+  private get novaBound() {
+    return this.nova.committed || this.nova.hold > 0;
+  }
+
+  /** Pulled in far enough that nothing is chosen or opened (see NOVA_QUIET). */
+  private get novaQuiet() {
+    return this.nova.c >= NOVA_QUIET || this.novaBound;
+  }
+
+  /** How much faster the ball is drawn spinning than it is turned: (R/R_eff)², to NOVA_SPIN_MAX. 1 at rest. */
+  private get spinK() {
+    const c = this.nova.c;
+    return c > 0 ? Math.min(NOVA_SPIN_MAX, 1 / (1 - NOVA_PULL * c) ** 2) : 1;
+  }
+
+  /** R_eff/R, with the sigh's swell. 1 at rest. */
+  private get novaScale() {
+    return (1 - NOVA_PULL * this.nova.c) * (1 + this.nova.swell.v);
+  }
+
+  /** The far side's ink: BACK_INK at rest, brighter as the ball pulls in. */
+  private get backInk() {
+    return lerp(BACK_INK, NOVA_BACK_INK, this.nova.c);
+  }
+
+  /** The tick's playbackRate: exactly 1 at rest, to NOVA_RATE at full charge. */
+  private get tickRate() {
+    const c = this.nova.c;
+    return c > 0 ? lerp(1, NOVA_RATE, c) : 1;
+  }
+
+  /**
+   * One frame of the charge. The hand drives it (a drag, the wheel over the
+   * ball, a held arrow's free spin) and the ball's surface speed, |ω|·R, sets
+   * how fast it rises past NOVA_S0; anything else lets it drain, except the
+   * moment between two strokes. Past NOVA_COMMIT it finishes by itself, and
+   * until the collapse is built, full charge holds the tightest ball for a
+   * beat (NOVA_HOLD) and lets go with the sigh, into the cooldown.
+   */
+  private novaStep(dt: number) {
+    const n = this.nova;
+    const now = performance.now();
+    const on = this.novaOn;
+    // A held arrow, past NOVA_KEY_MS: the choice is let go and the ball spins freely, gathering pace.
+    const key = n.key;
+    if (key.dir && !on) this.keyUp();
+    else if (key.dir && now - key.at >= NOVA_KEY_MS) {
+      if (!key.free) {
+        key.free = true;
+        this.stopTurn();
+        key.spin = Math.max(0, key.dir * this.vel);
+        // The arrow is winding now, not choosing.
+        if (this.hovered && !this.opened) this.setHover(null);
+      }
+      key.spin = Math.min(NOVA_KEY_MAX, key.spin + NOVA_KEY_ACCEL * dt);
+      this.vel = key.dir * key.spin;
+    }
+    const R = this.R;
+    // Past the point of no return, and holding, the ball keeps spinning at S0 at least.
+    if (Math.abs(this.vel) > 0.05) n.sign = Math.sign(this.vel);
+    if (on && this.novaBound && Math.abs(this.vel) * R < NOVA_S0) this.vel = (n.sign * NOVA_S0) / R;
+    const S = Math.abs(this.vel) * R;
+    const driven = on && (key.free || now - n.dragAt < (n.finger ? NOVA_FLICK_MS : NOVA_DRAG_MS) || now - n.wheelAt < NOVA_WHEEL_MS);
+    const fast = S >= NOVA_S0;
+    const rise = NOVA_RISE + NOVA_RISE_MORE * Math.min(1, (S - NOVA_S0) / NOVA_S0);
+    if (driven && fast) n.drove = now;
+    const cap = now < n.coolUntil ? NOVA_COOL_CAP : 1;
+    const was = n.c;
+    let c = was;
+    if (!on) {
+      // Off (a project opening, a slide, another tab): it lets go, quickly if a project is out.
+      c -= (this.opened ? 3 : 1) * NOVA_DRAIN * dt;
+      n.committed = false;
+      n.hold = 0;
+    } else if (n.hold > 0) {
+      n.hold -= dt;
+      if (n.hold <= 0) {
+        n.hold = 0;
+        n.committed = false;
+        n.coolUntil = now + NOVA_COOL;
+      }
+    } else if (n.committed) {
+      c += Math.max(NOVA_RISE, driven && fast ? rise : 0) * dt;
+      if (c >= 1) {
+        c = 1;
+        n.hold = NOVA_HOLD;
+      }
+    } else if (c > cap) c = Math.max(cap, c - NOVA_DRAIN * dt);
+    else if (driven && fast) {
+      c = Math.min(cap, c + rise * dt);
+      if (c >= NOVA_COMMIT && cap >= 1) n.committed = true;
+    } else if (!(fast && now - n.drove < NOVA_BETWEEN_MS)) c -= NOVA_DRAIN * dt;
+    c = clamp01(c);
+    n.c = c;
+    this.bend = c;
+    if (c > was) {
+      n.peak = Math.max(n.peak, c);
+      // Wound up again mid-sigh: the swell gives way, quickly.
+      n.swell.t = -1;
+    } else if (c === 0 && was > 0) {
+      // Only a ball left to itself sighs: one that let go because a project opened just lets go.
+      if (on) this.sigh();
+      else n.peak = 0;
+    }
+    this.swell(dt);
+    // Pulled tight, it chooses nothing.
+    if (this.novaQuiet && this.hovered && !this.opened) this.setHover(null);
+  }
+
+  /**
+   * Let go, the ball has opened all the way: it goes on a little over,
+   * NOVA_SIGH of its size after a real charge and less after a small one, at
+   * the pace it was opening, and settles back (see swell).
+   */
+  private sigh() {
+    const n = this.nova;
+    const sw = n.swell;
+    sw.amount = NOVA_SIGH * Math.min(1, n.peak / 0.25);
+    n.peak = 0;
+    if (sw.amount < 0.002) return;
+    // Out at the pace it was opening (R grows at NOVA_PULL·NOVA_DRAIN a second), so the turn is smooth.
+    sw.out = Math.max(0.06, (sw.amount * Math.PI) / 2 / (NOVA_PULL * NOVA_DRAIN));
+    sw.t = 0;
+  }
+
+  /** The sigh's swell this frame: out on a quarter sine, back over NOVA_SIGH_BACK on a half cosine; cut short, it fades in 50ms. */
+  private swell(dt: number) {
+    const sw = this.nova.swell;
+    if (sw.t < 0) {
+      sw.v = sw.v < 1e-4 ? 0 : sw.v * Math.exp(-dt / 0.05);
+      return;
+    }
+    sw.t += dt;
+    const { t, out, amount } = sw;
+    if (t < out) sw.v = amount * Math.sin(((Math.PI / 2) * t) / out);
+    else if (t < out + NOVA_SIGH_BACK) sw.v = amount * (0.5 + 0.5 * Math.cos((Math.PI * (t - out)) / NOVA_SIGH_BACK));
+    else {
+      sw.v = 0;
+      sw.t = -1;
+    }
+  }
+
+  /**
+   * The whirr: from NOVA_WHIRR_FROM, a tick as each piece on the ball, and
+   * each turn of the thread, crosses the front, placed on the audio clock
+   * NOVA_WHIRR_AHEAD seconds ahead of the ball as it spins, so none is lost
+   * to the tick's throttle and none lands late. A turn of the thread has no
+   * one place, so each ticks where its lean walked to, a golden angle round
+   * from the last. It thins as it would pass NOVA_WHIRR_MAX a second, and
+   * comes in thin: each tick has its place in the thinning, so a rising charge
+   * only adds to the ones already heard. Heard with sound on; placed only
+   * while the ball is on screen and at rest.
+   */
+  private whirr(dt: number) {
+    const n = this.nova;
+    const a = this.angle + this.yaw;
+    const w = (a - n.lastA) / Math.max(dt, 1e-3);
+    n.lastA = a;
+    n.whirl += (w - n.whirl) * (1 - Math.exp(-dt / 0.05));
+    const now = performance.now();
+    n.trains = n.trains.filter((t) => t.until > now);
+    const on = this.novaOn;
+    const ramp = smooth(clamp01((n.c - NOVA_WHIRR_FROM) / (1 - NOVA_WHIRR_FROM)));
+    const spin = n.whirl;
+    if (!on || !sfx.awake || ramp <= 0 || Math.abs(spin) < 0.5) {
+      n.placed = null;
+      // Off: what is still to sound goes with it.
+      if (!on) this.hushWhirr();
+      return;
+    }
+    const dir = Math.sign(spin);
+    const ahead = a + spin * NOVA_WHIRR_AHEAD;
+    // From where the last frame placed up to, never behind the ball (a late tick is a wrong one).
+    let from = n.placed !== null && n.placedDir === dir ? n.placed : a;
+    from = dir > 0 ? Math.max(from, a) : Math.min(from, a);
+    n.placedDir = dir;
+    // Already placed this far ahead (the spin eased off): nothing new, and nothing placed twice.
+    if ((ahead - from) * dir <= 1e-6) {
+      n.placed = from;
+      return;
+    }
+    n.placed = ahead;
+    const lo = Math.min(from, ahead);
+    const hi = Math.max(from, ahead);
+    // The pieces on the ball, then the turns.
+    const lons: number[] = [];
+    const drawn = this.draw.value * (this.M - 1);
+    this.pieces.forEach((pc) => {
+      if (pc.onBall && pc.bead.pop > 0.5 && pc.bead.i <= drawn) lons.push(pc.lon);
+    });
+    const turns = Math.max(1, Math.round(this.turns));
+    for (let k = 0; k < turns; k++) lons.push(-k * GOLDEN);
+    const TAU = Math.PI * 2;
+    // Thinned by the faster of the eased spin and this frame's, so a hand speeding up never overfills it.
+    const natural = (lons.length * Math.max(Math.abs(spin), Math.abs(w))) / TAU;
+    const share = Math.min(ramp, NOVA_WHIRR_MAX / Math.max(1e-6, natural));
+    const offsets: number[] = [];
+    lons.forEach((lon, j) => {
+      // Each has its place in the thinning: a golden-ratio sequence, so any share is spread evenly.
+      if ((j * 0.6180339887) % 1 >= share) return;
+      // It faces front where angle + lon is a whole turn.
+      for (let t = Math.ceil((lo + lon) / TAU) * TAU - lon; t <= hi; t += TAU) {
+        if (t > lo || (t === lo && from === a)) offsets.push(Math.max(0, (t - a) / spin));
+      }
+    });
+    if (!offsets.length) return;
+    offsets.sort((x, y) => x - y);
+    const cancel = sfx.train(offsets, { gain: lerp(NOVA_WHIRR_GAIN[0], NOVA_WHIRR_GAIN[1], ramp), rate: this.tickRate });
+    n.trains.push({ cancel, until: now + (offsets[offsets.length - 1] + 0.05) * 1000 });
+  }
+
+  /** Stops the whirr's ticks still to sound. */
+  private hushWhirr() {
+    this.nova.trains.forEach((t) => t.cancel());
+    this.nova.trains = [];
+  }
+
   // ---------------------------------------------------------------- frame
 
   private frame(dt: number) {
@@ -2275,10 +2744,13 @@ export class ThreadScene {
     // Nothing is drawn until the layout has placed it: the texts wait at the origin until their fonts are in.
     if (!this.ready) return;
 
+    // The charge first: it can hold the spin up, and a held arrow spins the ball freely.
+    this.novaStep(dt);
+
     // Spin: slow on its own, slower still while something is held, still while a project is open.
     const idleTarget = rm || this.opened ? 0 : this.hovered ? 0.1 : 1;
     this.idleK += (idleTarget - this.idleK) * (1 - Math.pow(0.02, dt));
-    if (!this.drag?.moved && !this.turning) this.angle += (IDLE * this.idleK + this.vel) * dt;
+    if (!this.drag?.moved && !this.turning) this.angle += (IDLE * this.idleK + this.vel) * dt * this.spinK;
     this.vel *= Math.pow(0.15, dt);
     if (Math.abs(this.vel) < 1e-4) this.vel = 0;
     this.yaw += (this.targetYaw - this.yaw) * (1 - Math.pow(0.03, dt));
@@ -2312,6 +2784,7 @@ export class ThreadScene {
     this.hang();
     this.clearCaption(dt);
     this.crossings();
+    this.whirr(dt);
     this.dimHeading();
     this.glass.setVelocity(Math.abs(this.scroll.cur - this.lastScroll) / Math.max(dt, 1e-3) / 1500);
     this.lastScroll = this.scroll.cur;
@@ -2325,9 +2798,13 @@ export class ThreadScene {
     return this.opts.reducedMotion ? this.fadeIn.value : inOut(clamp01(this.unspool.p * 1.5));
   }
 
-  /** The ball's radius this frame: smaller as it recedes, to 86%, and never larger than it always receded to. */
+  /**
+   * The ball's radius this frame: smaller as it recedes, to 86%, and never
+   * larger than it always receded to; pulled in by a charge (R_eff), and a
+   * little over at the end of a sigh.
+   */
   private radiusAt(recede: number) {
-    return this.R * lerp(1, Math.min(RECEDE_SCALE, RECEDE_D / (2 * this.R)), recede);
+    return this.R * lerp(1, Math.min(RECEDE_SCALE, RECEDE_D / (2 * this.R)), recede) * this.novaScale;
   }
 
   /** The chosen caption steps down, if it must, to clear its own pieces; within one hover it only ever steps further. */
@@ -2440,10 +2917,24 @@ export class ThreadScene {
       }
       if (t >= (pl.dead ? PLUCK_TWITCH : PLUCK_RING)) this.plucked = null;
     }
+    // A charging ball: the thread leans less (toward P0) and its far side brightens.
+    const bend = this.bend;
+    const Q = this.P0;
+    const back = this.backInk;
     for (let i = 0; i < M; i++) {
-      this.rotate(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], q);
+      if (bend > 0) {
+        const o = i * 3;
+        let x = lerp(P[o], Q[o], bend);
+        let y = lerp(P[o + 1], Q[o + 1], bend);
+        let z = lerp(P[o + 2], Q[o + 2], bend);
+        const n = 1 / Math.hypot(x, y, z);
+        x *= n;
+        y *= n;
+        z *= n;
+        this.rotate(x, y, z, q);
+      } else this.rotate(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], q);
       this.toScreen(q, radius, s);
-      const d = depthInk(q.z);
+      const d = depthInk(q.z, back);
       const o = this.owner[i];
       const hl = o >= 0 ? this.beads[o].hl : 0;
       let ink = lerp(d * base, 0.55 + 0.45 * smooth(clamp01((q.z + 0.85) / 1.7)), hl);
@@ -2573,7 +3064,7 @@ export class ThreadScene {
       this.samplePos(b.i, p);
       this.rotate(p.x, p.y, p.z, q);
       const k = this.toScreen(q, radius, s0);
-      const dz = depthInk(q.z);
+      const dz = depthInk(q.z, this.backInk);
       let ink = lerp(dz * base, 0.55 + 0.45 * dz, b.hl) * b.pop * this.veilAt(s0.x, s0.y);
       if (b.i > this.draw.value * (this.M - 1)) ink = 0;
       b.mz = q.z;
@@ -2679,7 +3170,7 @@ export class ThreadScene {
       this.rotate(x, y, zz, q);
       this.toScreen(q, radius, s);
       if (k === 0) z = q.z;
-      sc.push(s.x, s.y, depthInk(q.z) * base * this.veilAt(s.x, s.y));
+      sc.push(s.x, s.y, depthInk(q.z, this.backInk) * base * this.veilAt(s.x, s.y));
     }
     sc.normals();
     (z >= 0 ? front : back).strip(sc.x, sc.y, sc.a, sc.nx, sc.ny, 0, sc.n - 1);
@@ -2699,8 +3190,13 @@ export class ThreadScene {
     const radius = this.radiusAt(recede);
     // The pieces grow with the ball to PIECE_MAX, and each knot's layout with them, so a big
     // ball's knots sit as close to their marks as a small one's: past that, only the ball grows.
-    const scale = Math.min(radius / R_REF, PIECE_MAX);
+    // A charge pulls them in to NOVA_PIECE_SCALE of that, flat on the thread, and takes their ink.
+    const nc = this.nova.c;
+    const scale = Math.min(radius / this.novaScale / R_REF, PIECE_MAX) * lerp(1, NOVA_PIECE_SCALE, nc);
     const fit = scale / (radius / R_REF);
+    const hangOut = lerp(HANG_OUT, 0, nc);
+    const pull = lerp(1, NOVA_PIECE_INK, nc);
+    const whirring = nc > NOVA_WHIRR_FROM;
     // Behind an opened line the ball's pieces go further back than its thread: colour carries further than ink.
     const base = lerp(lerp(1, DIM, this.dim), RECEDE_PIECE_INK, recede);
     const pxToIdx = 1 / (this.arcStep * R_REF);
@@ -2728,10 +3224,11 @@ export class ThreadScene {
       this.toScreen(q, radius, a);
       bn.copy(p).cross(t).normalize();
       const up = (pc.up * fit) / R_REF;
-      const out = (HANG_OUT * fit) / R_REF;
+      const out = (hangOut * fit) / R_REF;
       c.copy(p)
         .addScaledVector(bn, b.side * up)
         .addScaledVector(p, b.side * out);
+      if (whirring) pc.lon = Math.atan2(c.x, c.z);
       this.rotate(c.x, c.y, c.z, q);
       const k = this.toScreen(q, radius, s);
       const dz = depthInk(q.z);
@@ -2739,7 +3236,7 @@ export class ThreadScene {
       let w = h * pc.aspect;
       // Behind the ball a piece is only a shape through the thread; inside it, half ink and soft.
       let ink = b.side > 0 ? 0.1 + 0.9 * smooth(clamp01((q.z + 0.3) / 0.8)) : 0.5 * (0.7 + 0.3 * dz);
-      ink *= lerp(base, 1, b.hl) * b.pop;
+      ink *= lerp(base, 1, b.hl) * b.pop * pull;
       if (crowd) ink *= smooth(clamp01((b.mz + 0.1) / 0.25));
       // Near the limb a knot hangs out past the ball: rather than be cut by the screen's edge, it
       // fades out as it crosses the side margin, gone by the time it would touch the edge.
@@ -2823,13 +3320,18 @@ export class ThreadScene {
     });
   }
 
-  /** A quiet tick as each project's mark crosses the front, only while the ball is being turned. */
+  /**
+   * A quiet tick as each project's mark crosses the front, only while the
+   * ball is being turned. The same tick at the same level, faster and higher
+   * as a charge pulls the ball in (1 at rest, exactly as it always was).
+   */
   private crossings() {
     const turning = Math.abs(this.vel) > 0.2 || !!this.turning;
+    const rate = this.tickRate;
     this.beads.forEach((b) => {
       if (!b.project) return;
       const s = b.mz > 0 ? Math.sign(b.mx - this.cx) || 1 : 0;
-      if (s && b.crossed && s !== b.crossed && turning) sfx.play("tick", 0.6);
+      if (s && b.crossed && s !== b.crossed && turning) sfx.play("tick", 0.6, rate);
       if (s) b.crossed = s;
     });
   }
@@ -2867,11 +3369,18 @@ export class ThreadScene {
         if (m.offset < m.span * 0.9 && shares(y - bb[3], y - bb[1])) on = true;
       });
     }
-    if (on === this.headingDimmed) return;
-    this.headingDimmed = on;
-    this.ctx.add(() => {
-      gsap.to([this.heading!.lead.t.material, this.heading!.tail.t.material], { opacity: on ? 0 : 1, duration: this.dur(0.3), ease: "power2.inOut", overwrite: true });
-    });
+    if (on !== this.headingDimmed) {
+      this.headingDimmed = on;
+      this.ctx.add(() => {
+        gsap.to(this.headInk, { v: on ? 0 : 1, duration: this.dur(0.3), ease: "power2.inOut", overwrite: true });
+      });
+    }
+    // A charging ball takes the heading down to half its ink.
+    const ink = this.headInk.v * lerp(1, NOVA_HEADING, this.nova.c);
+    if (ink === this.headInkSet) return;
+    this.headInkSet = ink;
+    this.heading.lead.t.material.opacity = ink;
+    this.heading.tail.t.material.opacity = ink;
   }
 
   setVisible(on: boolean) {
@@ -2891,9 +3400,10 @@ export class ThreadScene {
     this.intro?.kill();
     this.openTl?.kill();
     this.unpluck();
+    this.hushWhirr();
     this.stopTurn();
     this.ctx.kill();
-    gsap.killTweensOf([this, this.unspool, this.fadeIn, this.draw, this.scroll, this.caseLift]);
+    gsap.killTweensOf([this, this.unspool, this.fadeIn, this.draw, this.scroll, this.caseLift, this.headInk]);
     this.pieces.forEach((pc) => {
       gsap.killTweensOf(pc.mesh.material.uniforms.uMix);
       pc.mesh.material.dispose();

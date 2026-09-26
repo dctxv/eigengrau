@@ -69,14 +69,15 @@ export function ProjectsPanel() {
       router.push(`/projects/${p.slug}`);
     };
 
+    // The wheel in px whatever its mode: lines at 16px, pages at the stage's height.
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const k = e.deltaMode === 1 ? 16 : 1;
-      scene.wheel(e.deltaX * k, e.deltaY * k);
+      const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? stageEl.clientHeight || window.innerHeight : 1;
+      scene.wheel(e.deltaX * k, e.deltaY * k, e.clientX, e.clientY);
     };
     const onDown = (e: PointerEvent) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      scene.press(e.clientX, e.clientY);
+      scene.press(e.clientX, e.clientY, e.pointerType === "touch");
       stageEl.setPointerCapture?.(e.pointerId);
     };
     const onMove = (e: PointerEvent) => {
@@ -128,10 +129,12 @@ export function ProjectsPanel() {
       if (el.matches('.tabs a[aria-current="page"]')) return true;
       return !(el.closest("a[href], button") && el === keyFocus);
     };
+    const arrow = (key: string): 1 | -1 | 0 => (key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0);
     const onKey = (e: KeyboardEvent) => {
       if (!isCurrent() || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "ArrowRight" || e.key === "ArrowDown") scene.step(1);
-      else if (e.key === "ArrowLeft" || e.key === "ArrowUp") scene.step(-1);
+      const dir = arrow(e.key);
+      // A held arrow's repeats are the scene's to judge: on the ball it winds rather than steps on.
+      if (dir) scene.step(dir, e.repeat);
       else if (e.key === "Enter") {
         if (!ballTakesEnter()) return;
         const p = scene.focused;
@@ -142,6 +145,12 @@ export function ProjectsPanel() {
         else scene.openSlug(p.slug);
       } else if (e.key === "Escape") scene.escape();
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      const dir = arrow(e.key);
+      if (dir) scene.keyUp(dir);
+    };
+    // A window that loses the keys never hears them let go.
+    const onBlur = () => scene.keyUp();
     const onHash = () => {
       if (window.location.pathname !== ROUTE) return;
       const slug = hashSlug();
@@ -165,6 +174,8 @@ export function ProjectsPanel() {
     stageEl.addEventListener("pointercancel", onCancel);
     stageEl.addEventListener("pointerleave", onLeave);
     window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
     window.addEventListener("hashchange", onHash);
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVis);
@@ -178,6 +189,8 @@ export function ProjectsPanel() {
       stageEl.removeEventListener("pointercancel", onCancel);
       stageEl.removeEventListener("pointerleave", onLeave);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVis);
