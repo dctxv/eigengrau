@@ -42,7 +42,7 @@ export function stepFor(width: number, height: number, ratio: number) {
 /**
  * Urchi's room, tab 1: Urchi alone at the centre of a dark, flat room. The
  * camera is orthographic in CSS pixels (origin at the centre, y up), so
- * Urchi's art pixels land on whole screen pixels. The intro's ring and
+ * Urchi sits on whole screen pixels at a steady size. The intro's ring and
  * anything else that lives in the room add their objects to `scene` and step
  * them with onFrame.
  */
@@ -95,6 +95,7 @@ export class RoomScene {
     this.step = stepFor(w, h, this.ratio);
     this.pixel = pixelAt(this.step, this.ratio);
     this.urchi.width = this.pixel * BOX_ART;
+    this.urchi.pixelRatio = this.ratio;
   }
 
   /** CSS px per art pixel at another step on this screen (the game's stack steps down). */

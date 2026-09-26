@@ -3,7 +3,7 @@ import gsap from "gsap";
 import type { Text, TextRenderInfo } from "troika-three-text";
 import { makeRenderer } from "@/engine/common/loader";
 import { Urchi } from "@/engine/urchi/Urchi";
-import { URCHI_BOX, URCHI_FRAME, URCHI_HEAD } from "@/engine/urchi/character";
+import { URCHI_BOX, URCHI_HEAD } from "@/engine/urchi/character";
 import { FONT, makeText, syncText } from "@/engine/common/text";
 
 export type AboutOptions = {
@@ -57,20 +57,14 @@ export class AboutScene {
   private lines: Text[] = [];
   private current: Text | null = null;
   /**
-   * Urchi as the superscript mark after "things.": a coarse cell, so each of its pixels is one
-   * screen pixel and its rim stays one crisp pixel. It looks at the pointer from where it sits
-   * (see look) and blinks on its own.
+   * Urchi as the superscript mark after "things.", painted smooth at the screen's own resolution.
+   * It looks at the pointer from where it sits (see look) and blinks on its own.
    */
   mark: Urchi | null = null;
-  /** The mark's box width in canvas pixels, which fixes its cell; a new size builds a new Urchi. */
-  private markTexels = 0;
-  /** CSS px per canvas pixel: one, or whatever whole number of device pixels is nearest to one. */
-  private texel = 1;
   private markIn: gsap.core.Tween | null = null;
   /**
-   * How far the mark has arrived, kept by the scene rather than the Urchi: a resize across a size
-   * step builds a new one, which takes over at the same moment (still unseen, eyes still shut).
-   * `eyesAt` is when its eyes began to open (performance.now), -1 while they are shut.
+   * How far the mark has arrived, kept by the scene rather than the Urchi, which it reads each
+   * frame. `eyesAt` is when its eyes began to open (performance.now), -1 while they are shut.
    */
   private arrival = { fade: 0, eyesAt: -1 };
   /** The pointer in client px while the mark is looking at it, so a new or moved mark can look again. */
@@ -187,8 +181,8 @@ export class AboutScene {
   }
 
   /**
-   * The mark sits after the line's last glyph at superscript height, its canvas laid on whole
-   * device pixels so none of its pixels is split.
+   * The mark sits after the line's last glyph at superscript height: its head's box starts a
+   * small gap after the ink, and its chin sits `rise` ems above the baseline.
    */
   private placeMark() {
     const spec = this.opts.mark;
@@ -196,37 +190,28 @@ export class AboutScene {
     const info = line?.textRenderInfo as Metrics | null | undefined;
     if (!spec || !line || !info) return;
     const size = this.fontSize;
-    const pr = this.renderer.getPixelRatio();
-    this.texel = Math.max(1, Math.round(pr)) / pr;
-    const texels = Math.round(markBox(size) / this.texel);
-    if (!this.mark || texels !== this.markTexels) this.buildMark(texels);
+    if (!this.mark) this.buildMark();
     const m = this.mark!;
-    const cell = URCHI_BOX.w / texels;
+    m.width = markBox(size);
+    m.pixelRatio = this.renderer.getPixelRatio();
+    const unit = m.width / URCHI_BOX.w;
     // The ink's right edge and the baseline, in screen px (y down).
     const right = this.width / 2 + (info.visibleBounds ?? info.blockBounds)[2];
     const baseline = this.lineY(spec.line) - (info.topBaseline ?? -size * 0.2);
-    // Where the head's box and its chin fall in the canvas, in canvas pixels.
-    const headLeft = (URCHI_BOX.x - URCHI_FRAME.x) / cell;
-    const chin = (URCHI_HEAD.bottom - URCHI_FRAME.y) / cell;
-    const snap = (v: number) => Math.round(v * pr) / pr;
-    const left = snap(right + Math.max(5, size * MARK.gap) - headLeft * this.texel);
-    const top = snap(baseline - size * MARK.rise - chin * this.texel);
-    const c = m.character.canvas;
-    const w = c.width * this.texel, h = c.height * this.texel;
-    const g = m.mesh.geometry;
-    if (!g.boundingBox) g.computeBoundingBox();
-    m.mesh.position.set(left + w / 2, -top - g.boundingBox!.max.y * h, 3);
+    // The host puts the head's centre (mesh 0, 0) at the mesh's position.
+    const x = right + Math.max(5, size * MARK.gap) - URCHI_BOX.x * unit;
+    const y = baseline - size * MARK.rise - URCHI_HEAD.bottom * unit;
+    m.mesh.position.set(x, -y, 3);
     this.look();
   }
 
   /**
-   * A new mark for a new size. A resize across a step builds one mid-arrival as readily as later,
-   * so it takes up the arrival where it stands: the fade comes from the scene each frame, and the
-   * eyes stay shut until their moment, or finish opening in the time that was left.
+   * The mark, built once. It takes up the arrival where it stands: the fade comes from the scene
+   * each frame, and the eyes stay shut until their moment, or finish opening in the time that was left.
    */
-  private buildMark(texels: number) {
+  private buildMark() {
     const old = this.mark;
-    const next = new Urchi({ reducedMotion: this.opts.reducedMotion, cell: URCHI_BOX.w / texels });
+    const next = new Urchi({ reducedMotion: this.opts.reducedMotion });
     next.appear = 1;
     next.mesh.renderOrder = 5;
     next.uniforms.uFade.value = this.arrival.fade;
@@ -241,7 +226,6 @@ export class AboutScene {
     }
     this.scene.add(next.mesh);
     this.mark = next;
-    this.markTexels = texels;
   }
 
   /**
@@ -295,9 +279,6 @@ export class AboutScene {
     if (m && this.revealed) {
       m.update(dt);
       m.uniforms.uFade.value = this.arrival.fade;
-      // The host sizes its plane to the frame, which a coarse canvas overshoots by a fraction of a
-      // pixel; one canvas pixel per texel exactly keeps every pixel, and the rim, the same size.
-      m.mesh.scale.set(m.character.canvas.width * this.texel, m.character.canvas.height * this.texel, 1);
     }
     this.renderer.render(this.scene, this.camera);
   }

@@ -18,12 +18,19 @@ import MESH_DATA from "./mesh.json";
  * exactly as the standalone page (About and the favicon rely on that). The
  * query-string knobs still work on any page.
  *
+ * `smooth` paints the same head without the pixels, for the site's Space and
+ * About: the canvas follows the size it is shown at (setResolution), edges keep
+ * their anti-aliasing, and the white rim is the silhouette's outline, as wide
+ * as one art pixel was, instead of the ring of pixels around it.
+ *
  * The mesh is baked into urchi/index.html by urchi/tools/build-mascot.mjs;
  * `npm run urchi:sync` copies it to mesh.json beside this file.
  */
 
 type Vec2 = [number, number];
 type Vec3 = [number, number, number];
+/** A 2D canvas transform, as setTransform takes it. */
+type CanvasTransform6 = [number, number, number, number, number, number];
 type EyeSpec = { c: Vec3; dzdx: number; dzdy: number; n: Vec3 };
 type Mesh = {
   v: Vec3[];
@@ -213,6 +220,11 @@ export type UrchiOptions = {
   cell?: number;
   /** false: no window listeners, so the gaze never follows the pointer (the favicon). Default true. */
   input?: boolean;
+  /**
+   * Paint without pixels: anti-aliased edges and a drawn rim, at a resolution the host sets with
+   * setResolution (the box's width in canvas pixels). `cell` then only sets the starting size.
+   */
+  smooth?: boolean;
 };
 
 export type UrchiCharacter = {
@@ -253,6 +265,12 @@ export type UrchiCharacter = {
   setReveal(r: number): void;
   /** Whether canvas coordinates (u, v in 0..1, v up) fall on the head or its rim. */
   alphaAt(u: number, v: number): boolean;
+  /**
+   * The canvas's resolution: the mascot's box (URCHI_BOX, 1080 units) this many canvas pixels
+   * across. A new size resizes the canvas (hosts showing it as a texture make a new one), and the
+   * next update paints it. A smooth Urchi's host keeps this at the size it is shown, in device pixels.
+   */
+  setResolution(boxPx: number): void;
 
   // ---- attention hooks (Space's attention system drives these; all inert until called)
   /**
@@ -350,15 +368,23 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   const EYES = MESH.eyes || [];
   // canvas in the SVG's coordinates, one pixel per CELL units; it covers x -701.25..701.25 and
   // y -674..556, wider and taller than the SVG's viewBox so a tilted head never gets cut off
-  const CELL = o.cell && o.cell > 0 ? o.cell : 7.5, VBX = URCHI_FRAME.x, VBY = URCHI_FRAME.y, VBW = URCHI_FRAME.w, VBH = URCHI_FRAME.h;
+  const VBX = URCHI_FRAME.x, VBY = URCHI_FRAME.y, VBW = URCHI_FRAME.w, VBH = URCHI_FRAME.h;
+  let CELL = o.cell && o.cell > 0 ? o.cell : 7.5;
+  const SMOOTH = !!o.smooth;
   const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+  // The pixel pass reads the frame back every time; a smooth frame is never read, so it can stay on the GPU.
+  const ctx = (SMOOTH ? canvas.getContext("2d") : canvas.getContext("2d", { willReadFrequently: true }))!;
   canvas.width = Math.ceil(VBW / CELL); canvas.height = Math.ceil(VBH / CELL);
   const COLOR = { base: "#040404" };
   const BASE = 1.5;   // dark base grown beyond the silhouette (units), so joins between planes show dark
-  const rimMask = new Uint8Array(canvas.width * canvas.height);
+  let rimMask = new Uint8Array(canvas.width * canvas.height);
   /** The last frame's pixels, for alphaAt. */
   let lastPx: Uint8ClampedArray | null = null;
+  /** A smooth frame's silhouette and its canvas transform, for alphaAt. */
+  let lastHead: Path2D | null = null;
+  let lastToCanvas: CanvasTransform6 | null = null;
+  /** A smooth rim's width in mesh units: one art pixel (7.5), and never under a canvas pixel and a quarter. */
+  const rimWidth = () => Math.max(7.5, 1.25 * CELL);
 
   // ------------------------------------------------------------------ look
   // the cursor at a screen edge turns the head about 41 degrees (up/down 17.5 / 15)
@@ -656,7 +682,7 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   let revealDist: Float32Array | null = null;
   const eyeAt = new Float64Array(EYES.length * 2);   // the eye centres this frame, in canvas pixels
   /** The eyes' reach, in canvas pixels: the head's sweep starts at their edge rather than their centre. */
-  const EYE_REACH = URCHI_EYES.reach / CELL;
+  const eyeReach = () => URCHI_EYES.reach / CELL;
   function maskContext() {
     if (!revealMask) {
       const c = document.createElement("canvas");
@@ -668,7 +694,7 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
   }
   /** The reveal's pixel pass over the snapped, rimmed frame: what the sweep has not reached goes transparent. */
   function hideUnrevealed(px: Uint8ClampedArray, eyes: Uint8ClampedArray, W: number, H: number) {
-    const dist = revealDist!;
+    const dist = revealDist!, EYE_REACH = eyeReach();
     let farHead = EYE_REACH, nearRim = Infinity, farRim = 0;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x;
@@ -773,7 +799,11 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
     // 4. paint: dark base (silhouette grown by BASE, so joins between planes show dark), the
     //    planes and eyes far-to-near, then snap the edge to whole pixels and add the rim.
     //    During a reveal the eyes also go into a mask, and planes nearer than an eye cut it.
-    const toCanvas = [1 / CELL, 0, 0, 1 / CELL, (shift - VBX) / CELL, (rise - VBY) / CELL] as const;
+    const toCanvas: CanvasTransform6 = [1 / CELL, 0, 0, 1 / CELL, (shift - VBX) / CELL, (rise - VBY) / CELL];
+    if (SMOOTH) {
+      paintSmooth(head, items, toCanvas, reveal < 1 ? EYES.map((e) => project(e.c)) : null);
+      return;
+    }
     const mask = reveal < 1 ? maskContext() : null;
     if (mask) {
       mask.setTransform(1, 0, 0, 1, 0, 0);
@@ -821,6 +851,63 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
     if (mask) hideUnrevealed(px, mask.getImageData(0, 0, W, H).data, W, H);
     ctx.putImageData(img, 0, 0);
     lastPx = px;
+  }
+
+  /**
+   * The smooth paint: the rim first, as the silhouette's outline (its inner half is covered by
+   * what follows), then the dark base, the planes and the eyes far to near, all anti-aliased.
+   * During a reveal, circles about the eye centres (in mesh units) grow over the head and then
+   * over the rim, in the pixel pass's order, and the eyes show on their own over whatever is there.
+   */
+  function paintSmooth(head: Path2D, items: Item[], toCanvas: CanvasTransform6, eyeC: Vec3[] | null) {
+    const RIM = rimWidth();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(...toCanvas);
+    ctx.lineJoin = "round";
+    let headR = Infinity, rimR = Infinity;
+    if (eyeC) {
+      let far = URCHI_EYES.reach;
+      for (let i = 0; i < V.length; i++) {
+        let d = Infinity;
+        for (const c of eyeC) d = Math.min(d, Math.hypot(proj[i * 3] - c[0], proj[i * 3 + 1] - c[1]));
+        far = Math.max(far, d);
+      }
+      far += BASE;
+      const u = reveal / REVEAL.head, v = (reveal - REVEAL.head) / (1 - REVEAL.head), near = far * 0.55;
+      headR = reveal <= 0 ? -1 : URCHI_EYES.reach + Math.min(1, u) * (far - URCHI_EYES.reach);
+      rimR = v <= 0 ? -1 : near + Math.min(1, v) * (far + RIM - near);
+    }
+    const circles = (r: number) => {
+      const p = new Path2D();
+      eyeC!.forEach(([x, y]) => { p.moveTo(x + r, y); p.arc(x, y, r, 0, Math.PI * 2); });
+      return p;
+    };
+    if (rimR > 0) {
+      ctx.save();
+      if (eyeC) ctx.clip(circles(rimR));
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * (RIM + BASE); ctx.stroke(head);
+      ctx.restore();
+    }
+    if (headR > 0) {
+      ctx.save();
+      if (eyeC) ctx.clip(circles(headR));
+      ctx.fillStyle = ctx.strokeStyle = COLOR.base; ctx.lineWidth = 2 * BASE; ctx.fill(head); ctx.stroke(head);
+      ctx.lineWidth = CELL;   // one canvas pixel in the plane's own colour closes the gaps to its neighbours
+      for (const it of items) {
+        if (it.plane) { ctx.fillStyle = ctx.strokeStyle = it.plane.color; ctx.fill(it.plane.path); ctx.stroke(it.plane.path); }
+        else if (!eyeC) paintEye(it.eye!, head);
+      }
+      ctx.restore();
+    }
+    if (eyeC) for (const it of items) if (it.eye) paintEye(it.eye, head);
+    lastHead = head; lastToCanvas = toCanvas;
+  }
+  function paintEye(eye: NonNullable<Item["eye"]>, head: Path2D) {
+    ctx.save(); ctx.clip(head);                                       // a turned-away eye never sticks out past the head
+    ctx.fillStyle = EYE_COLOUR.iris; ctx.fill(eye.white);
+    if (eye.pupil) { ctx.clip(eye.white); ctx.fillStyle = eye.left ? EYE_COLOUR.pupilLeft : EYE_COLOUR.pupilRight; ctx.fill(eye.pupil); }   // the lid covers the pupil
+    ctx.restore();
   }
 
   // ------------------------------------------------------------------ frame
@@ -934,7 +1021,25 @@ export function createUrchi(o: UrchiOptions = {}): UrchiCharacter {
     setReveal(r) {
       reveal = clamp(r, 0, 1);
     },
+    setResolution(boxPx) {
+      const next = URCHI_BOX.w / Math.max(8, boxPx);
+      if (Math.abs(next - CELL) < 1e-9) return;
+      CELL = next;
+      canvas.width = Math.ceil(VBW / CELL); canvas.height = Math.ceil(VBH / CELL);
+      rimMask = new Uint8Array(canvas.width * canvas.height);
+      revealMask = null; revealDist = null; lastPx = null; lastHead = null;
+    },
     alphaAt(u, v) {
+      if (SMOOTH) {
+        if (!lastHead || !lastToCanvas) return false;
+        const x = u * canvas.width, y = (1 - v) * canvas.height;
+        ctx.save();
+        ctx.setTransform(...lastToCanvas);
+        ctx.lineJoin = "round"; ctx.lineWidth = 2 * (rimWidth() + BASE);
+        const on = ctx.isPointInPath(lastHead, x, y) || ctx.isPointInStroke(lastHead, x, y);
+        ctx.restore();
+        return on;
+      }
       if (!lastPx) return false;
       const x = Math.floor(u * canvas.width), y = Math.floor((1 - v) * canvas.height);
       if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return false;
