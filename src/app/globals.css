@@ -858,6 +858,66 @@ button {
 /* ------------------------------------------------------------------ */
 .stage-music {
   cursor: auto;
+  --sx: 50%;
+  --sy: 40%;
+  --reach: 1px;
+  --live-reach: 1px;
+  --tone: 22 22 29;
+  --tone-a: 0;
+  --live: 22 22 29;
+  --live-a: 0;
+}
+/*
+ * The room takes the record's colour: light from the sleeve, not paint. Two
+ * spills share the sleeve's centre: his song's (--live, out to --live-reach)
+ * and, riding over it, a preview's (--tone, out to --reach). Each falls off
+ * as (1 - r²)², soft as light. Eigengrau comes back over the top 96px and the
+ * bottom 72px, so the tab bar's glass and the bottom rim take a tenth of the
+ * bend at most. A 1% grain keeps a gradient this faint from banding. It is the
+ * stage's own background, so it slides away with the panel and every other
+ * tab arrives in plain eigengrau. MusicPanel writes the variables while the
+ * colour moves and sets data-lit while there is any.
+ */
+.stage-music[data-lit] {
+  background:
+    linear-gradient(var(--bg), color-mix(in srgb, var(--bg) 90%, transparent) 48px, color-mix(in srgb, var(--bg) 50%, transparent) 72px, transparent 96px) top / 100% 96px no-repeat,
+    linear-gradient(to top, var(--bg), color-mix(in srgb, var(--bg) 90%, transparent) 50px, transparent 72px) bottom / 100% 72px no-repeat,
+    var(--dither, none),
+    radial-gradient(
+        circle var(--reach) at var(--sx) var(--sy),
+        rgb(var(--tone) / var(--tone-a)),
+        rgb(var(--tone) / calc(var(--tone-a) * 0.922)) 20%,
+        rgb(var(--tone) / calc(var(--tone-a) * 0.828)) 30%,
+        rgb(var(--tone) / calc(var(--tone-a) * 0.706)) 40%,
+        rgb(var(--tone) / calc(var(--tone-a) * 0.563)) 50%,
+        rgb(var(--tone) / calc(var(--tone-a) * 0.41)) 60%,
+        rgb(var(--tone) / calc(var(--tone-a) * 0.26)) 70%,
+        rgb(var(--tone) / calc(var(--tone-a) * 0.13)) 80%,
+        rgb(var(--tone) / calc(var(--tone-a) * 0.036)) 90%,
+        rgb(var(--tone) / 0)
+      )
+      no-repeat,
+    radial-gradient(
+        circle var(--live-reach) at var(--sx) var(--sy),
+        rgb(var(--live) / var(--live-a)),
+        rgb(var(--live) / calc(var(--live-a) * 0.922)) 20%,
+        rgb(var(--live) / calc(var(--live-a) * 0.828)) 30%,
+        rgb(var(--live) / calc(var(--live-a) * 0.706)) 40%,
+        rgb(var(--live) / calc(var(--live-a) * 0.563)) 50%,
+        rgb(var(--live) / calc(var(--live-a) * 0.41)) 60%,
+        rgb(var(--live) / calc(var(--live-a) * 0.26)) 70%,
+        rgb(var(--live) / calc(var(--live-a) * 0.13)) 80%,
+        rgb(var(--live) / calc(var(--live-a) * 0.036)) 90%,
+        rgb(var(--live) / 0)
+      )
+      no-repeat,
+    var(--bg);
+}
+/* Asked for more contrast: the room stays eigengrau. */
+@media (prefers-contrast: more) {
+  .stage-music[data-lit] {
+    background: var(--bg);
+  }
 }
 .music-scroll {
   position: relative;
