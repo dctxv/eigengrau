@@ -75,8 +75,8 @@ const unset = (els: HTMLElement[]) => {
   if (touched.length) gsap.set(touched, { clearProps: "transform,opacity" });
 };
 
-/** Seen on screen now, not only near it. */
-const inView = (r: DOMRect) => r.bottom > 0 && r.top < window.innerHeight;
+/** Seen on screen, not only near it: now, or `lift` pixels further down once the column has scrolled up that far. */
+const inView = (r: DOMRect, lift = 0) => r.bottom + lift > 0 && r.top + lift < window.innerHeight;
 
 /** A riffle's ticks in order, without any that would land on top of the one before and sound as one louder tick. */
 function ticksOf(times: number[]): number[] {
@@ -174,10 +174,12 @@ class Folds {
   /**
    * Every note and group to its new state: moved, or with `animate` false set there at once. With
    * `listen`, it returns the riffle: when, in seconds from now, each note in view that folds or
-   * unfolds starts to move, for a tick each. Folds run top down RIFFLE apart; unfolds keep the
-   * STAGGER they have always risen on.
+   * unfolds starts to move, for a tick each. Folds run top down RIFFLE apart; unfolds run the other
+   * way, bottom up, on the STAGGER they have always risen on. `lift` is how far the column is
+   * gliding up as this happens (a find from far down scrolls to the top): the riffle belongs to the
+   * notes the reader lands on, so "in view" is judged there, and "near" in both places.
    */
-  apply(folded: ReadonlySet<string>, open: ReadonlySet<string>, animate: boolean, listen: boolean): number[] {
+  apply(folded: ReadonlySet<string>, open: ReadonlySet<string>, animate: boolean, listen: boolean, lift = 0): number[] {
     const before = this.open;
     const was = this.shape;
     this.shape = this.shapes(folded);
@@ -227,8 +229,9 @@ class Folds {
       foldIn.forEach((seen) => {
         if (seen && n < RIFFLE_MAX) ticks.push(n++ * RIFFLE);
       });
+      // Unfolds the other way, bottom up.
       let k = 0;
-      unfoldIn.forEach((seen) => {
+      unfoldIn.reverse().forEach((seen) => {
         if (seen) ticks.push(Math.min(k++, ENTER_COUNT) * STAGGER);
       });
       return ticksOf(ticks);
@@ -241,7 +244,8 @@ class Folds {
     // after, so the page lays out twice however much moves, not once for each note and month. What
     // is well off screen is set rather than moved: nobody sees it, and at a few hundred notes one
     // letter typed can open a dozen months.
-    const near = (r: DOMRect) => r.bottom > -NEAR && r.top < window.innerHeight + NEAR;
+    const nearBy = (r: DOMRect, dy: number) => r.bottom + dy > -NEAR && r.top + dy < window.innerHeight + NEAR;
+    const near = (r: DOMRect) => nearBy(r, 0) || (lift > 0 && nearBy(r, lift));
     // Read: where everything is and how tall.
     const foldRect = folding.map(box);
     const unfoldRect = unfolding.map(box);
@@ -250,25 +254,30 @@ class Folds {
     const closeSeen = closing.map((g, i) => near(rect(g.line)) || near(closeRect[i]));
     const foldSeen = foldRect.map(near);
     const unfoldSeen = unfoldRect.map(near);
-    // When each starts. Folds riffle down what can be seen, and those just off screen go with their
-    // neighbours; unfolds rise one after another, as they always have. A tick for each in view.
+    // When each starts, and a tick for each in view. Folds riffle down what can be seen; unfolds
+    // riffle back up it, STAGGER apart from the lowest and capped as they always were. Either way,
+    // those just off screen go with their neighbours.
     const ticks: number[] = [];
     let n = 0;
     const foldAt = foldRect.map((r) => {
       const at = Math.min(n, RIFFLE_MAX - 1) * RIFFLE;
-      if (inView(r)) {
+      if (inView(r, lift)) {
         if (n < RIFFLE_MAX) ticks.push(at + CLOSE_AT);
         n++;
       }
       return at;
     });
+    const unfoldAt = unfoldRect.map(() => 0);
     let k = 0;
-    const unfoldAt = unfoldRect.map((r, i) => {
-      if (!unfoldSeen[i]) return 0;
-      const at = Math.min(k++, ENTER_COUNT) * STAGGER;
-      if (inView(r)) ticks.push(at + RISE_AT);
-      return at;
-    });
+    for (let i = unfolding.length - 1; i >= 0; i--) {
+      if (!unfoldSeen[i]) continue;
+      const at = Math.min(k, ENTER_COUNT) * STAGGER;
+      if (inView(unfoldRect[i], lift)) {
+        ticks.push(at + RISE_AT);
+        k++;
+      }
+      unfoldAt[i] = at;
+    }
     // Write: set what is out of sight, and let out what opens so it can be measured.
     folding.forEach((id, i) => {
       if (!foldSeen[i]) this.put(id);
@@ -350,7 +359,8 @@ class Folds {
     gsap.to(spans, { yPercent: 100, opacity: 0, duration: 0.28, ease: "power2.in", stagger: 0.015, delay });
     gsap.fromTo(it.rule, { scaleX: 0, opacity: 1 }, { scaleX: 1, duration: 0.36, ease: EASE.tab, delay: delay + RULE_AT });
     gsap.to(it.el, {
-      height: s.thin ? THIN_ROW : ROW,
+      // Read when it starts, not now: another key can change the run while it waits its turn.
+      height: () => (this.shape.get(id)!.thin ? THIN_ROW : ROW),
       marginTop: s.margin,
       duration: FOLD,
       ease: EASE.inout,
@@ -383,7 +393,8 @@ class Folds {
     const spans = spansOf(it.full);
     it.el.style.height = `${from}px`;
     if (atRest) gsap.set(spans, { yPercent: 100, opacity: 0 });
-    gsap.to(it.rule, { opacity: 0, duration: 0.15 });
+    // Its rule stays until its turn, so a run riffles open one card at a time instead of blanking first.
+    gsap.to(it.rule, { opacity: 0, duration: 0.15, delay });
     gsap.to(it.el, {
       height: to,
       marginTop: s.margin,
@@ -399,12 +410,18 @@ class Folds {
     gsap.to(spans, { yPercent: 0, opacity: 1, duration: DUR.reveal, ease: EASE.reveal, delay: delay + RISE_AT, stagger: 0.04 });
   }
 
-  /** Still folded (or still open), only its place in a run changed. */
+  /**
+   * Still folded (or still open), only its place in a run changed. A fold still waiting for its turn
+   * in a riffle would set the margin it was given when it was queued, over this one, and split the
+   * run; overwrite "auto" reaches only tweens already running. So the margin comes out of every
+   * tween on the note, started or not, and a waiting fold still closes the row.
+   */
   private reshape(id: string) {
     const it = this.items.get(id)!;
     const s = this.shape.get(id)!;
     it.el.toggleAttribute("data-thin", s.thin);
-    gsap.to(it.el, { marginTop: s.margin, duration: FOLD, ease: EASE.inout, overwrite: "auto" });
+    gsap.killTweensOf(it.el, "marginTop");
+    gsap.to(it.el, { marginTop: s.margin, duration: FOLD, ease: EASE.inout });
   }
 
   /** The line stays as the header; its notes, or its months, rise under it one after another. Synced and measured already. */
@@ -674,8 +691,10 @@ export function NotesPanel() {
   const focusNext = useRef<(() => HTMLElement | null | undefined) | null>(null);
   /** The riffle playing, as its cancel: ticks still queued never sound. */
   const riffle = useRef<(() => void) | null>(null);
-  /** Whether a filter was on when the column last changed, so turning it off can close. */
+  /** Whether the filter had folded anything when the column last changed, so turning it off can close. */
   const filtering = useRef(false);
+  /** While true, the column is gliding up to the top (a find begun from far down it). */
+  const gliding = useRef(false);
 
   const [today] = useState(() => localDay(Date.now()));
   const [settled] = useState(() => settle(new Date()));
@@ -752,17 +771,19 @@ export function NotesPanel() {
   }, []);
 
   useLayoutEffect(() => {
-    // `folded` is EMPTY exactly when no tag is on and nothing is being found.
-    const on = folded !== EMPTY;
-    const cleared = filtering.current && !on;
-    filtering.current = on;
+    // `folded` is EMPTY exactly when no tag is on and nothing is being found. Turning that off
+    // closes only if the filter had folded something: a find that matched every note moved nothing.
+    const cleared = folded === EMPTY && filtering.current;
+    filtering.current = folded.size > 0;
     // A hash or the browser's find sets things quietly; anything else is someone filtering.
     const quiet = instant.current;
     instant.current = false;
     const f = folds.current;
     if (!f) return;
+    // While the column glides to the top, the riffle is for the notes it will land on.
+    const lift = gliding.current ? (scroll.current?.scrollTop ?? 0) : 0;
     // Clearing unfolds the lot, which would be a clatter, so it is the one soft close instead.
-    const ticks = f.apply(folded, shown, !quiet && !prefersReducedMotion(), !quiet && !cleared && sfx.enabled);
+    const ticks = f.apply(folded, shown, !quiet && !prefersReducedMotion(), !quiet && !cleared && sfx.enabled, lift);
     if (quiet || (!cleared && !ticks.length)) return;
     riffle.current?.();
     riffle.current = null;
@@ -803,7 +824,14 @@ export function NotesPanel() {
     const s = scroll.current;
     if (!s || s.scrollTop < 1) return;
     if (prefersReducedMotion()) s.scrollTop = 0;
-    else gsap.to(s, { scrollTop: 0, duration: 0.7, ease: EASE.inout, overwrite: true });
+    else {
+      const landed = () => {
+        gliding.current = false;
+      };
+      gsap.to(s, { scrollTop: 0, duration: 0.7, ease: EASE.inout, overwrite: true, onComplete: landed, onInterrupt: landed });
+      // After, not before: the glide this one overwrites is interrupted as it is made, and says it has landed.
+      gliding.current = true;
+    }
   };
 
   /** Stops the riffle where it is: a new filter, or a key typed, starts its own. */
