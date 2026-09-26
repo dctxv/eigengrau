@@ -31,15 +31,18 @@ void main() {
 /**
  * A smooth canvas is resized in steps of this many pixels, so a zoom does not rebuild it every
  * frame, and never paints the box more than RES_MAX across: past that a large retina screen would
- * upload several times the texture for a sharpness nobody sees at that size.
+ * upload several times the texture for a sharpness nobody sees at that size. The suited figure's
+ * taller frame keeps the same budget: its canvas's longer side is held to what the head's is.
  */
 const RES_STEP = 16;
 const RES_MAX = 1400;
+const SIDE_MAX = Math.max(URCHI_FRAME.w, URCHI_FRAME.h);
 /** One art pixel in mesh units: the width a rim is when nobody holds it (see UrchiHostOptions.rim). */
 const ART_PIXEL = 7.5;
 
-/** Where the head's centre (mesh y 0) sits in the canvas's frame, as a fraction of its height from the middle. */
-const CENTRE_UP = -(URCHI_FRAME.y + URCHI_FRAME.h / 2) / URCHI_FRAME.h;
+type Frame = UrchiCharacter["frame"];
+/** Where the head's centre (mesh y 0) sits in a canvas frame, as a fraction of its height from the middle. */
+const centreUp = (f: Frame) => -(f.y + f.h / 2) / f.h;
 
 export type UrchiHostOptions = {
   /** Write depth, for a perspective scene whose other objects pass in front of and behind it. */
@@ -88,6 +91,10 @@ export class Urchi {
   private readonly rim: readonly [number, number] | null;
   /** The box's width in canvas pixels, as last set (smooth only). */
   private resolution = 0;
+  /** The canvas's frame the plane is laid out for (the suit's is taller). */
+  private frame: Frame = URCHI_FRAME;
+  /** The canvas's size the texture was made for. */
+  private texSize = [0, 0];
 
   constructor(o: UrchiHostOptions = {}) {
     this.smooth = o.smooth !== false;
@@ -105,12 +112,13 @@ export class Urchi {
       depthTest: !!o.depth,
     });
     // The plane covers the canvas's frame; its origin is the head's centre, where hosts put it.
-    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).translate(0, CENTRE_UP, 0), material);
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).translate(0, centreUp(this.frame), 0), material);
     this.mesh.scale.set(1e-4, 1e-4, 1);
   }
 
   /** A texture over the character's canvas: raw colour, as every texture on the site; smooth or hard pixels when scaled. */
   private makeTexture() {
+    this.texSize = [this.character.canvas.width, this.character.canvas.height];
     const tex = new THREE.CanvasTexture(this.character.canvas);
     tex.colorSpace = THREE.NoColorSpace;
     tex.magFilter = this.smooth ? THREE.LinearFilter : THREE.NearestFilter;
@@ -122,14 +130,37 @@ export class Urchi {
 
   /** A smooth canvas follows the size it is shown at: a new size resizes it, and the texture is rebuilt to match. */
   private fitResolution() {
-    const px = Math.min(RES_MAX, Math.max(RES_STEP, Math.ceil((this.width * this.zoom * this.pixelRatio) / RES_STEP) * RES_STEP));
+    const f = this.character.frame, cap = (RES_MAX * SIDE_MAX) / Math.max(f.w, f.h);
+    const px = Math.min(cap, Math.max(RES_STEP, Math.ceil((this.width * this.zoom * this.pixelRatio) / RES_STEP) * RES_STEP));
     if (px === this.resolution) return;
     this.resolution = px;
     this.character.setResolution(px);
+    this.remakeTexture();
+  }
+
+  private remakeTexture() {
     const old = this.texture;
     this.texture = this.makeTexture();
     if (this.uniforms) this.uniforms.uMap.value = this.texture;
     old.dispose();
+  }
+
+  /** The suit (see UrchiCharacter.setSuit): the plane follows its taller frame, the texture its canvas. */
+  setSuit(amount: number) {
+    this.character.setSuit(amount);
+    this.fitFrame();
+  }
+
+  private fitFrame() {
+    const f = this.character.frame;
+    if (f !== this.frame) {
+      this.frame = f;
+      const old = this.mesh.geometry;
+      this.mesh.geometry = new THREE.PlaneGeometry(1, 1).translate(0, centreUp(f), 0);
+      old.dispose();
+    }
+    const c = this.character.canvas;
+    if (c.width !== this.texSize[0] || c.height !== this.texSize[1]) this.remakeTexture();
   }
 
   /** A held rim follows the head's size as shown: one art pixel, within its bounds. */
@@ -157,9 +188,10 @@ export class Urchi {
       this.fitResolution();
       this.fitRim();
     }
+    this.fitFrame();
     if (this.character.update(dt)) this.texture.needsUpdate = true;
     const s = Math.max(this.appear * this.zoom, 1e-4);
-    this.mesh.scale.set(URCHI_FRAME.w * this.unit * s, URCHI_FRAME.h * this.unit * s, 1);
+    this.mesh.scale.set(this.frame.w * this.unit * s, this.frame.h * this.unit * s, 1);
   }
 
   /** Whether a point in the mesh's parent space falls on the head or its rim. */
@@ -167,7 +199,7 @@ export class Urchi {
     const w = this.mesh.scale.x, h = this.mesh.scale.y;
     if (w < 1e-3 || h < 1e-3) return false;
     const u = (x - this.mesh.position.x) / w + 0.5;
-    const v = (y - this.mesh.position.y) / h - CENTRE_UP + 0.5;
+    const v = (y - this.mesh.position.y) / h - centreUp(this.frame) + 0.5;
     return this.character.alphaAt(u, v);
   }
 
