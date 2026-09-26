@@ -212,6 +212,27 @@ const CLOSE_DUR = 0.9;
 /** A click this soon after opening is the rest of a double click, ms. */
 const DOUBLE_CLICK = 400;
 /**
+ * The horizon is plucked as it comes taut. Its note is how long the project
+ * ran, in whole years, on the bed's F G A C D, a longer run a lower note:
+ * under a year D4, one year C4, two A3, three G3, four or more F3. The data
+ * holds one year a project: living work has run from it to now; closed work
+ * (paused, shipped, dead) ran from its earliest dated piece to that year,
+ * which is one year unless its pieces are dated earlier.
+ */
+const PLUCK_HZ = [293.66, 261.63, 220, 196, 174.61];
+/**
+ * Living work (all but dead, which hangs inward) rings for PLUCK_RING
+ * seconds with a standing wave of PLUCK_WAVE px, its nodes at the mark and
+ * the far end. Its half wave is PLUCK_HALF px at D4, longer as the note
+ * falls, and it sways at the note's frequency over PLUCK_SLOW. Dead work
+ * thuds: one twitch toward its hanging frames, PLUCK_TWITCH seconds long.
+ */
+const PLUCK_RING = 2.4;
+const PLUCK_WAVE = 1;
+const PLUCK_HALF = 180;
+const PLUCK_SLOW = 32;
+const PLUCK_TWITCH = 0.14;
+/**
  * How much later the ends of the stretch leave the ball than its mark: at
  * 2.6 about a third of the stretch is in the air at once, so the peel has a
  * tip that travels, and what is behind it lies straight.
@@ -635,6 +656,8 @@ export class ThreadScene {
   private closing = false;
   /** When the open project began to unspool, ms. */
   private openedAt = -Infinity;
+  /** The opened horizon's pluck: when (on the scene's clock), its note, and whether it only thuds. */
+  private plucked: { at: number; hz: number; dead: boolean } | null = null;
   private scroll = { cur: 0, target: 0, max: 0 };
   private caseHot = false;
   private caseLift = { v: 0 };
@@ -1967,6 +1990,7 @@ export class ThreadScene {
     this.graceUntil = 0;
     this.opened = b;
     this.openedAt = performance.now();
+    this.plucked = null;
     this.scroll.cur = this.scroll.target = 0;
     this.layoutO = null;
     this.layoutOpen(b);
@@ -2005,7 +2029,35 @@ export class ThreadScene {
       tl.to(m, { offset: 0, duration: rm ? 0 : 0.9, ease: "power4.out", onUpdate: () => this.applyMask(m) }, at + (rm ? 0 : k * 0.07));
     });
     tl.call(() => b.pieces.forEach((pc) => pc.index > 0 && this.showMoving(pc, true)), undefined, rm ? 0.3 : OPEN_DUR * (1 - this.unspool.p));
+    // Taut: the horizon is plucked. A deep link arrives open, with nothing pulled straight.
+    if (!o.immediate) tl.call(() => this.pluck(b), undefined, rm ? 0.3 : OPEN_DUR * (1 - this.unspool.p));
     this.openTl = tl;
+  }
+
+  /** How long a project ran, in whole years, from what the data holds (see PLUCK_HZ). */
+  private runOf(p: Project) {
+    const end = p.status === "alive" ? Math.floor(fractionalYear(new Date())) : p.year;
+    const start = Math.min(p.year, ...this.items.filter((it) => it.project === p.slug).map((it) => it.year));
+    return Math.max(0, end - start);
+  }
+
+  /** The horizon comes taut and is plucked: heard with sound on, seen either way, never moved under reduced motion. */
+  private pluck(b: Bead) {
+    if (!b.project || this.opened !== b) return;
+    const hz = PLUCK_HZ[Math.min(PLUCK_HZ.length - 1, this.runOf(b.project))];
+    const dead = b.side < 0;
+    sfx.pluck(hz, dead ? "thud" : "ring");
+    this.plucked = this.opts.reducedMotion ? null : { at: this.clock, hz, dead };
+  }
+
+  /**
+   * How far the plucked horizon stands off its line at `along`, px, this
+   * frame: the standing wave's nodes at the mark and the stretch's far end.
+   */
+  private pluckAt(L: Layout, along: number, amp: number, n: number) {
+    const u = (along - L.mark) / Math.max(1, L.end - L.mark);
+    if (u <= 0 || u >= 1) return 0;
+    return amp * Math.sin(n * Math.PI * u);
   }
 
   /** Esc, or a click on empty space: the line winds back into the ball in 0.9s. */
@@ -2030,6 +2082,7 @@ export class ThreadScene {
         this.opened = null;
         this.layoutO = null;
         this.openTl = null;
+        this.plucked = null;
         this.fadeIn.value = 0;
         this.unspool.p = 0;
         b.pieces.forEach((pc) => this.showMoving(pc, false));
@@ -2256,6 +2309,21 @@ export class ThreadScene {
     const L = this.layoutO;
     const rm = !!this.opts.reducedMotion;
     const P = this.P;
+    // The plucked horizon: how far its antinodes stand off the line this frame, and how many half
+    // waves it holds. It starts from the straight line, so its first frame does not jump.
+    let swing = 0;
+    let halves = 1;
+    const pl = this.plucked;
+    if (pl && open && L && !rm) {
+      const t = this.clock - pl.at;
+      if (pl.dead) {
+        if (t < PLUCK_TWITCH) swing = PLUCK_WAVE * Math.sin((Math.PI * t) / PLUCK_TWITCH);
+      } else if (t < PLUCK_RING) {
+        swing = PLUCK_WAVE * (1 - t / PLUCK_RING) ** 2 * Math.sin(2 * Math.PI * (pl.hz / PLUCK_SLOW) * t);
+        halves = Math.max(1, Math.round((L.end - L.mark) / (PLUCK_HALF * (PLUCK_HZ[0] / pl.hz))));
+      }
+      if (t >= (pl.dead ? PLUCK_TWITCH : PLUCK_RING)) this.plucked = null;
+    }
     for (let i = 0; i < M; i++) {
       this.rotate(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], q);
       this.toScreen(q, radius, s);
@@ -2267,7 +2335,14 @@ export class ThreadScene {
       let lift = 0;
       if (open && L && i >= open.i0 && i <= open.i1) {
         lift = this.liftOf(open, i);
-        this.lineAt(L, this.alongOf(open, L, i), l);
+        const along = this.alongOf(open, L, i);
+        this.lineAt(L, along, l);
+        if (swing) {
+          // Off the line, and for dead work toward where its frames hang: under it, or on a phone to its left.
+          const off = this.pluckAt(L, along, swing, halves);
+          if (L.vertical) l.x -= off;
+          else l.y += off;
+        }
         if (rm) {
           // Reduced motion draws the line on its own; the stretch fades out of the ball.
           ink *= 1 - this.fadeIn.value;

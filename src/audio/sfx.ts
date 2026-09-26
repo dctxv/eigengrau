@@ -375,6 +375,83 @@ async function listen(url: string, signal?: AbortSignal): Promise<Preview | null
   return { duration: buffer.duration, link, heardAt: heardAt(c, t), ended, stop };
 }
 
+// ---------------------------------------------------------------- the horizon's pluck
+
+/**
+ * An opened project's horizon, plucked as it comes taut: a soft string at the
+ * note Projects gives it. Drawn as a stack of decaying partials, each one
+ * weighted as a string plucked about a fifth of the way along and dying
+ * sooner the higher it is, as a real string's do. A rise of a few
+ * milliseconds keeps the first sample off a click, and a cosine fall brings
+ * the last one to silence.
+ * - ring: living work, 2.4s. The fundamental falls 40 dB over that.
+ * - thud: dead work, a muted pluck of a few low partials over a soft knock.
+ */
+export type PluckKind = "ring" | "thud";
+const PLUCK = {
+  ring: { dur: 2.4, partials: 8, tau: 0.52, spread: 0.9, tilt: 1.8, knock: 0, level: 0.2, rise: 0.004, fall: 0.25 },
+  thud: { dur: 0.42, partials: 4, tau: 0.06, spread: 1.6, tilt: 2.6, knock: 2, level: 0.26, rise: 0.003, fall: 0.12 },
+} as const;
+/** Where along the string it is plucked (a share of its length), and how far its upper partials stretch sharp. */
+const PLUCK_AT = 0.22;
+const PLUCK_STIFF = 0.0001;
+const plucks = new Map<string, AudioBuffer>();
+
+/** The pluck's samples at `hz`, built once per note and kind. */
+function pluckBuffer(c: BaseAudioContext, hz: number, kind: PluckKind): AudioBuffer {
+  const key = `${kind}:${hz}:${c.sampleRate}`;
+  const cached = plucks.get(key);
+  if (cached) return cached;
+  const p = PLUCK[kind];
+  const sr = c.sampleRate;
+  const n = Math.ceil(sr * p.dur);
+  const buf = c.createBuffer(1, n, sr);
+  const data = buf.getChannelData(0);
+  for (let k = 1; k <= p.partials; k++) {
+    const f = k * hz * Math.sqrt(1 + PLUCK_STIFF * k * k);
+    if (f > sr * 0.45) break;
+    const a = Math.abs(Math.sin(k * Math.PI * PLUCK_AT)) / k ** p.tilt;
+    // A damped oscillator by recurrence: y[i] = a·r^i·sin(w·i), two multiplies a sample.
+    const w = (2 * Math.PI * f) / sr;
+    const r = Math.exp(-1 / ((p.tau / (1 + p.spread * (k - 1))) * sr));
+    const c1 = 2 * r * Math.cos(w);
+    const c2 = -r * r;
+    let y2 = 0; // y[0]
+    let y1 = a * r * Math.sin(w); // y[1]
+    data[1] += y1;
+    for (let i = 2; i < n; i++) {
+      const y = c1 * y1 + c2 * y2;
+      data[i] += y;
+      y2 = y1;
+      y1 = y;
+    }
+  }
+  if (p.knock) {
+    // The thud's knock: soft low noise, gone in a few tens of milliseconds.
+    let lp = 0;
+    const g = 1 - Math.exp((-2 * Math.PI * 320) / sr);
+    for (let i = 0; i < n; i++) {
+      lp += (Math.random() * 2 - 1 - lp) * g;
+      data[i] += lp * p.knock * Math.exp(-i / (0.022 * sr));
+    }
+  }
+  const rise = Math.max(1, Math.round(p.rise * sr));
+  const fall = Math.round(p.fall * sr);
+  let peak = 0;
+  for (let i = 0; i < n; i++) {
+    let e = 1;
+    if (i < rise) e = 0.5 - 0.5 * Math.cos((Math.PI * i) / rise);
+    else if (i >= n - fall) e = 0.5 + 0.5 * Math.cos((Math.PI * (i - (n - fall))) / fall);
+    data[i] *= e;
+    peak = Math.max(peak, Math.abs(data[i]));
+  }
+  const scale = peak > 0 ? p.level / peak : 0;
+  for (let i = 0; i < n; i++) data[i] *= scale;
+  data[n - 1] = 0;
+  plucks.set(key, buf);
+  return buf;
+}
+
 // ---------------------------------------------------------------- context
 
 function ensure(): AudioContext | null {
@@ -492,6 +569,17 @@ export const sfx = {
     const g = c.createGain();
     g.gain.value = volume;
     src.connect(g).connect(master);
+    src.start();
+    duck();
+  },
+  /** An opened project's horizon, plucked at `hz`: it rings, or for dead work thuds. Silent with sound off. */
+  pluck(hz: number, kind: PluckKind) {
+    if (!enabled) return;
+    const c = ensure();
+    if (!c || !master) return;
+    const src = c.createBufferSource();
+    src.buffer = pluckBuffer(c, hz, kind);
+    src.connect(master);
     src.start();
     duck();
   },
