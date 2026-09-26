@@ -6,7 +6,7 @@
  * wall, with the bed ducking under it. Off by default, remembered in
  * localStorage; nothing is fetched until sound is turned on.
  */
-type Name = "click" | "tab" | "slide" | "focus" | "close" | "tick" | "done";
+type Name = "click" | "tab" | "slide" | "focus" | "close" | "tick" | "done" | "pat" | "patOwn";
 type Synth = Exclude<Name, "click">;
 
 import { setFlag } from "@/lib/flags";
@@ -34,6 +34,25 @@ let duckTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<(on: boolean) => void>();
 
 /**
+ * Urchi's answer on Space (tapping a rhythm to it): a soft low pat for each
+ * blink, A2 (110 Hz), and D3 (146.83 Hz) for the one beat it adds of its own,
+ * both in the bed's F G A C D. A sine with its octave and a whisper of the
+ * octave above that, so a laptop's speakers still carry it. It rounds in over
+ * 8ms (a pad landing, not a click), starts a quarter-tone sharp and settles as
+ * it lands, and is gone in a third of a second, its last 60ms tapered to nothing.
+ */
+const PAT = { a2: 110, d3: 146.83, dur: 0.34, attack: 0.008, taper: 0.06, level: 0.3 };
+function patWave(t: number, hz: number): number {
+  const rise = t < PAT.attack ? 0.5 - 0.5 * Math.cos((Math.PI * t) / PAT.attack) : 1;
+  const tail = Math.min(1, (PAT.dur - t) / PAT.taper);
+  const end = tail <= 0 ? 0 : 0.5 - 0.5 * Math.cos(Math.PI * tail);
+  // 3% sharp at the touch, settling within about 20ms: the pitch of a pad pressing in
+  const phase = 2 * Math.PI * hz * (t + 0.03 * 0.02 * (1 - Math.exp(-t / 0.02)));
+  const body = Math.sin(phase) * Math.exp(-t / 0.09) + 0.5 * Math.sin(2 * phase) * Math.exp(-t / 0.06) + 0.12 * Math.sin(4 * phase) * Math.exp(-t / 0.035);
+  return body * rise * end * PAT.level;
+}
+
+/**
  * The counter's chime is D then A (587.33 and 880 Hz), both in the ambient
  * bed's F G A C D; the E it used to open on rubbed against the bed's F.
  */
@@ -46,6 +65,8 @@ function synth(c: AudioContext, name: Synth): AudioBuffer {
     close: { dur: 0.09, gen: (t) => Math.sin(t * 2 * Math.PI * 140) * Math.exp(-t * 40) * 0.4 + (Math.random() * 2 - 1) * Math.exp(-t * 260) * 0.2 },
     tick: { dur: 0.012, gen: (t) => Math.sin(t * 2 * Math.PI * 2100) * Math.exp(-t * 500) * 0.35 },
     done: { dur: 0.3, gen: (t) => (Math.sin(t * 2 * Math.PI * 587.33) * Math.exp(-t * 14) + Math.sin(Math.max(0, t - 0.09) * 2 * Math.PI * 880) * Math.exp(-Math.max(0, t - 0.09) * 12) * (t > 0.09 ? 1 : 0)) * 0.22 },
+    pat: { dur: PAT.dur, gen: (t) => patWave(t, PAT.a2) },
+    patOwn: { dur: PAT.dur, gen: (t) => patWave(t, PAT.d3) },
   };
   const { dur, gen } = specs[name];
   const n = Math.ceil(sr * dur);
@@ -264,6 +285,63 @@ function heardAt(c: AudioContext, t: number): number {
   return performance.now() + ((c.outputLatency || 0) + (c.baseLatency || 0)) * 1000;
 }
 
+/** heardAt the other way round: the context time whose sound reaches the speakers at `ms` on performance.now()'s clock. */
+function contextAt(c: AudioContext, ms: number): number {
+  const out = typeof c.getOutputTimestamp === "function" ? c.getOutputTimestamp() : null;
+  if (out?.performanceTime && out.contextTime !== undefined) return out.contextTime + (ms - out.performanceTime) / 1000;
+  return c.currentTime + (ms - performance.now()) / 1000 - ((c.outputLatency || 0) + (c.baseLatency || 0));
+}
+
+/** A pat this late (seconds) still plays, at once; later than that it would land off the blink, so it is dropped. */
+const PAT_LATE = 0.03;
+/** Taking a pat back: its gain falls over this long (seconds) before it stops, so a pat cut off mid-sound does not click. */
+const PAT_CUT = 0.02;
+
+/** Pats scheduled and not over yet: turning the sound off takes them back too, so none is heard after. */
+const patsDue = new Set<() => void>();
+
+/** Schedules one pat to be heard at `at` (performance.now() ms); returns how to take it back. See sfx.pat. */
+function pat(at: number, own: boolean): () => void {
+  const none = () => {};
+  if (!enabled) return none;
+  const c = ensure();
+  const buf = buffers.get(own ? "patOwn" : "pat");
+  // The taps that asked for it were gestures, so the context is running by now; if it is not,
+  // silence rather than a beat that lands wherever the clock happens to restart.
+  if (!c || !master || !buf || c.state !== "running") return none;
+  let when = contextAt(c, at);
+  if (when < c.currentTime - PAT_LATE) return none;
+  when = Math.max(when, c.currentTime);
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  const g = c.createGain();
+  src.connect(g).connect(master);
+  let taken = false;
+  const takeBack = () => {
+    // once only: a second ramp would start from full again, and that is a click
+    if (taken) return;
+    taken = true;
+    patsDue.delete(takeBack);
+    const t = c.currentTime;
+    g.gain.setValueAtTime(1, t);
+    g.gain.linearRampToValueAtTime(0, t + PAT_CUT);
+    try {
+      src.stop(t + PAT_CUT + 0.005);
+    } catch {
+      /* already stopped */
+    }
+  };
+  src.onended = () => {
+    taken = true;
+    patsDue.delete(takeBack);
+    src.disconnect();
+    g.disconnect();
+  };
+  src.start(when);
+  patsDue.add(takeBack);
+  return takeBack;
+}
+
 /** Holds a param where it is at `t`, dropping whatever was scheduled after, so a new move starts from there. */
 function hold(p: AudioParam, t: number) {
   if (typeof p.cancelAndHoldAtTime === "function") {
@@ -454,7 +532,7 @@ function ensure(): AudioContext | null {
     master.connect(ctx.destination);
     bed = ctx.createGain();
     bed.connect(master);
-    (["tab", "slide", "focus", "close", "tick", "done"] as Synth[]).forEach((n) => buffers.set(n, synth(ctx!, n)));
+    (["tab", "slide", "focus", "close", "tick", "done", "pat", "patOwn"] as Synth[]).forEach((n) => buffers.set(n, synth(ctx!, n)));
   }
   if (ctx.state === "suspended") void ctx.resume();
   decodeClick(ctx);
@@ -515,6 +593,7 @@ export const sfx = {
       hush(QUICK_CLOSE);
       ambientStop();
       [...trains].forEach((cancel) => cancel());
+      patsDue.forEach((takeBack) => takeBack());
     }
     setFlag("soundEnabled", on);
     listeners.forEach((l) => l(on));
@@ -542,6 +621,16 @@ export const sfx = {
    */
   train(offsets: readonly number[], { gain = 1, rate = 1 }: { gain?: number; rate?: number } = {}): () => void {
     return train(offsets, gain, rate);
+  },
+  /**
+   * One of Urchi's pats, heard at `at` (performance.now() ms), so it lands as
+   * the lids meet whatever the frame rate: each is scheduled on the audio
+   * clock. `own` is the higher note of the beat it adds itself. Returns how to
+   * take it back (the answer cut short); a pat already sounding fades out.
+   * Nothing plays, and no context is made, while sound is off.
+   */
+  pat(at: number, own = false): () => void {
+    return pat(at, own);
   },
   onChange(l: (on: boolean) => void) {
     listeners.add(l);

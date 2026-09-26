@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { sfx } from "@/audio/sfx";
 import { MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
+import { Call } from "@/engine/space/Call";
 import { Motes } from "@/engine/space/Motes";
 import { RoomScene, URCHI_TURN } from "@/engine/space/RoomScene";
 import { runIntro } from "@/engine/space/intro";
-import { comeBack, glanceAt, glanceDown, read, tug } from "@/engine/urchi/acts";
+import { caught, comeBack, glanceAt, glanceDown, read, tug, type Caught } from "@/engine/urchi/acts";
 import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
 import { clock } from "@/engine/urchi/hours";
 import { CursorLabel } from "@/components/CursorLabel";
@@ -38,6 +39,16 @@ const RESULT_DWELL = 4;
 /** A press that moves less than this (px) and lets go within this (ms) is a click. */
 const CLICK = { slop: 6, ms: 600 };
 /**
+ * When a pointer event happened (performance.now() ms): its own time stamp, so that one long frame
+ * (a phone painting Urchi at its full resolution) does not bunch the taps it held back into one
+ * rhythm-breaking cluster. A stamp on another clock (older browsers counted from 1970), from the
+ * future or older than `stale` ms is not believed, and the handler's own time stands in.
+ */
+const eventTime = (e: Event, stale = 2000) => {
+  const now = performance.now();
+  return e.timeStamp > 0 && e.timeStamp <= now && now - e.timeStamp < stale ? e.timeStamp : now;
+};
+/**
  * Seconds the pointer must rest on Urchi before its caption rises. A pointer crossing it on the
  * way to the tabs is not a hover, and must not spend the line's one reading.
  */
@@ -47,8 +58,12 @@ const HOVER_REST = 0.35;
  * over), and for the pointer to be still this long; then its line holds the caption this long.
  */
 const NEWS = { after: 2.4, afterIntro: 0.8, still: 1, dwell: 4 };
-/** A phone has no hover: the caption rises once, this long after the eyes open, and sinks after `dwell`. */
-const PHONE_CAPTION = { after: 3, dwell: 5 };
+/**
+ * A phone has no hover: the caption rises once, this long after the eyes open, and sinks after
+ * `dwell`. Never sooner than `afterCall` seconds after a rhythm tapped at it (or its answer): rising
+ * the moment an answer ends, the line would read as part of it.
+ */
+const PHONE_CAPTION = { after: 3, dwell: 5, afterCall: 4 };
 /** While he is listening: a look at the "4" first after this long, then every 60-90s. */
 const LISTEN_GLANCE = { first: [8, 20] as [number, number], every: [60, 90] as [number, number] };
 /** A song "playing" for longer than this is a stale now-playing, and treated as nothing. */
@@ -76,6 +91,13 @@ let lastNow: { track: Track | null; at: number } | null = null;
 const NOW_FRESH_MS = 2 * 60 * 1000;
 /** At night, with nothing known yet, Urchi waits this long (ms, at most) for the poll before it appears. */
 const NIGHT_WAIT = 800;
+/**
+ * Caught in the act (panel 2, N3): back on the tab after at least `away` ms elsewhere, you may
+ * find it doing something it would not do while watched; at most once every `every` ms.
+ */
+const CAUGHT = { away: 45 * 1000, every: 10 * 60 * 1000 };
+/** When it was last caught (Date.now() ms, in memory): wall time, since a phone put away may stop the page's own clock. */
+let caughtAt = -Infinity;
 
 /** The scene's side of the game, reachable from the board's React handlers. */
 type Game = {
@@ -150,7 +172,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let arriving = false;
     const att = new Attention(room.urchi.character, { head: eyesClient, reach: () => room.urchiSize.w / 2, reducedMotion, onMood: () => moodChanged() });
     const motes = new Motes(room, att, { reducedMotion });
-    Object.assign(stageEl, { __room: room, __att: att, __motes: motes }); // handy for debugging and headless QA
+    const call = new Call(room, att, motes, { reducedMotion });
+    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
     let stopArrive: (() => void) | null = null;
     let openTimer: gsap.core.Tween | null = null;
@@ -339,6 +362,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       slotTimer?.kill();
       slot = null;
       hideCaption();
+      call.abort();
       att.pause(true);
       motes.hide(true);
       setBoard({ date, drop: stack(reducedMotion ? 0 : 0.9) });
@@ -379,6 +403,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let newsAt = Infinity;
     const news = newsTold() ? null : whatsNew();
     let listenGlance = Infinity;
+    /** When a rhythm or its answer last had its attention (attention seconds). */
+    let callHeard = -Infinity;
     const begin = (afterIntro: boolean) => {
       if (begun >= 0) return;
       arriving = !afterIntro;
@@ -410,7 +436,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         );
       }
       // A phone has no hover: its caption rises once, and it reads it.
-      if (phone && !phoneCaptionShown && t >= begun + PHONE_CAPTION.after && !att.acting && slot === null) {
+      if (call.busy) callHeard = t;
+      if (phone && !phoneCaptionShown && t >= begun + PHONE_CAPTION.after && t >= callHeard + PHONE_CAPTION.afterCall && !att.acting && slot === null) {
         phoneCaptionShown = true;
         showUrchiCaption("auto", PHONE_CAPTION.dwell);
       }
@@ -493,20 +520,61 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       stopArrive = () => window.clearTimeout(arriveTimer);
     }
 
-    // ---- pointer: hover and click on Urchi; a tap on the empty room lets a mote go
+    // ---- caught in the act: back on the tab after a while away, it was doing something else
+    let hiddenAt = -1;
+    /**
+     * What it is caught doing: facing into a top corner, staring up at the "2", or halfway through
+     * a stretch. Under reduced motion the head stays still and only the pupils can show it, which
+     * they do for a corner and hardly at all for the pill just above the head, so it is the corner.
+     */
+    const pose = (): Caught => {
+      const r = reducedMotion ? 0 : Math.random();
+      const side = Math.random() < 0.5 ? -1 : 1;
+      if (r < 0.4 || (r < 0.7 && !pillAt("/projects"))) return { kind: "corner", side, at: { x: (0.5 + side * 0.48) * window.innerWidth, y: 0.03 * window.innerHeight } };
+      if (r < 0.7) return { kind: "pill", at: () => pillAt("/projects") };
+      return { kind: "stretch", side };
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        call.stop();
+        return;
+      }
+      const now = Date.now();
+      const away = hiddenAt < 0 ? 0 : now - hiddenAt;
+      hiddenAt = -1;
+      if (away < CAUGHT.away || now - caughtAt < CAUGHT.every) return;
+      // Never while it sleeps or dozes, in the intro, with the game up, mid-rhythm or mid-slide.
+      if (begun < 0 || gameOpen || att.asleep || call.busy || getFlags().transitioning) return;
+      // Played now, before the page's first frame back, so that frame already shows it.
+      if (att.play("caught", 6, () => caught(att, pose(), { rise: (on, seconds) => room.riseUrchi(on, seconds) }))) caughtAt = now;
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    // ---- pointer: hover and click on Urchi; a tap on the empty room lets a mote go, and a rhythm of them gets an answer
     let down = { x: 0, y: 0, t: 0 };
+    // Quick taps must stay taps: no double-tap zoom on a phone (a pinch still zooms).
+    stageEl.style.touchAction = "manipulation";
     const onMove = (e: PointerEvent) => setOverUrchi(room.urchiHit(e.clientX, e.clientY));
     const onLeave = () => setOverUrchi(false);
     const onDown = (e: PointerEvent) => {
-      down = { x: e.clientX, y: e.clientY, t: performance.now() };
+      down = { x: e.clientX, y: e.clientY, t: eventTime(e) };
+      call.press(down.t);
     };
     const onUp = (e: PointerEvent) => {
-      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK.slop || performance.now() - down.t > CLICK.ms) return;
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK.slop || eventTime(e) - down.t > CLICK.ms) {
+        call.abort();
+        return;
+      }
       if (room.urchiHit(e.clientX, e.clientY)) {
+        call.abort();
         // Asleep, the first click wakes it; only the next opens the game.
         if (att.wake()) return;
         openGame();
-      } else if (room.interactive && !gameOpen) motes.release(e.clientX, e.clientY);
+      } else if (room.interactive && !gameOpen) {
+        if (begun >= 0) call.tap(e.clientX, e.clientY, down.t);
+        else motes.release(e.clientX, e.clientY);
+      }
     };
     const onResize = () => {
       room.resize();
@@ -536,7 +604,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       stageEl.removeEventListener("pointerdown", onDown);
       stageEl.removeEventListener("pointerup", onUp);
       window.removeEventListener("resize", onResize);
+      document.removeEventListener("visibilitychange", onVisibility);
       cursor.destroy();
+      call.dispose();
       motes.dispose();
       att.dispose();
       room.dispose();
