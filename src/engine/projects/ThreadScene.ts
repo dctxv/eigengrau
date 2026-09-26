@@ -517,7 +517,6 @@ export class ThreadScene {
 
   // Motion.
   private angle = 0;
-  private lastAngle = 0;
   private yaw = 0;
   private targetYaw = 0;
   private vel = 0;
@@ -525,7 +524,6 @@ export class ThreadScene {
   private idleK: number;
   private drag: { x: number; y: number; t: number; moved: boolean } | null = null;
   private turning: gsap.core.Tween | null = null;
-  private loose = { x: 0, v: 0 };
   private clock = 0;
   private draw = { value: 0 };
   private cursorOn = false;
@@ -1197,7 +1195,6 @@ export class ThreadScene {
     if (!last) return;
     const p = this.samplePos(last.i, new THREE.Vector3());
     this.angle = Math.atan2(-p.x, p.z) + (this.opts.reducedMotion ? 0 : 0.5);
-    this.lastAngle = this.angle;
   }
 
   /** The thread winds itself from his first year to now; each mark and its pieces arrive as it passes. */
@@ -1830,15 +1827,6 @@ export class ThreadScene {
     this.vel *= Math.pow(0.15, dt);
     if (Math.abs(this.vel) < 1e-4) this.vel = 0;
     this.yaw += (this.targetYaw - this.yaw) * (1 - Math.pow(0.03, dt));
-    const w = (this.angle - this.lastAngle) / Math.max(dt, 1e-3);
-    this.lastAngle = this.angle;
-
-    // The loose end trails the turn on a soft spring.
-    if (!rm) {
-      const target = THREE.MathUtils.clamp(-w * 26, -26, 26) + Math.sin(this.clock * 0.9) * 1.5;
-      this.loose.v += (-14 * (this.loose.x - target) - 2.6 * this.loose.v) * dt;
-      this.loose.x += this.loose.v * dt;
-    }
 
     this.scroll.cur += (this.scroll.target - this.scroll.cur) * (1 - Math.pow(0.9, dt * 60));
     this.openGroup.position.set(this.layoutO ? (this.layoutO.vertical ? 0 : -this.scroll.cur) : 0, this.layoutO?.vertical ? this.scroll.cur : 0, 0);
@@ -2135,10 +2123,9 @@ export class ThreadScene {
     }
   }
 
-  /** Now: 40px of thread past the last turn at the top, swaying, blinking like the horizon's cursor. */
+  /** Now: 40px of thread past the last turn at the top, held still: it turns with the ball and nothing else. */
   private drawLooseEnd(back: Ribbons, front: Ribbons, drawn: number) {
     if (!this.cursorOn || drawn < this.M - 1) return;
-    if (!this.opts.reducedMotion && this.clock % 1 >= 0.5) return;
     const sc = this.scratch;
     const p = new THREE.Vector3();
     const t = new THREE.Vector3();
@@ -2163,9 +2150,7 @@ export class ThreadScene {
       this.rotate(x, y, zz, q);
       this.toScreen(q, radius, s);
       if (k === 0) z = q.z;
-      const lx = s.x + this.loose.x * u * u;
-      const ly = s.y + Math.abs(this.loose.x) * 0.15 * u * u;
-      sc.push(lx, ly, depthInk(q.z) * base * this.veilAt(lx, ly));
+      sc.push(s.x, s.y, depthInk(q.z) * base * this.veilAt(s.x, s.y));
     }
     sc.normals();
     (z >= 0 ? front : back).strip(sc.x, sc.y, sc.a, sc.nx, sc.ny, 0, sc.n - 1);
