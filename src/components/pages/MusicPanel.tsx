@@ -926,9 +926,13 @@ export function MusicPanel() {
       }, DWELL_MS);
     }
   };
-  /** A phone's first tap on a title plays it through the wall (sound on); the second opens Last.fm as before. */
+  /**
+   * A phone's first tap on a title chooses it: the sleeve, the room's colour
+   * and, with sound on, the song through the wall, without the dwell. The
+   * second tap on the same title opens Last.fm.
+   */
   const tap = (e: MouseEvent, t: WeekTrack) => {
-    if (e.detail === 0 || !touch.current || !sfx.enabled) return;
+    if (e.detail === 0 || !touch.current) return;
     const key = keyOf(t);
     if (armed.current === key) return;
     e.preventDefault();
@@ -936,7 +940,8 @@ export function MusicPanel() {
     armed.current = key;
     setActive(key);
     light.current?.choose(key, t.coverId);
-    listen(t);
+    if (sfx.enabled) listen(t);
+    else light.current?.commit(key, t.coverId);
   };
   const down = (e: PointerEvent) => {
     touch.current = e.pointerType === "touch";
