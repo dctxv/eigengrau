@@ -94,7 +94,7 @@ export function Threshold(props: Props) {
     };
   }, [index, reducedMotion]);
 
-  // Escape closes, caught before the cloud's own key handler sees it.
+  // Escape closes, caught in the capture phase so nothing else on the page acts on it first.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;

@@ -308,7 +308,7 @@ button {
 }
 
 /* ------------------------------------------------------------------ */
-/* Intro and Creative Space overlays (spec 5, 6)                       */
+/* Space: the intro's overlays and Urchi's caption                      */
 /* ------------------------------------------------------------------ */
 .intro-side {
   position: absolute;
@@ -380,44 +380,6 @@ button {
   font: 400 13px/1.4 var(--font-serif);
   margin: 8px 0 0;
 }
-.space-desc {
-  position: absolute;
-  left: 50%;
-  translate: -50% 0;
-  bottom: calc(var(--bottom-ui) + 64px);
-  width: min(450px, calc(100% - 32px));
-  text-align: center;
-  pointer-events: none;
-  z-index: 4;
-}
-@media (max-width: 640px) {
-  .space-desc {
-    width: min(390px, calc(100% - 32px));
-  }
-}
-.space-desc p {
-  font: 400 14px/1.3 var(--font-serif);
-  margin: 0;
-}
-.view-case {
-  position: absolute;
-  left: 50%;
-  bottom: var(--bottom-ui);
-  translate: -50% 0;
-  font: 500 12px/1 var(--font-grotesk);
-  text-align: center;
-  opacity: 0;
-  z-index: 5;
-  display: none;
-}
-@media (max-width: 1024px) {
-  .view-case {
-    display: block;
-  }
-  .space-caption {
-    bottom: calc(var(--bottom-ui) + 28px);
-  }
-}
 
 /* ------------------------------------------------------------------ */
 /* Case pages: plain DOM in the same language.                         */
@@ -459,6 +421,66 @@ button {
 .case .case-back {
   font: 500 12px/1 var(--font-grotesk);
 }
+/* The pieces from the thread, under the summary: one quiet column, each with its title and three lines. */
+.case .case-pieces {
+  display: grid;
+  gap: 48px;
+  justify-items: center;
+  width: 100%;
+  margin-top: 40px;
+}
+.case .case-pieces h2 {
+  font: 500 12px/140% var(--font-grotesk);
+  margin: 0 0 -24px;
+}
+.case .case-piece {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  width: min(100%, 320px);
+  margin: 0;
+  text-align: center;
+}
+.case .case-piece img {
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+.case .case-piece h3 {
+  font: 500 12px/140% var(--font-grotesk);
+  margin: 0;
+}
+.case .case-piece p {
+  font: 400 14px/1.3 var(--font-serif);
+  margin: 4px 0 0;
+}
+/*
+ * The rims, as on Notes and Music: the pill's material, masked so the page
+ * dissolves as it passes under the tab bar. Fixed, so they hold still while
+ * the page scrolls (the panel's transform makes it their box, not the window).
+ */
+.case-rim {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+  z-index: 3;
+}
+.case-rim-top {
+  top: 0;
+  -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent);
+  mask-image: linear-gradient(to bottom, #000 30%, transparent);
+}
+.case-rim-bottom {
+  bottom: 0;
+  height: 50px;
+  -webkit-mask-image: linear-gradient(to top, #000 30%, transparent);
+  mask-image: linear-gradient(to top, #000 30%, transparent);
+}
 
 /* ------------------------------------------------------------------ */
 /* Elsewhere: three words at the foot of About, beside the canvas.     */
@@ -487,9 +509,10 @@ button {
 }
 
 /* ------------------------------------------------------------------ */
-/* Notes (plain DOM). One centred column in a scroll container; the    */
-/* first entry sits on the line the projects heading used. Two voices: */
-/* his in serif, the site's log lines in grotesk. No rules between.    */
+/* Notes (plain DOM). One centred column in a scroll container. Its    */
+/* head is the index, one sentence on the line the projects heading    */
+/* uses. Two voices: his in serif, the site's log lines in grotesk. No */
+/* rules between, except where a filter folds a note into one.         */
 /* ------------------------------------------------------------------ */
 .stage-notes {
   cursor: auto;
@@ -500,6 +523,8 @@ button {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
+  /* The panel holds whatever was clicked in place while the column folds around it. */
+  overflow-anchor: none;
 }
 .notes-scroll::-webkit-scrollbar {
   display: none;
@@ -507,7 +532,104 @@ button {
 .notes-column {
   width: min(450px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 206px 0 calc(var(--bottom-ui) + 120px);
+  padding: 194px 0 calc(var(--bottom-ui) + 120px);
+}
+
+/* The head: a grotesk lead and one serif sentence, its first line on the 206px line of Work and Music. */
+.notes-head {
+  font: 400 16px/24px var(--font-serif);
+  margin: 0 0 64px;
+  /* So the find field can know the column's width from inside the words. */
+  container-type: inline-size;
+}
+/* A word and its glued comma or full stop keep to one line. */
+.notes-keep {
+  white-space: nowrap;
+}
+.notes-head .mask > span {
+  animation: notes-rise 0.9s cubic-bezier(0.23, 1, 0.32, 1) var(--d, 0s) both;
+}
+/* Words that do something: 32px targets that take no room. */
+.notes-head button {
+  vertical-align: top;
+  padding: 4px 0;
+  margin: -4px 0;
+}
+.notes-head .notes-lead {
+  font: 500 16px/24px var(--font-grotesk);
+  letter-spacing: -0.02em;
+  margin-right: 0.28em;
+  cursor: text;
+}
+/* Underlined only under the pointer. The head's words ride their own masks, so the line goes on them. */
+@media (hover: hover) {
+  .notes-tag:hover,
+  .notes-head .notes-tag:hover .mask > span,
+  .note-tag:hover,
+  .notes-line:hover .notes-count {
+    text-decoration: underline 1px;
+    text-underline-offset: 3px;
+  }
+}
+/*
+ * The keyboard finds the words as the pointer does, underlined. A ring would be clipped by their
+ * masks, or cross the lines above and below. The rows and a note just unfolded keep the ring.
+ */
+.notes-column button:not(.note-row):focus-visible {
+  outline: none;
+}
+.notes-head button:focus-visible .mask > span,
+.note-tag:focus-visible,
+.notes-line .notes-tag:focus-visible,
+.notes-fold:focus-visible .notes-count {
+  text-decoration: underline 1px;
+  text-underline-offset: 3px;
+}
+/*
+ * The field sizes to what is typed, with a pixel for the caret, up to the column less room for its
+ * closing quote. Past that the text scrolls inside it, so a long search never widens the page.
+ */
+.notes-q {
+  display: inline-grid;
+  vertical-align: top;
+  max-width: calc(100cqi - 1em);
+}
+.notes-q::after,
+.notes-q input {
+  grid-area: 1 / 1;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 0 1px 0 0;
+}
+.notes-q::after {
+  content: attr(data-v);
+  visibility: hidden;
+  white-space: pre;
+  overflow: hidden;
+}
+/* Its own width counts for nothing; the typed text beside it sets the size. */
+.notes-q input {
+  width: 0;
+  min-width: 100%;
+  margin: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: inherit;
+  caret-color: var(--ink);
+  text-overflow: ellipsis;
+}
+
+.note {
+  position: relative;
+}
+/* A note the keyboard has just unfolded holds focus; its ring stands clear of the text. */
+.note:focus-visible {
+  outline-offset: 8px;
+}
+/* Its own formatting context, so nothing inside collapses margins through it as it folds. */
+.note-full {
+  display: flow-root;
 }
 .note + .note {
   margin-top: 56px;
@@ -537,6 +659,167 @@ button {
   font-variant-numeric: tabular-nums;
   white-space: pre-wrap;
   margin: 0;
+}
+.note-tag,
+.notes-tag {
+  position: relative;
+}
+
+/* New since the last visit: a 4px dot hung in the margin, so the dates stay in line. */
+.note-new {
+  position: absolute;
+  left: -12px;
+  top: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+/* Folded: the note is a 1px rule at 18% ink on a 6px row, as long as the note was. */
+.note[data-moving] {
+  overflow: hidden;
+}
+.note[data-folded] {
+  height: 6px;
+}
+.note[data-folded][data-thin] {
+  height: 3px;
+}
+.note-row {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+}
+.note-row::before {
+  content: "";
+  position: absolute;
+  inset: -3px 0;
+}
+.note[data-thin] .note-row {
+  height: 3px;
+}
+.note[data-folded] .note-row,
+.note[data-moving] .note-row {
+  display: block;
+}
+.note-rule {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: var(--w);
+  max-width: 100%;
+  height: 1px;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+  transform-origin: left center;
+  transition: background-color 200ms var(--ease-ui);
+}
+.note[data-thin] .note-rule {
+  top: 1px;
+}
+.note[data-hot] .note-rule {
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+
+/* Sediment: each older month, then each older year, as one line in the log's voice. */
+.notes-sediment {
+  margin-top: 56px;
+}
+.notes-group + .notes-group {
+  margin-top: 10px;
+}
+.notes-line {
+  display: flow-root;
+  position: relative;
+  font: 500 12px/1.4 var(--font-grotesk);
+  font-variant-numeric: tabular-nums;
+  white-space: pre-wrap;
+  cursor: pointer;
+  transition: opacity 250ms var(--ease-ui);
+}
+.notes-line .mask,
+.notes-line .mask > span {
+  display: block;
+}
+.notes-fold {
+  text-align: left;
+  white-space: pre-wrap;
+}
+/* A month the filter finds nothing in stays, quieter, so the gaps keep their shape. */
+.notes-line[data-none] {
+  opacity: 0.35;
+}
+.notes-body[data-moving] {
+  overflow: hidden;
+}
+.notes-group[data-kind="month"] > .notes-body > .notes-inner {
+  padding: 32px 0 46px;
+}
+.notes-group[data-kind="year"] > .notes-body > .notes-inner {
+  padding: 10px 0 24px;
+}
+
+/*
+ * A phone has no pointer to aim: tags and rows get 32px targets, and their masks make room. A tag's
+ * target is centred on the word and at least 32px wide, so "ai" is as easy to hit as "psychology",
+ * and a note's tags sit a little further apart so no target reaches over its neighbour's letters.
+ */
+@media (hover: none), (max-width: 640px) {
+  .note-meta-mask,
+  .note-log .mask,
+  .notes-line .mask {
+    padding: 9px 16px;
+    margin: -9px -16px;
+  }
+  .note-tag::after,
+  .notes-tag::after {
+    content: "";
+    position: absolute;
+    top: -9px;
+    bottom: -9px;
+    left: 50%;
+    width: max(100%, 32px);
+    translate: -50% 0;
+  }
+  .note-tag + .note-tag {
+    margin-left: 8px;
+  }
+  /* The head's buttons are 32px tall already; above the plain words beside them, which ride their own layers. */
+  .notes-head .notes-tag::after {
+    top: 0;
+    bottom: 0;
+    z-index: 1;
+  }
+  .note-row::before {
+    inset: -8px 0;
+  }
+  .note-new {
+    left: -10px;
+  }
+  .notes-group + .notes-group {
+    margin-top: 16px;
+  }
+}
+
+/* power4.out, the site's reveal, as a curve CSS can run on remount */
+@keyframes notes-rise {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notes-head .mask > span {
+    animation: none;
+  }
+  .note-rule,
+  .notes-line {
+    transition: none;
+  }
 }
 /* The rims: the pill's material, masked so text dissolves as it leaves. Music wears them too. */
 .notes-rim,
@@ -569,7 +852,9 @@ button {
 /* Music (plain DOM). A sleeve for what is playing, and beside it the   */
 /* week's songs in one stack, each as loud as it was played: size and   */
 /* opacity follow the play count, so the quiet ones sink toward         */
-/* eigengrau. The count rides each title like a tab's number.           */
+/* eigengrau. The count rides each title like a tab's number. While he  */
+/* is listening, the room: the sleeve alone in the middle, a hairline   */
+/* for how far in he is, and the stack folded into the heading.         */
 /* ------------------------------------------------------------------ */
 .stage-music {
   cursor: auto;
@@ -585,6 +870,8 @@ button {
   display: none;
 }
 .music {
+  /* The sleeve in the room: 320px, smaller on a short window so the words under it stay on screen (shorter still, they move beside it). */
+  --sleeve-room: clamp(200px, calc(var(--app-h) - 480px), 320px);
   display: grid;
   justify-items: center;
   padding: 196px 16px calc(var(--bottom-ui) + 64px);
@@ -600,6 +887,28 @@ button {
   letter-spacing: -0.02em;
   margin-right: 0.28em;
 }
+/* While he is live the heading is the button that brings the week back; its sentence underlines on hover, like a filter word. */
+.music-fold {
+  text-align: inherit;
+}
+.music-fact {
+  text-decoration: underline 1px transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 250ms var(--ease-ui);
+}
+.music-fold:hover .music-fact,
+.music-fold:focus-visible .music-fact {
+  text-decoration-color: currentColor;
+}
+.music-fold:focus-visible {
+  outline: none;
+}
+/* With no hover to find it, the sentence wears its underline faintly. */
+@media (hover: none) {
+  .music-fact {
+    text-decoration-color: color-mix(in srgb, var(--ink) 25%, transparent);
+  }
+}
 /* The sleeve and the stack centre as one group, on the width the songs actually take. */
 .music-body {
   display: grid;
@@ -610,9 +919,21 @@ button {
   max-width: 100%;
   margin-top: 72px;
 }
+/* In the room the sleeve stands alone in the middle: the one thing to look at. */
+.music[data-room] .music-body {
+  grid-template-columns: var(--sleeve-room);
+  /* On a short window the sleeve can only get so small before its words wrap, so the gap gives way too. */
+  margin-top: clamp(32px, calc((var(--app-h) - 560px) * 0.3), 56px);
+}
+.music-cover {
+  position: relative;
+  width: var(--sleeve-w, 100%);
+}
+/* The sleeve is its own mask: a new song drops the old sleeve out through its bottom edge. */
 .music-sleeve {
   position: relative;
   aspect-ratio: 1;
+  overflow: hidden;
 }
 /* An empty sleeve is a hairline; a cover fades in over it. */
 .music-sleeve::before {
@@ -633,20 +954,85 @@ button {
 .music-sleeve img[data-on][data-loaded] {
   opacity: 1;
 }
+/* Through the wall: a line along the sleeve's bottom edge runs for the preview's thirty seconds. */
+.music-listen {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: var(--ink);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  opacity: 0;
+  transition: opacity 1.2s var(--ease-ui);
+}
+.music-listen[data-on] {
+  opacity: 1;
+  transition-duration: 250ms;
+}
 .music-now {
   margin-top: 20px;
 }
 .music-now .mask {
   display: block;
 }
-.music-state {
+/* How far into the song he is: ink over a faint track, crawling over the song's length. */
+.music-progress {
+  position: relative;
+  width: var(--sleeve-w, 100%);
+  height: 1px;
+  margin: -4px 0 16px;
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+  animation: music-fade 0.6s var(--ease-ui) calc(var(--after, 0s) + 0.1s) both;
+}
+.music-progress i {
+  position: absolute;
+  inset: 0;
+  background: var(--ink);
+  clip-path: inset(0 calc((1 - var(--p, 0)) * 100%) 0 0);
+}
+/* A start that is only a first sighting is dotted: honest rather than invented. */
+.music-progress[data-guess] i {
+  background: repeating-linear-gradient(to right, var(--ink) 0 1px, transparent 1px 4px);
+}
+/* No length to measure against: only the dotted track. */
+.music-progress[data-unknown] {
+  background: repeating-linear-gradient(to right, color-mix(in srgb, var(--ink) 45%, transparent) 0 1px, transparent 1px 4px);
+}
+.music-progress[data-unknown] i {
+  display: none;
+}
+/* "Now playing" on the left, how far in on the right, like a note's date and tags. */
+.music-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  column-gap: 16px;
+  width: var(--sleeve-w, 100%);
+}
+.music-state,
+.music-where {
   font: 500 11px/140% var(--font-grotesk);
   margin: 0;
+}
+.music-where {
+  opacity: 0.6;
+}
+.music-state a {
+  text-decoration: underline 1px color-mix(in srgb, var(--ink) 40%, transparent);
+  text-underline-offset: 2px;
 }
 .music-state > span {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+/* Room inside the clip for the dot at the top of its breath, without moving the line off the sleeve's edge. */
+.music-state.mask {
+  padding-inline-start: 3px;
+  margin-inline-start: -3px;
 }
 /* Playing: a dot that breathes like an alive project's tick. Not playing: a ring, as paused. */
 .music-dot {
@@ -664,6 +1050,10 @@ button {
 .music-title {
   font: 400 22px/1.2 var(--font-serif);
   margin: 12px 0 0;
+}
+/* The title grows with the room's sleeve: 26px beside a full one, the week's 22px beside the smallest. */
+.music[data-room] .music-title {
+  font-size: clamp(22px, calc(22px + (var(--sleeve-room) - 200px) / 30), 26px);
 }
 .music-by {
   font: 400 14px/1.3 var(--font-serif);
@@ -689,7 +1079,8 @@ button {
 .music-list[data-active] a {
   opacity: calc(var(--level) * 0.3);
 }
-.music-list[data-active] a[data-on] {
+.music-list[data-active] a[data-on],
+.music-list a[data-hearing] {
   opacity: 1;
 }
 /* Room for descenders inside the clip, without spacing the lines apart. */
@@ -718,22 +1109,59 @@ button {
     margin: 0 0 10px;
   }
 }
+/* After a glide between the room and the week, the words wait for the sleeve (--after). */
 .music .mask > span {
-  animation: music-rise 0.9s cubic-bezier(0.23, 1, 0.32, 1) var(--d, 0.05s) both;
+  animation: music-rise 0.9s cubic-bezier(0.23, 1, 0.32, 1) calc(var(--after, 0s) + var(--d, 0.05s)) both;
+}
+.music-heading.mask > span {
+  animation-delay: var(--d, 0.05s);
 }
 .music-now .mask > span {
   animation-duration: 0.6s;
 }
+.music-now .music-where > span {
+  animation-delay: calc(var(--after, 0s) + 0.08s);
+}
 .music-now .music-title > span {
-  animation-delay: 0.1s;
+  animation-delay: calc(var(--after, 0s) + 0.1s);
 }
 .music-now .music-by > span {
-  animation-delay: 0.16s;
+  animation-delay: calc(var(--after, 0s) + 0.16s);
+}
+/* Folding into the heading: the stack's lines leave upward through their masks, top line first. */
+.music-list[data-leaving] .mask > span {
+  animation: music-leave 0.38s cubic-bezier(0.55, 0, 0.75, 0.2) calc(var(--i, 0) * 0.02s) both;
+}
+.music-list[data-leaving] .music-artist {
+  opacity: 0;
+  transition: opacity 0.3s var(--ease-ui);
+}
+/* The words under the sleeve step aside too, and rise once the sleeve is in the middle. */
+.music[data-folding] .music-now {
+  opacity: 0;
+  transition: opacity 0.2s var(--ease-ui);
 }
 /* power4.out, the site's reveal, as a curve CSS can run on remount */
 @keyframes music-rise {
   from {
     transform: translateY(100%);
+    opacity: 0;
+  }
+}
+@keyframes music-rise-room {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+@keyframes music-leave {
+  to {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}
+@keyframes music-fade {
+  from {
     opacity: 0;
   }
 }
@@ -756,12 +1184,80 @@ button {
     row-gap: 48px;
     width: 100%;
   }
-  .music-sleeve {
-    width: min(240px, 64vw);
+  .music-side {
+    --sleeve-w: min(240px, 64vw);
   }
   .music-list {
     --vol-max: 40px;
     margin-top: 0;
+  }
+  /*
+   * The room on a phone: the column narrows to the sleeve (78vw) and moves to
+   * the middle, the heading on the sleeve's left edge. The heading leaves with
+   * the stack and rises again in its new place (a second name for the same
+   * rise restarts it), so it never jumps across.
+   */
+  .music {
+    --sleeve-room: 78vw;
+  }
+  .music[data-room] .music-heading {
+    width: var(--sleeve-room);
+    justify-self: center;
+  }
+  .music[data-room] .music-heading.mask > span {
+    animation-name: music-rise-room;
+    animation-delay: calc(var(--after, 0s) + 0.05s);
+  }
+  .music[data-folding] .music-heading.mask > span {
+    animation: music-leave 0.38s cubic-bezier(0.55, 0, 0.75, 0.2) both;
+  }
+  .music[data-room] .music-body {
+    width: auto;
+    justify-self: center;
+    margin-top: 48px;
+  }
+  .music[data-room] .music-side {
+    --sleeve-w: 100%;
+  }
+}
+/*
+ * A short window on its side (a phone turned over): under a sleeve of any
+ * size the words would start below the fold, so in the room they stand
+ * beside it. The heading keeps the shared line while the sleeve can still be
+ * about 200px, and below that climbs only as far as it must, never under the tabs.
+ */
+@media (max-height: 620px) and (orientation: landscape) {
+  .music {
+    --music-top: clamp(72px, calc(var(--app-h) - 300px), 196px);
+    /* What is left under the heading's line, its gap and a breath above the bottom. */
+    --sleeve-room: clamp(120px, calc(var(--app-h) - var(--music-top) - var(--bottom-ui) - 82px), 320px);
+    --room-words: 240px;
+    padding-top: var(--music-top);
+  }
+  .music[data-room] {
+    padding-bottom: calc(var(--bottom-ui) + 32px);
+  }
+  .music[data-room] .music-body {
+    grid-template-columns: auto;
+    margin-top: 24px;
+  }
+  .music[data-room] .music-side {
+    display: grid;
+    grid-template-columns: var(--sleeve-room) minmax(0, var(--room-words));
+    column-gap: 32px;
+  }
+  .music[data-room] .music-now {
+    align-self: start;
+    margin-top: 0;
+  }
+  .music[data-room] .music-progress {
+    margin-top: 0;
+  }
+}
+/* On a narrow one the heading still starts where the room does, now the sleeve and its words. */
+@media (max-height: 620px) and (orientation: landscape) and (max-width: 640px) {
+  .music[data-room] .music-heading {
+    width: min(100%, calc(var(--sleeve-room) + 32px + var(--room-words)));
   }
 }
 
@@ -819,7 +1315,15 @@ button {
     transition: none;
   }
   .music .mask > span,
-  .music-dot {
+  .music-dot,
+  .music-progress,
+  .music-list[data-leaving] .mask > span,
+  .music[data-room] .music-heading.mask > span,
+  .music[data-folding] .music-heading.mask > span {
     animation: none;
+  }
+  .music-listen,
+  .music-fact {
+    transition: none;
   }
 }

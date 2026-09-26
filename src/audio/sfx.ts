@@ -1,8 +1,9 @@
 /**
  * Sound (spec 11). Two sampled files in public/audio: a click for opening a
  * project and an ambient bed that loops with a crossfade at the seam. The
- * other cues are synthesised. Off by default, remembered in localStorage;
- * nothing is fetched until sound is turned on.
+ * other cues are synthesised. Music adds a third voice: a song's preview heard
+ * through the wall, with the bed ducking under it. Off by default, remembered
+ * in localStorage; nothing is fetched until sound is turned on.
  */
 type Name = "click" | "tab" | "slide" | "focus" | "close" | "tick" | "done";
 type Synth = Exclude<Name, "click">;
@@ -20,6 +21,8 @@ const AMBIENT_XFADE = 4; // seconds of overlap at the loop seam
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+/** The bed's own level under the master, so a preview can duck it without touching its fades. */
+let bed: GainNode | null = null;
 const buffers = new Map<Name, AudioBuffer>();
 let clickBytes: Promise<ArrayBuffer> | null = null;
 let clickDecoding = false;
@@ -29,6 +32,10 @@ let lastTick = 0;
 let duckTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<(on: boolean) => void>();
 
+/**
+ * The counter's chime is D then A (587.33 and 880 Hz), both in the ambient
+ * bed's F G A C D; the E it used to open on rubbed against the bed's F.
+ */
 function synth(c: AudioContext, name: Synth): AudioBuffer {
   const sr = c.sampleRate;
   const specs: Record<Synth, { dur: number; gen: (t: number, i: number) => number }> = {
@@ -37,7 +44,7 @@ function synth(c: AudioContext, name: Synth): AudioBuffer {
     focus: { dur: 0.12, gen: (t) => Math.sin(t * 2 * Math.PI * 180) * Math.exp(-t * 28) * 0.5 + (Math.random() * 2 - 1) * Math.exp(-t * 220) * 0.3 },
     close: { dur: 0.09, gen: (t) => Math.sin(t * 2 * Math.PI * 140) * Math.exp(-t * 40) * 0.4 + (Math.random() * 2 - 1) * Math.exp(-t * 260) * 0.2 },
     tick: { dur: 0.012, gen: (t) => Math.sin(t * 2 * Math.PI * 2100) * Math.exp(-t * 500) * 0.35 },
-    done: { dur: 0.3, gen: (t) => (Math.sin(t * 2 * Math.PI * 660) * Math.exp(-t * 14) + Math.sin(Math.max(0, t - 0.09) * 2 * Math.PI * 880) * Math.exp(-Math.max(0, t - 0.09) * 12) * (t > 0.09 ? 1 : 0)) * 0.22 },
+    done: { dur: 0.3, gen: (t) => (Math.sin(t * 2 * Math.PI * 587.33) * Math.exp(-t * 14) + Math.sin(Math.max(0, t - 0.09) * 2 * Math.PI * 880) * Math.exp(-Math.max(0, t - 0.09) * 12) * (t > 0.09 ? 1 : 0)) * 0.22 },
   };
   const { dur, gen } = specs[name];
   const n = Math.ceil(sr * dur);
@@ -106,7 +113,7 @@ function ambientEnsure(c: AudioContext): Ambient {
   if (ambient) return ambient;
   const bus = c.createGain();
   bus.gain.value = 0;
-  bus.connect(master!);
+  bus.connect(bed!);
   const deck = (i: 0 | 1): Deck => {
     const el = document.createElement("audio");
     el.src = AMBIENT_URL;
@@ -130,8 +137,10 @@ function ambientEnsure(c: AudioContext): Ambient {
   document.addEventListener("visibilitychange", () => {
     const a = ambient;
     if (!a) return;
-    if (document.visibilityState === "hidden") a.decks.forEach((d) => d.el.pause());
-    else if (enabled) void a.decks[a.current].el.play().catch(() => undefined);
+    if (document.visibilityState === "hidden") {
+      a.decks.forEach((d) => d.el.pause());
+      hush(QUICK_CLOSE);
+    } else if (enabled) void a.decks[a.current].el.play().catch(() => undefined);
   });
   return ambient;
 }
@@ -189,6 +198,164 @@ function ambientStop() {
   }, AMBIENT_FADE_OUT * 1000 + 50);
 }
 
+// ---------------------------------------------------------------- the next room
+
+/**
+ * A song's preview, heard as if from the next room. It starts behind the
+ * wall: a lowpass at 700 Hz, about -16 dB, with a little of the room on it,
+ * while the bed ducks 6 dB. Keep resting on it and the door opens: over 3s
+ * the filter opens to 12 kHz, the song rises to about -6 dB and the bed sits
+ * 10 dB down. Leave and the door closes over 1.2s and the song fades back
+ * into the bed.
+ */
+const WALL_HZ = 700;
+const OPEN_HZ = 12000;
+const WALL_LEVEL = 0.16; // about -16 dB
+const OPEN_LEVEL = 0.5; // about -6 dB
+const ROOM_WET = { wall: 0.45, open: 0.06 };
+const BED_DUCK = { wall: 0.5, open: 0.32 }; // -6 dB, then -10 dB
+const WALL_IN = 0.6; // the song fades up behind the wall
+const DOOR_WAIT = 1.2; // then waits there this long before the door starts to open
+const DOOR_OPEN = 3;
+const DOOR_CLOSE = 1.2;
+const QUICK_CLOSE = 0.3; // sound turned off, or the tab hidden
+const WAKE_WAIT_MS = 300;
+
+/** What the Music page gets back: how long the song runs, where it lives on Apple Music, and how to leave. */
+export type Preview = { duration: number; link: string | null; ended: Promise<void>; stop: () => void };
+
+type Voice = { src: AudioBufferSourceNode; lp: BiquadFilterNode; level: GainNode; wet: GainNode };
+let voice: Voice | null = null;
+let roomIr: AudioBuffer | null = null;
+
+/** Most of a second of soft decaying noise: the next room's walls, heard through them. */
+function roomTone(c: AudioContext): AudioBuffer {
+  if (roomIr && roomIr.sampleRate === c.sampleRate) return roomIr;
+  const n = Math.ceil(c.sampleRate * 0.9);
+  const buf = c.createBuffer(2, n, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    let lp = 0;
+    for (let i = 0; i < n; i++) {
+      lp += (Math.random() * 2 - 1 - lp) * 0.2;
+      d[i] = lp * Math.exp((-i / c.sampleRate) * 5);
+    }
+  }
+  return (roomIr = buf);
+}
+
+/** Holds a param where it is at `t`, dropping whatever was scheduled after, so a new move starts from there. */
+function hold(p: AudioParam, t: number) {
+  if (typeof p.cancelAndHoldAtTime === "function") {
+    p.cancelAndHoldAtTime(t);
+    return;
+  }
+  const v = p.value;
+  p.cancelScheduledValues(t);
+  p.setValueAtTime(v, t);
+}
+
+/** Closes the door on the song playing, if any, over `over` seconds; the bed comes back as it goes. */
+function hush(over = DOOR_CLOSE) {
+  const v = voice;
+  const c = ctx;
+  voice = null;
+  if (!v || !c) return;
+  const t = c.currentTime;
+  [v.lp.frequency, v.level.gain, v.wet.gain].forEach((p) => hold(p, t));
+  v.lp.frequency.exponentialRampToValueAtTime(WALL_HZ, t + over);
+  v.level.gain.linearRampToValueAtTime(0, t + over);
+  if (bed) {
+    hold(bed.gain, t);
+    bed.gain.linearRampToValueAtTime(1, t + over);
+  }
+  try {
+    v.src.stop(t + over + 0.05);
+  } catch {
+    /* already stopped */
+  }
+}
+
+/**
+ * Fetches, decodes and plays a preview behind the wall, scheduling the door
+ * to open while nobody calls stop. Hover is not a gesture, so a context that
+ * has never been woken stays silent: better silence than a line pretending.
+ */
+async function listen(url: string, signal?: AbortSignal): Promise<Preview | null> {
+  if (!enabled) return null;
+  const c = ensure();
+  if (!c || !master || !bed) return null;
+  const running = () => c.state === "running";
+  if (!running()) {
+    await Promise.race([c.resume().catch(() => undefined), new Promise((r) => setTimeout(r, WAKE_WAIT_MS))]);
+    if (!running()) return null;
+  }
+  let link: string | null;
+  let buffer: AudioBuffer;
+  try {
+    const res = await fetch(url, { signal });
+    if (!res.ok) return null;
+    link = res.headers.get("x-preview-link");
+    buffer = await c.decodeAudioData(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+  if (signal?.aborted || !enabled) return null;
+  hush();
+
+  const src = c.createBufferSource();
+  src.buffer = buffer;
+  const lp = c.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.Q.value = 0.5;
+  const level = c.createGain();
+  const wet = c.createGain();
+  const walls = c.createConvolver();
+  walls.buffer = roomTone(c);
+  src.connect(lp).connect(level).connect(master);
+  lp.connect(walls).connect(wet).connect(level);
+
+  // Behind the wall, then the door, then the song's own end; a short file just ends sooner.
+  const t = c.currentTime;
+  const end = t + buffer.duration;
+  const doorAt = Math.min(t + WALL_IN + DOOR_WAIT, end);
+  const openAt = Math.min(doorAt + DOOR_OPEN, end);
+  const tail = Math.max(openAt, end - 1);
+  lp.frequency.setValueAtTime(WALL_HZ, t);
+  lp.frequency.setValueAtTime(WALL_HZ, doorAt);
+  lp.frequency.exponentialRampToValueAtTime(OPEN_HZ, openAt);
+  level.gain.setValueAtTime(0, t);
+  level.gain.linearRampToValueAtTime(WALL_LEVEL, Math.min(t + WALL_IN, end));
+  level.gain.setValueAtTime(WALL_LEVEL, doorAt);
+  level.gain.linearRampToValueAtTime(OPEN_LEVEL, openAt);
+  level.gain.setValueAtTime(OPEN_LEVEL, tail);
+  level.gain.linearRampToValueAtTime(0, end);
+  wet.gain.setValueAtTime(ROOM_WET.wall, t);
+  wet.gain.setValueAtTime(ROOM_WET.wall, doorAt);
+  wet.gain.linearRampToValueAtTime(ROOM_WET.open, openAt);
+  hold(bed.gain, t);
+  bed.gain.linearRampToValueAtTime(BED_DUCK.wall, Math.min(t + WALL_IN, end));
+  bed.gain.setValueAtTime(BED_DUCK.wall, doorAt);
+  bed.gain.linearRampToValueAtTime(BED_DUCK.open, openAt);
+  bed.gain.setValueAtTime(BED_DUCK.open, tail);
+  bed.gain.linearRampToValueAtTime(1, end);
+
+  const v: Voice = { src, lp, level, wet };
+  const ended = new Promise<void>((resolve) => {
+    src.onended = () => {
+      [src, lp, level, wet, walls].forEach((n) => n.disconnect());
+      if (voice === v) voice = null;
+      resolve();
+    };
+  });
+  src.start(t);
+  voice = v;
+  const stop = () => {
+    if (voice === v) hush();
+  };
+  return { duration: buffer.duration, link, ended, stop };
+}
+
 // ---------------------------------------------------------------- context
 
 function ensure(): AudioContext | null {
@@ -200,6 +367,8 @@ function ensure(): AudioContext | null {
     master = ctx.createGain();
     master.gain.value = 0.6;
     master.connect(ctx.destination);
+    bed = ctx.createGain();
+    bed.connect(master);
     (["tab", "slide", "focus", "close", "tick", "done"] as Synth[]).forEach((n) => buffers.set(n, synth(ctx!, n)));
   }
   if (ctx.state === "suspended") void ctx.resume();
@@ -257,13 +426,26 @@ export const sfx = {
       /* private mode */
     }
     if (on) ambientStart();
-    else ambientStop();
+    else {
+      hush(QUICK_CLOSE);
+      ambientStop();
+    }
     setFlag("soundEnabled", on);
     listeners.forEach((l) => l(on));
   },
   toggle() {
     sfx.set(!enabled);
     return enabled;
+  },
+  /**
+   * A song's preview from `url` (same-origin, so it can be filtered), heard
+   * through the wall; the door opens while nobody calls `stop`. Null, having
+   * played nothing, when sound is off, the context has not been woken by a
+   * gesture yet, there is no preview, or `signal` was aborted first. Nothing
+   * is fetched while sound is off.
+   */
+  preview(url: string, signal?: AbortSignal): Promise<Preview | null> {
+    return listen(url, signal);
   },
   onChange(l: (on: boolean) => void) {
     listeners.add(l);

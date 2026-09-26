@@ -9,6 +9,11 @@ export const ROLE = "Basic Human";
 export const TAGLINE = "Interfaces, motion and small tools, built with care.";
 export const SITE_URL = "https://eigengrau.example";
 export const YEAR = 2026;
+/**
+ * Where he lives, as an IANA time zone ("Europe/London"). Urchi keeps these hours (asleep at night)
+ * and Music reads the week's listening in them. null keeps the visitor's own hours until it is set.
+ */
+export const TIME_ZONE: string | null = null; // TODO(darius): set your zone
 
 /** About page. Three lines, about twelve words. */
 export const STATEMENT = [
@@ -39,17 +44,59 @@ export const ELSEWHERE = [
 ] as const;
 
 /**
+ * How Urchi takes a line once it has read it: a slow blink, a puzzled tilt,
+ * a glance away, a slow look round the room, or a long, patient blink.
+ */
+export type UrchiReaction = "slowBlink" | "puzzled" | "glanceAway" | "lookAround" | "longBlink";
+
+/**
  * The owner's lines about Urchi, shown under its name as the hover caption on
  * Space. His voice, never the creature's; no exclamation marks; at most 48
- * characters. One is chosen per visit.
+ * characters. One is chosen per visit. Urchi reads the line when it rises and
+ * then reacts to it, each line in its own way.
  */
-export const URCHI_LINES = [
-  "It keeps the place while I am out.",
-  "It has never asked for anything.",
-  "It watches the pointer. So do I.",
-  "Spikes, two eyes, and a lot of patience.",
-  "It does not know it is the mascot.",
+export const URCHI_LINES: { text: string; reaction: UrchiReaction }[] = [
+  { text: "It keeps the place while I am out.", reaction: "lookAround" },
+  { text: "It has never asked for anything.", reaction: "slowBlink" },
+  { text: "It watches the pointer. So do I.", reaction: "glanceAway" },
+  { text: "Spikes, two eyes, and a lot of patience.", reaction: "longBlink" },
+  { text: "It does not know it is the mascot.", reaction: "puzzled" },
 ];
+
+/**
+ * The captions that replace his line while their state holds (Urchi does not
+ * read these: it is asleep, or busy listening). {time} is his time, h:mm;
+ * {title} is the song. A listening line longer than 48 characters falls back
+ * to `listeningLong`.
+ */
+export const URCHI_STATES = {
+  asleep: "It is {time} here. It is asleep.",
+  listening: "He is playing {title}. It is listening.",
+  listeningLong: "He is listening to something. So is it.",
+};
+
+/**
+ * What Urchi's look at a tab's pill means, said once in the caption under
+ * that tab's label ("Notes", "Projects"): what changed since the visitor's
+ * last visit. {count} is a number word, {date} that visit's day ("12 September").
+ */
+export const URCHI_NEWS = {
+  note: "{count} new note since {date}.",
+  notes: "{count} new notes since {date}.",
+  changed: "Changed since {date}.",
+};
+
+/** A caption template with its {placeholders} filled. */
+export function fillLine(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (m, k: string) => values[k] ?? m);
+}
+
+/**
+ * When Projects and About last changed, YYYY-MM-DD. Bump these whenever you
+ * change those tabs: Urchi looks up at the pill of a tab that is newer than a
+ * returning visitor's last visit. (Notes date themselves from the newest note.)
+ */
+export const UPDATED = { projects: "2026-09-25", about: "2026-09-25" };
 
 export type Media =
   | { kind: "image"; src: string }
@@ -58,6 +105,7 @@ export type Media =
 export type Status = "alive" | "paused" | "dead" | "shipped";
 
 export type Project = {
+  /** Its case page, /projects/<slug>, and its #slug on the thread. Its pieces in SPACE_ITEMS name it as `project`. */
   slug: string;
   title: string;
   status: Status;
@@ -142,6 +190,21 @@ const NUMBER_WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven
 /** A count as the site writes it: "No", "One" … "Twelve", then digits. */
 export const numberWord = (n: number) => NUMBER_WORDS[n] ?? String(n);
 
+const TEENS = ["Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+/**
+ * numberWord, carried on to ninety-nine, for counts that run past twelve (a
+ * week of plays, a year of notes): "Sixty-two plays", "Eighty-one notes".
+ * Digits after that. One copy, so Space, Notes and Music never disagree.
+ */
+export function countWord(n: number): string {
+  if (n <= 12) return numberWord(n);
+  if (n < 20) return TEENS[n - 13];
+  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? `-${numberWord(n % 10).toLowerCase()}` : "");
+  return String(n);
+}
+
 /** The bottom line on Projects, derived from the data so it is never stale: "Six projects since 2021. Two alive." */
 export function projectsLine(projects: readonly Project[] = PROJECTS): string {
   const since = Math.min(...projects.map((p) => p.year));
@@ -159,6 +222,12 @@ export type Note = {
   tags: string[];
   body: string;
 };
+
+/**
+ * Past this many notes the column settles into sediment: the last sixty days stay in full, each
+ * older month folds into one line, and the months older than a year into one line per year.
+ */
+export const NOTES_FOLD_AFTER = 100;
 
 /** The notes column, any order; the page sorts newest first. Log lines carry the tag "site". */
 export const NOTES: Note[] = [
@@ -180,31 +249,35 @@ export type SpaceItem = {
   /** width / height */
   aspect: number;
   media: Media;
-  /** Description revealed by "Overview": one entry per line. */
+  /** Three short lines about the piece, one entry per line. */
   description: string[];
+  /** The year it was made. A project's pieces take the project's year. */
+  year: number;
+  /** The slug of the project it belongs to. Without one it is a study: a bead of its own on the thread. */
+  project?: string;
 };
 
 const desc = (a: string, b: string, c: string) => [a, b, c];
 
 export const SPACE_ITEMS: SpaceItem[] = [
-  { id: "s01", title: "Meridian, cover", category: "Art Direction", aspect: 0.75, media: { kind: "image", src: "/work/s01.webp" }, description: desc("The first spread of the Meridian reading app.", "A single column, a single weight,", "and a lot of room to breathe.") },
-  { id: "s02", title: "Stripe study", category: "Motion", aspect: 1.5, media: { kind: "image", src: "/work/s02.webp" }, description: desc("A stripe field used as the loading state", "for the Nocturne identity.", "It rotates by one degree every second.") },
-  { id: "s03", title: "Nocturne, poster", category: "Identity", aspect: 1, media: { kind: "image", src: "/work/s03.webp" }, description: desc("Poster series for the radio programme.", "Every poster is the same three blobs", "photographed at a different hour.") },
-  { id: "s04", title: "Orbit", category: "Motion", aspect: 0.8, media: { kind: "video", src: "/work/s04.webm", poster: "/work/s04.webp" }, description: desc("Six dots on six orbits.", "A loop that never quite repeats,", "made for a lock screen.") },
-  { id: "s05", title: "Halo, arcs", category: "Web Design", aspect: 1.333, media: { kind: "image", src: "/work/s05.webp" }, description: desc("The arc language of the Halo site.", "Every section is a quarter turn", "of the same circle.") },
-  { id: "s06", title: "Letterform K", category: "Type", aspect: 0.75, media: { kind: "image", src: "/work/s06.webp" }, description: desc("A single letter cut for a wordmark.", "Heavy, close, and slightly off centre", "on purpose.") },
-  { id: "s07", title: "Atlas, horizon", category: "Editorial", aspect: 1.778, media: { kind: "image", src: "/work/s07.webp" }, description: desc("Opening image for an Atlas story.", "The horizon sits at the golden section", "and the type sits below it.") },
-  { id: "s08", title: "Scan", category: "Motion", aspect: 1, media: { kind: "video", src: "/work/s08.webm", poster: "/work/s08.webp" }, description: desc("A scanning bar over a still circle.", "Used as the progress indicator", "in the Sundial prototype.") },
-  { id: "s09", title: "Nocturne, dusk", category: "Identity", aspect: 0.75, media: { kind: "image", src: "/work/s09.webp" }, description: desc("The dusk variant of the poster.", "Same blobs, warmer light,", "printed on uncoated stock.") },
-  { id: "s10", title: "Field, red", category: "Art Direction", aspect: 1.333, media: { kind: "image", src: "/work/s10.webp" }, description: desc("A colour field with one circle.", "The whole Meridian palette", "started from this frame.") },
-  { id: "s11", title: "Halo, rings", category: "Web Design", aspect: 0.8, media: { kind: "image", src: "/work/s11.webp" }, description: desc("Concentric rings for the Halo hero.", "They rotate with the scroll", "and stop on the product.") },
-  { id: "s12", title: "Letterform R", category: "Type", aspect: 1.5, media: { kind: "image", src: "/work/s12.webp" }, description: desc("A wide letter for a wide wordmark.", "Drawn in an afternoon,", "kerned over a week.") },
-  { id: "s13", title: "Pulse", category: "Motion", aspect: 1, media: { kind: "video", src: "/work/s13.webm", poster: "/work/s13.webp" }, description: desc("A breathing shape.", "It slows down when nobody moves the mouse", "and speeds up when somebody does.") },
-  { id: "s14", title: "Atlas, coast", category: "Editorial", aspect: 0.75, media: { kind: "image", src: "/work/s14.webp" }, description: desc("Portrait crop of the coast story.", "The sun is a hole in the page,", "not a shape on it.") },
-  { id: "s15", title: "Lattice, grid", category: "Tooling", aspect: 1.333, media: { kind: "image", src: "/work/s15.webp" }, description: desc("The dot grid from the Lattice tool.", "One dot is missing", "wherever the cursor last rested.") },
-  { id: "s16", title: "Grain", category: "Art Direction", aspect: 0.75, media: { kind: "image", src: "/work/s16.webp" }, description: desc("Film grain over a two-colour gradient.", "A texture study that became", "the Nocturne loading screen.") },
-  { id: "s17", title: "Field, square", category: "Art Direction", aspect: 1, media: { kind: "image", src: "/work/s17.webp" }, description: desc("The square version of the field.", "Made for the app icon,", "kept for the wall.") },
-  { id: "s18", title: "Wave", category: "Motion", aspect: 1.778, media: { kind: "video", src: "/work/s18.webm", poster: "/work/s18.webp" }, description: desc("Seven lines, one of them coloured.", "A waveform for a sound", "that does not exist yet.") },
-  { id: "s19", title: "Stripe, tall", category: "Identity", aspect: 0.8, media: { kind: "image", src: "/work/s19.webp" }, description: desc("Tall stripe field for a banner.", "Printed at four metres", "and hung upside down by mistake.") },
-  { id: "s20", title: "Halo, wide", category: "Web Design", aspect: 1.5, media: { kind: "image", src: "/work/s20.webp" }, description: desc("The wide arcs from the Halo footer.", "This is where the page ends", "and the circle closes.") },
+  { id: "s01", year: 2023, project: "meridian", title: "Meridian, cover", category: "Art Direction", aspect: 0.75, media: { kind: "image", src: "/work/s01.webp" }, description: desc("The first spread of the Meridian reading app.", "A single column, a single weight,", "and a lot of room to breathe.") },
+  { id: "s02", year: 2024, project: "nocturne", title: "Stripe study", category: "Motion", aspect: 1.5, media: { kind: "image", src: "/work/s02.webp" }, description: desc("A stripe field used as the loading state", "for the Nocturne identity.", "It rotates by one degree every second.") },
+  { id: "s03", year: 2024, project: "nocturne", title: "Nocturne, poster", category: "Identity", aspect: 1, media: { kind: "image", src: "/work/s03.webp" }, description: desc("Poster series for the radio programme.", "Every poster is the same three blobs", "photographed at a different hour.") },
+  { id: "s04", year: 2022, title: "Orbit", category: "Motion", aspect: 0.8, media: { kind: "video", src: "/work/s04.webm", poster: "/work/s04.webp" }, description: desc("Six dots on six orbits.", "A loop that never quite repeats,", "made for a lock screen.") },
+  { id: "s05", year: 2021, project: "halo", title: "Halo, arcs", category: "Web Design", aspect: 1.333, media: { kind: "image", src: "/work/s05.webp" }, description: desc("The arc language of the Halo site.", "Every section is a quarter turn", "of the same circle.") },
+  { id: "s06", year: 2022, title: "Letterform K", category: "Type", aspect: 0.75, media: { kind: "image", src: "/work/s06.webp" }, description: desc("A single letter cut for a wordmark.", "Heavy, close, and slightly off centre", "on purpose.") },
+  { id: "s07", year: 2023, project: "atlas", title: "Atlas, horizon", category: "Editorial", aspect: 1.778, media: { kind: "image", src: "/work/s07.webp" }, description: desc("Opening image for an Atlas story.", "The horizon sits at the golden section", "and the type sits below it.") },
+  { id: "s08", year: 2025, project: "sundial", title: "Scan", category: "Motion", aspect: 1, media: { kind: "video", src: "/work/s08.webm", poster: "/work/s08.webp" }, description: desc("A scanning bar over a still circle.", "Used as the progress indicator", "in the Sundial prototype.") },
+  { id: "s09", year: 2024, project: "nocturne", title: "Nocturne, dusk", category: "Identity", aspect: 0.75, media: { kind: "image", src: "/work/s09.webp" }, description: desc("The dusk variant of the poster.", "Same blobs, warmer light,", "printed on uncoated stock.") },
+  { id: "s10", year: 2023, project: "meridian", title: "Field, red", category: "Art Direction", aspect: 1.333, media: { kind: "image", src: "/work/s10.webp" }, description: desc("A colour field with one circle.", "The whole Meridian palette", "started from this frame.") },
+  { id: "s11", year: 2021, project: "halo", title: "Halo, rings", category: "Web Design", aspect: 0.8, media: { kind: "image", src: "/work/s11.webp" }, description: desc("Concentric rings for the Halo hero.", "They rotate with the scroll", "and stop on the product.") },
+  { id: "s12", year: 2024, title: "Letterform R", category: "Type", aspect: 1.5, media: { kind: "image", src: "/work/s12.webp" }, description: desc("A wide letter for a wide wordmark.", "Drawn in an afternoon,", "kerned over a week.") },
+  { id: "s13", year: 2025, title: "Pulse", category: "Motion", aspect: 1, media: { kind: "video", src: "/work/s13.webm", poster: "/work/s13.webp" }, description: desc("A breathing shape.", "It slows down when nobody moves the mouse", "and speeds up when somebody does.") },
+  { id: "s14", year: 2023, project: "atlas", title: "Atlas, coast", category: "Editorial", aspect: 0.75, media: { kind: "image", src: "/work/s14.webp" }, description: desc("Portrait crop of the coast story.", "The sun is a hole in the page,", "not a shape on it.") },
+  { id: "s15", year: 2025, project: "lattice", title: "Lattice, grid", category: "Tooling", aspect: 1.333, media: { kind: "image", src: "/work/s15.webp" }, description: desc("The dot grid from the Lattice tool.", "One dot is missing", "wherever the cursor last rested.") },
+  { id: "s16", year: 2024, project: "nocturne", title: "Grain", category: "Art Direction", aspect: 0.75, media: { kind: "image", src: "/work/s16.webp" }, description: desc("Film grain over a two-colour gradient.", "A texture study that became", "the Nocturne loading screen.") },
+  { id: "s17", year: 2023, project: "meridian", title: "Field, square", category: "Art Direction", aspect: 1, media: { kind: "image", src: "/work/s17.webp" }, description: desc("The square version of the field.", "Made for the app icon,", "kept for the wall.") },
+  { id: "s18", year: 2026, title: "Wave", category: "Motion", aspect: 1.778, media: { kind: "video", src: "/work/s18.webm", poster: "/work/s18.webp" }, description: desc("Seven lines, one of them coloured.", "A waveform for a sound", "that does not exist yet.") },
+  { id: "s19", year: 2024, project: "nocturne", title: "Stripe, tall", category: "Identity", aspect: 0.8, media: { kind: "image", src: "/work/s19.webp" }, description: desc("Tall stripe field for a banner.", "Printed at four metres", "and hung upside down by mistake.") },
+  { id: "s20", year: 2021, project: "halo", title: "Halo, wide", category: "Web Design", aspect: 1.5, media: { kind: "image", src: "/work/s20.webp" }, description: desc("The wide arcs from the Halo footer.", "This is where the page ends", "and the circle closes.") },
 ];
