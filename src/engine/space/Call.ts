@@ -36,15 +36,28 @@ const MATCH = { share: 0.25, ms: 90, within: 15000 };
 const SOFT_FOR = 20;
 /**
  * Its blinks: at most the site's slow blink (Threshold's yes, 0.35s closing, 0.2s shut, 0.35s
- * opening). In a quick rhythm each part is a share of the gap beside it, so the eyes are open for
- * at least a quarter of every gap and each beat reads as its own. Under reduced motion the lids go
- * at once, and stay shut a little longer so that a quick beat still shows.
+ * opening), which the first beat's closing and the last beat's shut and opening always are. Between
+ * two beats, the lids stay shut for `holdShare` of the gap, never under `holdMin` (a beat has to
+ * read as a closed moment, not a flicker) nor over `holdMost` of it; of the time left, a fifth is
+ * spent at their most open and the rest opening and closing. Where that is too quick for them to
+ * open all the way without moving faster than a full `stroke` in 0.12s, they part only as far as
+ * that pace takes them, but always to `partMost` or wider, so that each beat still shows: at the
+ * 250-500ms most people tap, a heavy, deliberate flutter rather than a string of quick blinks.
+ * Under reduced motion the lids go at once, shut for `reducedShare` of the gap, `reducedMin` to
+ * `reducedHold` seconds.
  */
-const BLINK = { close: 0.35, hold: 0.2, open: 0.35, closeShare: 0.3, holdShare: 0.15, openShare: 0.3, reducedHold: 0.24, reducedShare: 0.45 };
+const BLINK = {
+  close: 0.35, hold: 0.2, open: 0.35,
+  holdShare: 0.3, holdMin: 0.07, holdMost: 0.6, still: 0.2, stroke: 0.12, partMost: 0.5,
+  reducedHold: 0.24, reducedMin: 0.06, reducedShare: 0.45,
+};
 /** From the answer starting to its first blink beginning to close (s): the lean (RoomScene's LEAN.in, and a breath more), or under reduced motion, a beat. */
 const LEAD = { lean: 0.5, reduced: 0.35 };
 /** How far the face tips down as it leans in (degrees). */
 const LEAN_PITCH = 3;
+
+/** The acts a rhythm sets off, after the listening. */
+const ACTS = ["answer", "trust", "murmur", "drowse", "lost"];
 
 /** Answers finished this visit, in memory: all it keeps, for the third one's extra beat. */
 let answered = 0;
@@ -57,18 +70,22 @@ export function plan(gaps: number[], start: number, reduced: boolean, own = fals
   const n = gaps.length + 1;
   const beats: Beat[] = [];
   let at = start + (reduced ? LEAD.reduced : LEAD.lean + BLINK.close) * 1000;
-  for (let i = 0; i < n; i++) {
-    const before = i > 0 ? gaps[i - 1] / 1000 : Infinity;
-    const after = i < n - 1 ? gaps[i] / 1000 : Infinity;
-    beats.push({
-      at,
-      close: reduced ? 0 : Math.min(BLINK.close, BLINK.closeShare * before),
-      hold: reduced ? Math.min(BLINK.reducedHold, BLINK.reducedShare * after) : Math.min(BLINK.hold, BLINK.holdShare * after),
-      open: reduced ? 0 : Math.min(BLINK.open, BLINK.openShare * after),
-      own: own && i === n - 1,
-    });
-    if (i < n - 1) at += gaps[i];
+  let close = reduced ? 0 : BLINK.close;
+  for (let i = 0; i < n - 1; i++) {
+    const g = gaps[i] / 1000;
+    if (reduced) {
+      beats.push({ at, close: 0, hold: Math.min(BLINK.reducedHold, Math.max(BLINK.reducedMin, BLINK.reducedShare * g)), open: 0, part: 0 });
+    } else {
+      const hold = Math.min(BLINK.hold, Math.max(BLINK.holdMin, BLINK.holdShare * g), BLINK.holdMost * g);
+      const move = ((g - hold) * (1 - BLINK.still)) / 2;
+      const part = Math.min(BLINK.partMost, Math.max(0, 1 - move / BLINK.stroke));
+      beats.push({ at, close, hold, open: Math.min(BLINK.open, move), part });
+      close = Math.min(BLINK.close, move);
+    }
+    at += gaps[i];
   }
+  // the last: a whole slow blink, opening all the way
+  beats.push({ at, close, hold: reduced ? BLINK.reducedHold : BLINK.hold, open: reduced ? 0 : BLINK.open, part: 0, own });
   return beats;
 }
 
@@ -96,29 +113,38 @@ export class Call {
   private version: { gaps: number[]; until: number } | null = null;
   /** The answer's pats, to take back if it is cut short. */
   private pats: (() => void)[] = [];
-  private stopFrame: () => void;
+  /** The timer that waits for the quiet after a tap (or for a press to have been held too long). */
+  private quiet = 0;
+  /**
+   * The rhythm the timer last closed, as it was: a tap stamped inside it that turns up afterwards
+   * (a busy page can hold taps back past the timer) reopens it.
+   */
+  private closed: { taps: number[]; lost: boolean; version: Call["version"] } | null = null;
 
   constructor(room: RoomScene, att: Attention, motes: Motes, o: { reducedMotion: boolean }) {
     this.room = room;
     this.att = att;
     this.motes = motes;
     this.reduced = o.reducedMotion;
-    this.stopFrame = room.onFrame(() => this.frame());
   }
 
-  /** Listening to a rhythm or answering one, so nothing else should take its eyes. */
+  /** Listening to a rhythm or answering one (at night, stirring at one), so nothing else should take its eyes. */
   get busy() {
-    return this.taps.length > 0 || this.att.has("answer") || this.att.has("trust");
+    return this.taps.length > 0 || ACTS.some((name) => this.att.has(name));
   }
 
-  /** A press began on the room: while a rhythm is going, it may be its next tap. */
+  /** A press began on the room, at `at` (performance.now() ms): while a rhythm is going, it may be its next tap. */
   press(at: number) {
-    if (this.taps.length) this.pressAt = at;
+    if (!this.taps.length) return;
+    this.pressAt = at;
+    this.listen(at + RHYTHM.press);
   }
 
   /** Not a tap on the empty room after all (a drag, a long press, Urchi itself, the game): the rhythm is off. */
   abort() {
     this.pressAt = -1;
+    this.closed = null;
+    window.clearTimeout(this.quiet);
     if (!this.taps.length) return;
     this.taps = [];
     this.lost = false;
@@ -134,10 +160,20 @@ export class Call {
   /** A tap on the empty room, pressed at `at` (performance.now() ms): a mote goes there, and it may be part of a rhythm. */
   tap(clientX: number, clientY: number, at: number) {
     this.pressAt = -1;
+    const closed = this.closed;
+    this.closed = null;
+    if (!this.taps.length && closed && at - closed.taps[closed.taps.length - 1] <= RHYTHM.gap[1]) {
+      // closed too soon: this tap was made inside the rhythm and held back, so the rhythm goes on,
+      // and whatever the closing set off (an answer not a frame old) is taken back
+      ACTS.forEach((name) => this.att.cancel(name));
+      this.taps = closed.taps;
+      this.lost = closed.lost;
+      this.version = closed.version;
+    }
     // tapping over its answer (or one about to start) cuts it short: you are talking again
     if (this.att.has("answer")) this.att.cancel("answer");
     const last = this.taps[this.taps.length - 1];
-    if (last !== undefined && at - last > RHYTHM.gap[1]) this.end(); // the frame's check would have, a moment later
+    if (last !== undefined && at - last > RHYTHM.gap[1]) this.end(); // the timer would have, had the page not been busy
     const prev = this.taps[this.taps.length - 1];
     if (prev !== undefined && at - prev < RHYTHM.gap[0]) {
       this.motes.release(clientX, clientY, true);
@@ -145,6 +181,7 @@ export class Call {
     }
     this.taps.push(at);
     this.where = { x: clientX, y: clientY };
+    this.listen(at + RHYTHM.gap[1]);
     const n = this.taps.length;
     const mote = this.motes.release(clientX, clientY, n > 1);
     if (n === 1) {
@@ -169,14 +206,35 @@ export class Call {
     if (!this.att.has("heed")) this.att.play("heed", 5, () => heed(this.att, () => this.taps.length), { queue: 1 });
   }
 
-  private frame() {
+  /** Looks again at `ms` (performance.now() ms), or a moment from now if that has gone. */
+  private listen(ms: number) {
+    window.clearTimeout(this.quiet);
+    this.quiet = window.setTimeout(() => this.check(), Math.max(0, ms - performance.now()) + 1);
+  }
+
+  /**
+   * Is it quiet yet? After 900ms with no tap, the rhythm is over and answered; a press still down
+   * waits for the press limit instead (a tap may be on its way), and past it the rhythm is off.
+   * Either way it can be reopened (see `closed`): a page busy painting can hold taps back past
+   * this timer, and the order it runs them in is not to be relied on.
+   */
+  private check() {
     if (!this.taps.length) return;
-    const now = performance.now();
-    if (this.pressAt >= 0) {
-      if (now - this.pressAt > RHYTHM.press) this.abort();
-      return; // a tap may be on its way
+    const held = this.pressAt >= 0;
+    const due = held ? this.pressAt + RHYTHM.press : this.taps[this.taps.length - 1] + RHYTHM.gap[1];
+    if (performance.now() < due) {
+      this.listen(due);
+      return;
     }
-    if (now - this.taps[this.taps.length - 1] >= RHYTHM.gap[1]) this.end();
+    this.closed = { taps: this.taps, lost: this.lost, version: this.version };
+    if (!held) {
+      this.end();
+      return;
+    }
+    this.taps = [];
+    this.lost = false;
+    this.pressAt = -1;
+    this.att.cancel("heed");
   }
 
   /** The quiet after a rhythm: answer it, if it was one. */
@@ -186,6 +244,7 @@ export class Call {
     this.taps = [];
     this.lost = false;
     this.pressAt = -1;
+    window.clearTimeout(this.quiet);
     this.att.cancel("heed");
     if (gaveUp || taps.length < RHYTHM.min) return;
     this.respond(
@@ -239,7 +298,7 @@ export class Call {
   }
 
   dispose() {
-    this.stopFrame();
+    window.clearTimeout(this.quiet);
     this.pats.forEach((stop) => stop());
     this.pats = [];
   }

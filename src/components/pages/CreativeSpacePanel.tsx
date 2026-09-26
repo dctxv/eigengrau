@@ -39,6 +39,16 @@ const RESULT_DWELL = 4;
 /** A press that moves less than this (px) and lets go within this (ms) is a click. */
 const CLICK = { slop: 6, ms: 600 };
 /**
+ * When a pointer event happened (performance.now() ms): its own time stamp, so that one long frame
+ * (a phone painting Urchi at its full resolution) does not bunch the taps it held back into one
+ * rhythm-breaking cluster. A stamp on another clock (older browsers counted from 1970), from the
+ * future or older than `stale` ms is not believed, and the handler's own time stands in.
+ */
+const eventTime = (e: Event, stale = 2000) => {
+  const now = performance.now();
+  return e.timeStamp > 0 && e.timeStamp <= now && now - e.timeStamp < stale ? e.timeStamp : now;
+};
+/**
  * Seconds the pointer must rest on Urchi before its caption rises. A pointer crossing it on the
  * way to the tabs is not a hover, and must not spend the line's one reading.
  */
@@ -48,8 +58,12 @@ const HOVER_REST = 0.35;
  * over), and for the pointer to be still this long; then its line holds the caption this long.
  */
 const NEWS = { after: 2.4, afterIntro: 0.8, still: 1, dwell: 4 };
-/** A phone has no hover: the caption rises once, this long after the eyes open, and sinks after `dwell`. */
-const PHONE_CAPTION = { after: 3, dwell: 5 };
+/**
+ * A phone has no hover: the caption rises once, this long after the eyes open, and sinks after
+ * `dwell`. Never sooner than `afterCall` seconds after a rhythm tapped at it (or its answer): rising
+ * the moment an answer ends, the line would read as part of it.
+ */
+const PHONE_CAPTION = { after: 3, dwell: 5, afterCall: 4 };
 /** While he is listening: a look at the "4" first after this long, then every 60-90s. */
 const LISTEN_GLANCE = { first: [8, 20] as [number, number], every: [60, 90] as [number, number] };
 /** A song "playing" for longer than this is a stale now-playing, and treated as nothing. */
@@ -389,6 +403,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let newsAt = Infinity;
     const news = newsTold() ? null : whatsNew();
     let listenGlance = Infinity;
+    /** When a rhythm or its answer last had its attention (attention seconds). */
+    let callHeard = -Infinity;
     const begin = (afterIntro: boolean) => {
       if (begun >= 0) return;
       arriving = !afterIntro;
@@ -420,7 +436,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         );
       }
       // A phone has no hover: its caption rises once, and it reads it.
-      if (phone && !phoneCaptionShown && t >= begun + PHONE_CAPTION.after && !att.acting && slot === null) {
+      if (call.busy) callHeard = t;
+      if (phone && !phoneCaptionShown && t >= begun + PHONE_CAPTION.after && t >= callHeard + PHONE_CAPTION.afterCall && !att.acting && slot === null) {
         phoneCaptionShown = true;
         showUrchiCaption("auto", PHONE_CAPTION.dwell);
       }
@@ -505,13 +522,17 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
 
     // ---- caught in the act: back on the tab after a while away, it was doing something else
     let hiddenAt = -1;
-    /** What it is caught doing: facing into a top corner, staring up at the "2", or halfway through a stretch (not under reduced motion, where the head stays still). */
+    /**
+     * What it is caught doing: facing into a top corner, staring up at the "2", or halfway through
+     * a stretch. Under reduced motion the head stays still and only the pupils can show it, which
+     * they do for a corner and hardly at all for the pill just above the head, so it is the corner.
+     */
     const pose = (): Caught => {
-      const r = Math.random() * (reducedMotion ? 0.7 : 1);
+      const r = reducedMotion ? 0 : Math.random();
       const side = Math.random() < 0.5 ? -1 : 1;
-      if (r < 0.4 || (r < 0.7 && !pillAt("/projects"))) return { kind: "corner", at: { x: (0.5 + side * 0.48) * window.innerWidth, y: 0.03 * window.innerHeight } };
+      if (r < 0.4 || (r < 0.7 && !pillAt("/projects"))) return { kind: "corner", side, at: { x: (0.5 + side * 0.48) * window.innerWidth, y: 0.03 * window.innerHeight } };
       if (r < 0.7) return { kind: "pill", at: () => pillAt("/projects") };
-      return { kind: "stretch", roll: side * 5 };
+      return { kind: "stretch", side };
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
@@ -526,7 +547,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       // Never while it sleeps or dozes, in the intro, with the game up, mid-rhythm or mid-slide.
       if (begun < 0 || gameOpen || att.asleep || call.busy || getFlags().transitioning) return;
       // Played now, before the page's first frame back, so that frame already shows it.
-      if (att.play("caught", 6, () => caught(att, pose()))) caughtAt = now;
+      if (att.play("caught", 6, () => caught(att, pose(), { rise: (on, seconds) => room.riseUrchi(on, seconds) }))) caughtAt = now;
     };
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -537,11 +558,11 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const onMove = (e: PointerEvent) => setOverUrchi(room.urchiHit(e.clientX, e.clientY));
     const onLeave = () => setOverUrchi(false);
     const onDown = (e: PointerEvent) => {
-      down = { x: e.clientX, y: e.clientY, t: performance.now() };
+      down = { x: e.clientX, y: e.clientY, t: eventTime(e) };
       call.press(down.t);
     };
     const onUp = (e: PointerEvent) => {
-      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK.slop || performance.now() - down.t > CLICK.ms) {
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK.slop || eventTime(e) - down.t > CLICK.ms) {
         call.abort();
         return;
       }

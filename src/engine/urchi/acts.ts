@@ -376,10 +376,11 @@ export function* heed(a: Attention, taps: () => number): Act {
 
 /**
  * One blink of an answer: `at` is when the lids meet (performance.now() ms), which is when its pat
- * is heard; `close`, `hold` and `open` are seconds, shortened to fit a quick rhythm. `own` marks
- * the beat it adds itself.
+ * is heard; `close`, `hold` and `open` are seconds, shortened to fit a quick rhythm, and `part` is
+ * how shut the lids stay as they open (0 all the way; more when the next beat is too close for
+ * that). `own` marks the beat it adds itself.
  */
-export type Beat = { at: number; close: number; hold: number; open: number; own?: boolean };
+export type Beat = { at: number; close: number; hold: number; open: number; part: number; own?: boolean };
 
 /**
  * After an answer's last beat, no ordinary blink for this long and a second more (holdBlinks):
@@ -422,7 +423,7 @@ export function* answer(a: Attention, start: () => Beat[], o: { lean: (on: boole
       a.ch.setLids(1, 1, Math.min(b.close, left));
       if (b.own) a.ch.tiltToward(Math.random() < 0.5 ? -1 : 1, 5);
       yield* untilMs(b.at + b.hold * 1000);
-      a.ch.setLids(0, 0, b.open);
+      a.ch.setLids(b.part, b.part, b.open);
     }
     finished = true; // every beat given; what follows is only the lean easing off
     if (last) yield* untilMs(last.at + (last.hold + last.open) * 1000 + 450);
@@ -538,27 +539,55 @@ function* openFor(a: Attention, seconds: number, late: number): Act {
   }
 }
 
-/** What it was found doing: facing into a corner, staring up at a pill, or halfway through a stretch. */
-export type Caught = { kind: "corner" | "pill"; at: Where } | { kind: "stretch"; roll: number };
+/**
+ * What it was found doing: facing into a corner (`side`, the corner's), staring up at a pill, or
+ * halfway through a stretch (`side`, the way it leans).
+ */
+export type Caught = { kind: "corner"; at: Where; side: number } | { kind: "pill"; at: Where } | { kind: "stretch"; side: number };
+
+/**
+ * The poses, in degrees. Staring up at a pill, the face tips further up than the look alone takes
+ * it: a pill under the top edge is as high as a look goes, and on a phone it sits nearly straight
+ * above the head, where the look alone barely moves it. Halfway through a stretch the face is
+ * tipped well up with the eyes squeezed shut, rolled to one side and a little turned, the head
+ * risen and drawn long (the room does that) and the breath held at the top. The character's own
+ * stretch (9.5 degrees and a small rise, on its way somewhere) reads as a blink once it is
+ * stopped. `speed` is the pose's springs: stiff enough to be nearly there on the first frame back
+ * (the ticker gives a frame after a hidden page 33ms at most), so the pose is found, not seen.
+ */
+const CAUGHT_POSE = { pillPitch: -8, stretch: { pitch: -20, roll: 10, yaw: 5 }, speed: 120 };
+/** The startle as it turns back: a jolt up on the pose's springs (degrees per second), as a doze broken by a pointer has. */
+const CAUGHT_KICK = -80;
+/** Out of the stretch, the head sinks back over this long (s), with the startle. */
+const CAUGHT_SINK = 0.35;
 
 /**
  * Back after a while away, you find it doing something it would not do while watched. It is
  * already there on the first frame, and holds it for 350-500ms of open eyes (the stretch's are
- * shut) so the eye can land on it; then it startles, turns to you (blinking as it turns, as any
- * wide turn does) and carries on.
- * Reduced motion: the pose (the pupils off at the corner or the pill), then a cut to you.
+ * shut) so the eye can land on it; then it startles, turns to you and carries on. It startles
+ * whether or not it knows where you are: back from another tab on a desktop the mouse is nowhere
+ * until it moves, so the startle tips the way it turns back (away from the corner, out of the
+ * stretch's lean). `rise` lifts the head for the stretch, or lets it down (the room's to do).
+ * Reduced motion: the room asks only for the corner, which the pupils alone can show; they go
+ * there, then cut to you.
  */
-export function* caught(a: Attention, pose: Caught): Act {
+export function* caught(a: Attention, pose: Caught, o: { rise: (on: boolean, seconds: number) => void }): Act {
   const hold = rand(0.35, 0.5);
+  const back = pose.kind === "pill" ? (Math.random() < 0.5 ? -1 : 1) : pose.side < 0 ? 1 : -1;
+  let risen = false;
   try {
     a.holdBlinks(hold + CAUGHT_BLINK_LATE); // no blink of its own over the pose: the eye has to land on it
     if (pose.kind === "stretch") {
-      // at the top of a stretch: face tipped up, eyes squeezed shut, a little off level
+      const s = CAUGHT_POSE.stretch;
       a.look(face(a), "snap");
-      a.ch.pose(0, -13, pose.roll, 60);
+      a.ch.pose(pose.side * s.yaw, s.pitch, pose.side * s.roll, CAUGHT_POSE.speed);
       a.ch.setLids(1, 1, 0);
+      a.ch.pauseBreath(hold + 0.2);
+      o.rise(true, 0);
+      risen = true;
     } else {
       a.look(pose.at, "snap");
+      if (pose.kind === "pill") a.ch.pose(0, CAUGHT_POSE.pillPitch, 0, CAUGHT_POSE.speed);
       // Reduced motion keeps the head front, so the pupils go as far as they reach that way on their own.
       const p = typeof pose.at === "function" ? pose.at() : pose.at;
       if (a.reduced && p) {
@@ -571,17 +600,21 @@ export function* caught(a: Attention, pose: Caught): Act {
     if (pose.kind === "stretch") yield hold;
     else yield* openFor(a, hold, CAUGHT_BLINK_LATE);
     a.eyes(null);
-    const you = a.you();
-    if (you) a.startle(you);
-    else a.ch.pauseBreath(0.4);
-    if (pose.kind === "stretch") {
+    const h = a.head();
+    a.startle(a.you() ?? { x: h.x + back, y: h.y });
+    a.ch.kick(0, CAUGHT_KICK, 0);
+    a.ch.dip();
+    if (risen) {
       a.ch.setLids(0, 0, 0.1);
-      a.restPose(14);
+      o.rise(false, CAUGHT_SINK);
+      risen = false;
     }
+    a.restPose(14);
     a.look("you", "quick");
     yield 1;
   } finally {
     if (a.mood === "awake") a.ch.setLids(0, 0, 0.1);
+    if (risen) o.rise(false, CAUGHT_SINK);
     a.eyes(null);
     a.restPose();
     a.look(null);
