@@ -140,6 +140,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       return { x: r.left + r.width / 2 + e.x, y: r.top + r.height / 2 - e.y };
     };
     let moodChanged = () => {};
+    /** It is being found asleep (a night arrival): the head is on its pillow already, not settling onto it. */
+    let arriving = false;
     const att = new Attention(room.urchi.character, { head: eyesClient, reach: () => room.urchiSize.w / 2, reducedMotion, onMood: () => moodChanged() });
     const motes = new Motes(room, att, { reducedMotion });
     Object.assign(stageEl, { __room: room, __att: att, __motes: motes }); // handy for debugging and headless QA
@@ -252,6 +254,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
 
     // Falling asleep or waking under the pointer: the label follows, and the caption when its words change.
     moodChanged = () => {
+      // Asleep for the night, the head settles onto its pillow as the lids close (already there
+      // when it is found asleep), and rises as it wakes.
+      room.settleUrchi(att.mood === "asleep", arriving);
       if (overUrchi) cursor.set(att.asleep ? "Wake" : "Threshold");
       // The phone's one caption follows too: a tap that wakes it at night must not leave it
       // saying "asleep" with its eyes open. Awake, the line is his, and it reads it.
@@ -281,16 +286,17 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const plateSize = () => Math.min(PLATE_MAX, window.innerWidth - PLATE_MARGIN, window.innerHeight - PLATE_MARGIN);
     /**
      * Urchi, a gap and the plate form one centred stack; returns the plate's drop below the centre.
-     * Urchi steps down to the largest whole pixel scale whose head fits above the plate, so its
-     * pixels stay square; when not even one screen pixel per art pixel fits, it dims instead.
+     * Urchi shrinks, as far as it must and no further, until its head fits above the plate; when
+     * that would leave less than its smallest head (one screen pixel per art pixel), it dims instead.
      */
     const stack = (duration: number) => {
       const plate = plateSize();
-      const step = room.stepFitting(window.innerHeight - 2 * STACK_CLEAR - STACK_GAP - plate);
-      const fits = step > 0;
-      room.liftUrchi(fits ? (STACK_GAP + plate) / 2 : 0, duration, fits ? room.pixelAt(step) / room.pixel : 1);
+      const head = room.urchiSize.h;
+      const zoom = Math.min(1, (window.innerHeight - 2 * STACK_CLEAR - STACK_GAP - plate) / head);
+      const fits = zoom * head >= room.minHead;
+      room.liftUrchi(fits ? (STACK_GAP + plate) / 2 : null, duration, zoom);
       room.dimUrchi(!fits);
-      return fits ? (room.headAt(step) + STACK_GAP) / 2 : 0;
+      return fits ? (zoom * head + STACK_GAP) / 2 : 0;
     };
     const showResult = (date: string, result: number) => {
       const { title, line } = resultCaption(date, result);
@@ -327,7 +333,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const closeGame = (abandoned: boolean) => {
       gameOpen = false;
       setBoard(null);
-      room.liftUrchi(0, reducedMotion ? 0 : 0.9);
+      room.liftUrchi(null, reducedMotion ? 0 : 0.9);
       room.dimUrchi(false);
       cursor.set(null);
       dropHash();
@@ -362,7 +368,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let listenGlance = Infinity;
     const begin = (afterIntro: boolean) => {
       if (begun >= 0) return;
+      arriving = !afterIntro;
       att.start({ afterIntro });
+      arriving = false;
       motes.start();
       begun = att.t;
       newsAt = att.t + (afterIntro ? NEWS.afterIntro : NEWS.after);
