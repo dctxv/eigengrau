@@ -79,6 +79,8 @@ type Bead = {
   hl: number;
   dot: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial> | null;
   cap: { name: Masked; status: Masked; why: Masked };
+  /** How far its caption has stepped down, px, to clear its own pieces hanging low on the ball. */
+  capDy: number;
   open: { name: Masked; status: Masked; why: Masked; summary: Masked; link: Masked } | null;
   /** The mark on screen last frame, and its depth. */
   mx: number;
@@ -128,13 +130,31 @@ const SIDE_FROM = 160;
 const SIDE_MIN_W = 160;
 const SIDE_EDGE = 24;
 const SIDE_BOTTOM = 24;
-/** Room kept over the ball for the loose end and the pieces near the top, at R_REF. */
-const TOP_ROOM = 64;
+/**
+ * Room kept over the ball for the loose end and the pieces near the top, at
+ * R_REF. The loose end holds still now, so a wide screen needs less of it; a
+ * phone keeps the room it always had.
+ */
+const TOP_ROOM = 48;
+const PHONE_TOP_ROOM = 64;
 /** The radius every px size on the ball is drawn at; the ball scales them with it. */
 const R_REF = 210;
-const D_MAX = 420;
+/** A wide screen's ball wants this share of its short side, up to D_MAX, before the fit. */
+const D_SHARE = 0.62;
+const D_MAX = 720;
 const PHONE = 640;
 const PHONE_D = 0.88;
+/**
+ * On a wide screen the ball may reach down into the caption's slot, which is
+ * empty most of the time: the fit counts only this share of the caption's
+ * height, and the veil thins the rings under a caption when one shows.
+ */
+const CAP_FIT = 0.25;
+/** A bigger ball keeps its pieces, ticks and curves in proportion only so far: pieces to 1.35 times, ticks to 30px. */
+const PIECE_MAX = 1.35;
+const TICK_MAX = 30;
+/** Past this radius the thread is sampled twice as finely, so its tight turns near the poles stay round. */
+const FINE_FROM = 300;
 const GROWTH_MAX = 1.4;
 const TURNS_PER_YEAR = 1.5;
 /** Each turn's lean, radians at the equator, and how fast the lean walks round (cycles per turn). */
@@ -164,7 +184,7 @@ const HANG_OUT = 14;
 const ROW_LEAD = 12;
 const ROW_GAP = 8;
 const MARK_GAP = 40;
-const CAP_GAP = 40;
+const CAP_GAP = 32;
 const NAME_SIZE = 22;
 const STATUS_SIZE = 11;
 const WHY_SIZE = 14;
@@ -197,7 +217,9 @@ const RIDE_LIFT = 0.92;
 const RIDE_MIN = 0.2;
 const RECEDE_INK = 0.15;
 const RECEDE_PIECE_INK = 0.07;
+/** Behind an opened project the ball goes back to 86%, and never larger than the 361px it always receded to, so the words keep their room. */
 const RECEDE_SCALE = 0.86;
+const RECEDE_D = 361;
 /**
  * Under an opened project's words the receded ball thins to this share of
  * its ink, over a soft edge, so the words are read on the dark and not
@@ -206,6 +228,18 @@ const RECEDE_SCALE = 0.86;
 const VEIL_INK = 0.2;
 const VEIL_PAD = 14;
 const VEIL_FEATHER = 44;
+/**
+ * Under a hover caption the same veil, closer and shorter, so that where the
+ * ball reaches into the caption's slot the words sit on the dark. The chosen
+ * project's own pieces keep half their ink there: they are what the words
+ * are about.
+ */
+const CAP_VEIL_PAD = 12;
+const CAP_VEIL_FEATHER = 20;
+const CAP_PIECE_INK = 0.5;
+/** A caption steps down to clear its own pieces by this much, while it stays this far off the bottom edge. */
+const CAP_CLEAR = 12;
+const CAP_FOOT = 24;
 /** A piece on the ball fades out before it crosses this margin at the screen's sides: a phone's ball nearly fills the width. */
 const SIDE_MARGIN = 16;
 /** Past this many projects a mark hangs only its cover and two pieces. */
@@ -283,7 +317,7 @@ class Ribbons {
 
   constructor(
     material: THREE.ShaderMaterial,
-    private capacity: number,
+    readonly capacity: number,
   ) {
     this.pos = new Float32Array(capacity * 2 * 3);
     this.edge = new Float32Array(capacity * 2);
@@ -413,6 +447,9 @@ void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(
 /**
  * A billboard: the still, crossfaded by uMix to the moving media once a
  * project opens; faded by depth, and softly blurred when it hangs inside.
+ * Under a hover caption it thins by uVeilK, only where it lies within
+ * uVeilPad of the words (uVeil, CSS px) and over a uVeilSoft edge, so a big
+ * cover half under a caption keeps its other half.
  */
 const pieceFrag = /* glsl */ `
 uniform sampler2D uMap;
@@ -423,7 +460,19 @@ uniform float uAltAspect;
 uniform float uPlaneAspect;
 uniform float uFade;
 uniform float uBlur;
+uniform vec4 uVeil;
+uniform float uVeilK;
+uniform float uVeilPad;
+uniform float uVeilSoft;
+uniform float uDpr;
+uniform float uViewH;
 varying vec2 vUv;
+float veil() {
+  if (uVeilK < 0.001) return 1.0;
+  vec2 p = vec2(gl_FragCoord.x / uDpr, uViewH - gl_FragCoord.y / uDpr);
+  vec2 d = max(max(uVeil.xy - uVeilPad - p, 0.0), p - uVeil.zw - uVeilPad);
+  return 1.0 - uVeilK * (1.0 - smoothstep(0.0, uVeilSoft, length(d)));
+}
 vec2 fit(vec2 uv, float img, float plane) {
   vec2 s = vec2(1.0);
   if (img > plane) s.x = plane / img; else s.y = img / plane;
@@ -445,7 +494,7 @@ void main() {
       + (tap(vUv + vec2(r, 0.0)) + tap(vUv - vec2(r, 0.0)) + tap(vUv + vec2(0.0, r)) + tap(vUv - vec2(0.0, r))) * 0.1
       + (tap(vUv + vec2(d, d)) + tap(vUv - vec2(d, d)) + tap(vUv + vec2(d, -d)) + tap(vUv - vec2(d, -d))) * 0.1;
   }
-  gl_FragColor = vec4(c, uFade);
+  gl_FragColor = vec4(c, uFade * veil());
 }`;
 
 /** The still a piece shows on the ball: an image, or a video's poster. */
@@ -487,6 +536,8 @@ export class ThreadScene {
   private planeGeo = new THREE.PlaneGeometry(1, 1);
 
   // The thread: M samples on the unit sphere, evenly spaced along it, and their tangents.
+  /** The arc between samples: STEP, or half of it on a big ball. */
+  private arcStep = STEP;
   private M = 0;
   private P = new Float32Array(0);
   private TG = new Float32Array(0);
@@ -552,6 +603,14 @@ export class ThreadScene {
   private coverHot: Piece | null = null;
   /** The opened project's words on screen, padded, and how far the ball has thinned under them (0..1). */
   private veil = { x0: 0, y0: 0, x1: 0, y1: 0, k: 0 };
+  /** The same for the hover caption's words (not padded), eased so that a caption giving way to another never jumps. */
+  private capVeil = { x0: 0, y0: 0, x1: 0, y1: 0, k: 0 };
+  /** The caption veil as the pieces' shader reads it: the uniforms every piece shares. */
+  private pieceVeil = {
+    uVeil: { value: new THREE.Vector4() },
+    uDpr: { value: 1 },
+    uViewH: { value: 1 },
+  };
 
   private ready = false;
   private disposed = false;
@@ -608,6 +667,9 @@ export class ThreadScene {
     const dpr = this.renderer.getPixelRatio();
     this.lineMat.uniforms.uDpr.value = dpr;
     this.lineMat.uniforms.uHalf.value = 0.5 + 0.75 / dpr;
+    // The drawing buffer's own height, which gl_FragCoord counts in, back in CSS px.
+    this.pieceVeil.uDpr.value = dpr;
+    this.pieceVeil.uViewH.value = this.renderer.getDrawingBufferSize(new THREE.Vector2()).y / dpr;
     this.glass.resize();
     this.glass.setAxis("y");
   }
@@ -662,13 +724,7 @@ export class ThreadScene {
       this.addPiece(bead, still, it.aspect || still.aspect, it.media.kind === "video" ? it.media : null, true);
     });
 
-    this.wind();
-    this.back = new Ribbons(this.lineMat, this.M + 256 + this.beads.length * 64);
-    this.front = new Ribbons(this.lineMat, this.M + 256 + this.beads.length * 64);
-    this.back.mesh.renderOrder = 200;
-    this.front.mesh.renderOrder = 400;
-    this.scene.add(this.back.mesh, this.front.mesh);
-
+    // The layout winds the thread, once it knows how big the ball is.
     await this.layout();
     if (this.disposed) return;
     this.ready = true;
@@ -732,6 +788,7 @@ export class ThreadScene {
       hl: 0,
       dot,
       cap: { name: this.masked(name), status: this.masked(status), why: this.masked(why) },
+      capDy: 0,
       open,
       mx: 0,
       my: 0,
@@ -754,6 +811,10 @@ export class ThreadScene {
         uPlaneAspect: { value: aspect },
         uFade: { value: 0 },
         uBlur: { value: 0 },
+        uVeilK: { value: 0 },
+        uVeilPad: { value: CAP_VEIL_PAD },
+        uVeilSoft: { value: CAP_VEIL_FEATHER },
+        ...this.pieceVeil,
       },
       vertexShader: pieceVert,
       fragmentShader: pieceFrag,
@@ -798,6 +859,31 @@ export class ThreadScene {
   }
 
   /**
+   * A big ball's thread is sampled twice as finely, or its tight turns near
+   * the poles would show their corners. The thread winds again when that
+   * changes (and on the first layout); the samples hold the same places, so
+   * nothing on it moves.
+   */
+  private fitStep() {
+    const step = this.R > FINE_FROM ? STEP / 2 : STEP;
+    if (this.M && step === this.arcStep) return;
+    this.arcStep = step;
+    this.wind();
+    const need = this.M + 256 + this.beads.length * 64;
+    if (this.back && this.front && this.back.capacity >= need) return;
+    [this.back, this.front].forEach((r) => {
+      if (!r) return;
+      this.scene.remove(r.mesh);
+      r.dispose();
+    });
+    this.back = new Ribbons(this.lineMat, need);
+    this.front = new Ribbons(this.lineMat, need);
+    this.back.mesh.renderOrder = 200;
+    this.front.mesh.renderOrder = 400;
+    this.scene.add(this.back.mesh, this.front.mesh);
+  }
+
+  /**
    * Winds the thread: a spherical spiral with its turns evenly spaced in
    * latitude, resampled evenly along its length so that sample index is
    * time. Then each bead is tied on at its year: a year's beads sit together
@@ -832,7 +918,7 @@ export class ThreadScene {
       a.copy(b);
     }
     const total = arc[K];
-    const M = Math.max(2, Math.ceil(total / STEP) + 1);
+    const M = Math.max(2, Math.ceil(total / this.arcStep) + 1);
     const P = new Float32Array(M * 3);
     let k = 0;
     for (let i = 0; i < M; i++) {
@@ -862,7 +948,7 @@ export class ThreadScene {
     this.owner = new Int16Array(M).fill(-1);
 
     // Tie the beads on, a year at a time.
-    const pxToIdx = 1 / (STEP * R_REF);
+    const pxToIdx = 1 / (this.arcStep * R_REF);
     const idxOf = (t: number) => ((t - this.T0) / (this.T1 - this.T0)) * (M - 1);
     // A project's pieces sit together just past its mark, a knot of work: the cover standing on
     // the thread, the rest in two short rows beside it, the upper one set a little in, as if hung
@@ -1009,28 +1095,36 @@ export class ThreadScene {
     }
     const headBottom = hy + this.headingHalf;
 
-    // The ball: min(420, half the short side), a little larger with more work, and clear of the heading.
+    // The ball: on a wide screen 62% of the short side up to 720px, a little larger with more work,
+    // then whatever fits between the heading and the caption. A phone's is 88% of its width.
     const n = this.projects.length;
     // It grows with the square root of the work: six projects is today's size, sixty is 1.4 times it.
+    // Once the fit holds it, more work only winds the turns closer.
     const growth = 1 + (GROWTH_MAX - 1) * clamp01((Math.sqrt(n) - Math.sqrt(6)) / (Math.sqrt(60) - Math.sqrt(6)));
-    const want = v ? W * PHONE_D : Math.min(D_MAX, 0.5 * Math.min(W, H)) * growth;
+    const want = v ? W * PHONE_D : Math.min(D_MAX, D_SHARE * Math.min(W, H)) * growth;
     const capH = this.captionHeight();
-    const gap = CAP_GAP * (v ? 0.8 : 1);
+    const gap = CAP_GAP;
+    // A wide screen's ball may reach into the caption's slot: only a quarter of the caption counts.
+    const capFit = v ? capH : capH * CAP_FIT;
     // The room over the ball grows with it, so each fit solves for both.
-    const lift = 1 + TOP_ROOM / (2 * R_REF);
+    const room = v ? PHONE_TOP_ROOM : TOP_ROOM;
+    const lift = 1 + room / (2 * R_REF);
     const avail = H - headBottom - HEADING_CLEAR;
-    const under = Math.min(want, (avail - gap - capH - 16) / lift);
-    // A wide screen too short for a fair ball with the caption under it (a phone held sideways)
-    // sets the caption beside the ball instead, and the ball takes the height.
+    const under = Math.min(want, (avail - gap - capFit - 16) / lift);
+    // A wide screen too short for a fair ball with the whole caption under it (a phone held
+    // sideways) sets the caption beside the ball instead, and the ball takes the height, unless
+    // reaching into the caption's slot gives it more.
+    const clear = Math.min(want, (avail - gap - capH - 16) / lift);
     const beside = Math.min(want, (avail - SIDE_BOTTOM) / lift, W - 2 * (CAP_GAP + SIDE_MIN_W + SIDE_EDGE));
-    const side = !v && under < SIDE_FROM && beside > under;
+    const side = !v && clear < SIDE_FROM && beside > under;
     const D = Math.max(D_MIN, side ? beside : under);
     this.R = D / 2;
-    const top = headBottom + HEADING_CLEAR + TOP_ROOM * (D / (2 * R_REF)) + this.R;
-    const bottom = H - (side ? SIDE_BOTTOM : gap + capH + 16) - this.R;
+    this.fitStep();
+    const top = headBottom + HEADING_CLEAR + room * (D / (2 * R_REF)) + this.R;
+    const bottom = H - (side ? SIDE_BOTTOM : gap + capFit + 16) - this.R;
     this.cx = W / 2;
     this.cy = Math.max(top, Math.min(H * 0.54, bottom));
-    // Under the ball, and never past the bottom edge, even when the ball could not shrink enough.
+    // Under the ball, and never past the bottom edge: over the ball's foot, where it reaches that far.
     this.capY = Math.min(this.cy + this.R + gap, H - capH - 16);
     this.capSide = side;
     this.capX = Math.round(this.cx + this.R + CAP_GAP);
@@ -1040,6 +1134,7 @@ export class ThreadScene {
       if (this.disposed || gen !== this.layoutGen) return;
     }
     this.beads.forEach((b) => {
+      b.capDy = 0;
       if (side) {
         // Each caption centred on the ball's height, inside the screen.
         const h = 50 + this.textHeight(b.cap.why);
@@ -1047,11 +1142,7 @@ export class ThreadScene {
         this.setBase(b.cap.name, this.capX, y);
         this.setBase(b.cap.status, this.capX, y + 30);
         this.setBase(b.cap.why, this.capX, y + 50);
-      } else {
-        this.setBase(b.cap.name, this.cx, this.capY);
-        this.setBase(b.cap.status, this.cx, this.capY + 30);
-        this.setBase(b.cap.why, this.cx, this.capY + 50);
-      }
+      } else this.placeCaption(b);
       if (b !== this.hovered) {
         [b.cap.name, b.cap.status, b.cap.why].forEach((m) => {
           gsap.killTweensOf(m);
@@ -1070,6 +1161,54 @@ export class ThreadScene {
       h = Math.max(h, 50 + (wb[3] - wb[1]));
     });
     return h || 70;
+  }
+
+  /** A caption under the ball: centred, at the slot's top, stepped down by its own capDy. */
+  private placeCaption(b: Bead) {
+    const y = this.capY + b.capDy;
+    this.setBase(b.cap.name, this.cx, y);
+    this.setBase(b.cap.status, this.cx, y + 30);
+    this.setBase(b.cap.why, this.cx, y + 50);
+  }
+
+  /** A caption's words at rest on screen, px: x0, y0, x1, y1. */
+  private captionBox(b: Bead): [number, number, number, number] {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    [b.cap.name, b.cap.status, b.cap.why].forEach((m) => {
+      const bb = blockBounds(m.t);
+      const y = -m.base.y;
+      x0 = Math.min(x0, m.base.x + bb[0]);
+      x1 = Math.max(x1, m.base.x + bb[2]);
+      y0 = Math.min(y0, y - bb[3]);
+      y1 = Math.max(y1, y - bb[1]);
+    });
+    return [x0, y0, x1, y1];
+  }
+
+  /**
+   * Where a caption under the ball would land on its own project's pieces,
+   * hanging low on the ball: how far it steps down to clear them by
+   * CAP_CLEAR, never nearer the bottom edge than CAP_FOOT. What it cannot
+   * clear, the veil dims to half under the words.
+   */
+  private captionClear(b: Bead) {
+    if (this.capSide) return 0;
+    const [x0, , x1] = this.captionBox(b);
+    const top = this.capY;
+    let low = -Infinity;
+    b.pieces.forEach((pc) => {
+      // Only what can be seen there: a piece round the back is a shape through the thread.
+      if (!pc.onBall || !pc.mesh.visible || (b.side > 0 && pc.sz < -0.3)) return;
+      if (pc.sx + pc.sw / 2 < x0 - CAP_VEIL_PAD || pc.sx - pc.sw / 2 > x1 + CAP_VEIL_PAD) return;
+      const bottom = pc.sy + pc.sh / 2;
+      if (bottom + CAP_CLEAR > top) low = Math.max(low, bottom);
+    });
+    if (low === -Infinity) return 0;
+    const h = 50 + this.textHeight(b.cap.why);
+    return Math.max(0, Math.min(low + CAP_CLEAR, this.height - h - CAP_FOOT) - top);
   }
 
   private get texts(): Text[] {
@@ -1475,6 +1614,9 @@ export class ThreadScene {
       this.setCoverHot(pc && pc.index === 0 ? pc : null);
       return;
     }
+    // Over the chosen project's caption the choice holds: where the ball reaches under the
+    // words, its thinned rings are not there to be chosen.
+    if (this.onCaption(at.x, at.y)) return;
     const b = this.beadAt(at.x, at.y);
     if (b !== this.hovered) this.setHover(b, true);
   }
@@ -1513,7 +1655,8 @@ export class ThreadScene {
       this.close();
       return "close";
     }
-    const b = this.beadAt(x, y) ?? (touch && this.hovered && this.onCaption(x, y) ? this.hovered : null);
+    // The chosen project's caption answers for it, over whatever of the ball lies under it.
+    const b = this.onCaption(x, y, touch) ? this.hovered : this.beadAt(x, y);
     if (!b) {
       if (this.hovered) this.setHover(null);
       return "none";
@@ -1556,13 +1699,21 @@ export class ThreadScene {
     return mark;
   }
 
-  private onCaption(x: number, y: number) {
+  /**
+   * On the chosen project's caption: its words and the veil's pad round them
+   * for the pointer; a finger gets a little more, and the slot's whole width
+   * under the ball.
+   */
+  private onCaption(x: number, y: number, touch = false) {
     const b = this.hovered;
-    if (this.capSide && b) {
-      const y0 = -b.cap.name.base.y;
-      return x > this.capX - 16 && y > y0 - 8 && y < y0 + 50 + this.textHeight(b.cap.why) + 8;
+    if (!b || this.opened) return false;
+    const [x0, y0, x1, y1] = this.captionBox(b);
+    if (touch && !this.capSide) {
+      const half = Math.min(this.width / 2, Math.max((x1 - x0) / 2, WHY_MAX / 2) + 16);
+      return y > y0 - 8 && y < y1 + 8 && Math.abs(x - this.cx) < half;
     }
-    return y > this.capY - 8 && y < this.capY + this.captionHeight() + 8 && Math.abs(x - this.cx) < Math.min(this.width / 2, WHY_MAX / 2 + 16);
+    const pad = touch ? 16 : CAP_VEIL_PAD;
+    return x > x0 - pad && x < x1 + pad && y > y0 - pad && y < y1 + pad;
   }
 
   private frameAt(x: number, y: number): Piece | null {
@@ -1628,6 +1779,11 @@ export class ThreadScene {
 
   private captionOn(b: Bead) {
     const { name, status, why } = b.cap;
+    // Where it would land on its own pieces, it rises already stepped down.
+    if (!this.capSide) {
+      b.capDy = this.captionClear(b);
+      this.placeCaption(b);
+    }
     this.ctx.add(() => {
       [name, status, why].forEach((m, k) => {
         gsap.to(m, { offset: 0, duration: this.dur(0.6), delay: this.dur(0.04 * k), ease: "power3.out", overwrite: true, onUpdate: () => this.applyMask(m) });
@@ -1851,10 +2007,11 @@ export class ThreadScene {
     });
 
     if (this.pointerAt && !this.keyHold && !this.drag?.moved && !this.opened) this.hoverAtPointer();
-    this.placeVeil();
+    this.placeVeil(dt);
     this.project();
     this.drawThread();
     this.hang();
+    this.clearCaption(dt);
     this.crossings();
     this.dimHeading();
     this.glass.setVelocity(Math.abs(this.scroll.cur - this.lastScroll) / Math.max(dt, 1e-3) / 1500);
@@ -1869,8 +2026,45 @@ export class ThreadScene {
     return this.opts.reducedMotion ? this.fadeIn.value : inOut(clamp01(this.unspool.p * 1.5));
   }
 
-  /** Where the opened project's words rest this frame (they scroll with the line), and how much the ball thins under them. */
-  private placeVeil() {
+  /** The ball's radius this frame: smaller as it recedes, to 86%, and never larger than it always receded to. */
+  private radiusAt(recede: number) {
+    return this.R * lerp(1, Math.min(RECEDE_SCALE, RECEDE_D / (2 * this.R)), recede);
+  }
+
+  /** The chosen caption steps down, if it must, to clear its own pieces; within one hover it only ever steps further. */
+  private clearCaption(dt: number) {
+    const b = this.hovered;
+    if (!b || this.opened || this.capSide) return;
+    const want = this.captionClear(b);
+    if (want <= b.capDy + 0.25) return;
+    const k = this.opts.reducedMotion ? 1 : 1 - Math.pow(0.001, dt);
+    b.capDy = want - b.capDy < 0.5 ? want : b.capDy + (want - b.capDy) * k;
+    this.placeCaption(b);
+  }
+
+  /**
+   * Where the words the ball thins under rest this frame: the chosen
+   * project's caption, where the ball reaches under it, and an opened
+   * project's words (they scroll with the line).
+   */
+  private placeVeil(dt: number) {
+    const cv = this.capVeil;
+    const b = this.hovered;
+    const on = !!b && !this.opened;
+    const k = this.opts.reducedMotion ? 1 : 1 - Math.pow(0.0005, dt);
+    if (b && on) {
+      const [x0, y0, x1, y1] = this.captionBox(b);
+      // A caption arriving on bare rings takes its place at once; one giving way to another moves over.
+      const f = cv.k < 0.01 ? 1 : k;
+      cv.x0 += (x0 - cv.x0) * f;
+      cv.y0 += (y0 - cv.y0) * f;
+      cv.x1 += (x1 - cv.x1) * f;
+      cv.y1 += (y1 - cv.y1) * f;
+    }
+    cv.k += ((on ? 1 : 0) - cv.k) * k;
+    if (cv.k < 0.001) cv.k = 0;
+    this.pieceVeil.uVeil.value.set(cv.x0, cv.y0, cv.x1, cv.y1);
+
     const v = this.veil;
     const o = this.opened?.open;
     v.k = o && this.layoutO ? this.recede : 0;
@@ -1895,13 +2089,16 @@ export class ThreadScene {
     v.y1 = y1 + VEIL_PAD;
   }
 
-  /** The share of its ink the ball keeps at a point: all of it, except under the opened project's words. */
+  /** The share of its ink the ball keeps at a point: all of it, except under a caption or the opened project's words. */
   private veilAt(x: number, y: number) {
-    const v = this.veil;
+    return this.veilOf(this.veil, 0, VEIL_FEATHER, x, y) * this.veilOf(this.capVeil, CAP_VEIL_PAD, CAP_VEIL_FEATHER, x, y);
+  }
+
+  private veilOf(v: { x0: number; y0: number; x1: number; y1: number; k: number }, pad: number, feather: number, x: number, y: number) {
     if (v.k <= 0) return 1;
-    const dx = Math.max(v.x0 - x, 0, x - v.x1);
-    const dy = Math.max(v.y0 - y, 0, y - v.y1);
-    const near = 1 - smooth(clamp01(Math.hypot(dx, dy) / VEIL_FEATHER));
+    const dx = Math.max(v.x0 - pad - x, 0, x - v.x1 - pad);
+    const dy = Math.max(v.y0 - pad - y, 0, y - v.y1 - pad);
+    const near = 1 - smooth(clamp01(Math.hypot(dx, dy) / feather));
     return 1 - v.k * (1 - VEIL_INK) * near;
   }
 
@@ -1912,7 +2109,7 @@ export class ThreadScene {
     const s = { x: 0, y: 0 };
     const l = { x: 0, y: 0 };
     const recede = this.recede;
-    const radius = this.R * lerp(1, RECEDE_SCALE, recede);
+    const radius = this.radiusAt(recede);
     const base = lerp(lerp(1, DIM, this.dim), RECEDE_INK, recede);
     const drawn = this.draw.value * (M - 1);
     const open = this.opened;
@@ -2033,8 +2230,9 @@ export class ThreadScene {
     const s0 = { x: 0, y: 0 };
     const s1 = { x: 0, y: 0 };
     const recede = this.recede;
-    const radius = this.R * lerp(1, RECEDE_SCALE, recede);
-    const scale = radius / R_REF;
+    const radius = this.radiusAt(recede);
+    // A tick grows with the ball to TICK_MAX, then only the ball grows.
+    const scale = Math.min(radius / R_REF, TICK_MAX / TICK);
     const base = lerp(lerp(1, DIM, this.dim), RECEDE_INK, recede);
     const L = this.layoutO;
     const rm = !!this.opts.reducedMotion;
@@ -2132,7 +2330,7 @@ export class ThreadScene {
     const q = new THREE.Vector3();
     const s = { x: 0, y: 0 };
     const recede = this.recede;
-    const radius = this.R * lerp(1, RECEDE_SCALE, recede);
+    const radius = this.radiusAt(recede);
     const base = lerp(lerp(1, DIM, this.dim), RECEDE_INK, recede);
     this.samplePos(this.M - 1, p);
     this.sampleTan(this.M - 1, t);
@@ -2167,11 +2365,15 @@ export class ThreadScene {
     const a = { x: 0, y: 0 };
     const l = { x: 0, y: 0 };
     const recede = this.recede;
-    const radius = this.R * lerp(1, RECEDE_SCALE, recede);
-    const scale = radius / R_REF;
+    const radius = this.radiusAt(recede);
+    // The pieces grow with the ball to PIECE_MAX, and each knot's layout with them, so a big
+    // ball's knots sit as close to their marks as a small one's: past that, only the ball grows.
+    const scale = Math.min(radius / R_REF, PIECE_MAX);
+    const fit = scale / (radius / R_REF);
     // Behind an opened line the ball's pieces go further back than its thread: colour carries further than ink.
     const base = lerp(lerp(1, DIM, this.dim), RECEDE_PIECE_INK, recede);
-    const pxToIdx = 1 / (STEP * R_REF);
+    const pxToIdx = 1 / (this.arcStep * R_REF);
+    const cv = this.capVeil.k;
     const crowd = this.projects.length >= CROWD;
     const L = this.layoutO;
     const rm = !!this.opts.reducedMotion;
@@ -2187,15 +2389,15 @@ export class ThreadScene {
         return;
       }
       // On the ball: the row runs along the thread from the mark, lifted off it and hung out (or in).
-      const idx = b.i + pc.along * pxToIdx;
+      const idx = b.i + pc.along * fit * pxToIdx;
       this.samplePos(idx, p);
       this.sampleTan(idx, t);
       // The thread under the piece, on the ball: a ride measures its offset from here.
       this.rotate(p.x, p.y, p.z, q);
       this.toScreen(q, radius, a);
       bn.copy(p).cross(t).normalize();
-      const up = pc.up / R_REF;
-      const out = HANG_OUT / R_REF;
+      const up = (pc.up * fit) / R_REF;
+      const out = (HANG_OUT * fit) / R_REF;
       c.copy(p)
         .addScaledVector(bn, b.side * up)
         .addScaledVector(p, b.side * out);
@@ -2212,7 +2414,13 @@ export class ThreadScene {
       // fades out as it crosses the side margin, gone by the time it would touch the edge.
       const over = Math.max(SIDE_MARGIN - (s.x - w / 2), s.x + w / 2 - (this.width - SIDE_MARGIN));
       if (over > 0) ink *= 1 - smooth(clamp01(over / SIDE_MARGIN));
-      ink *= this.veilAt(s.x, s.y);
+      // Under an opened project's words the veil takes the whole piece; under a caption, the
+      // shader takes only what lies under the words, and the chosen project's own keep half.
+      ink *= this.veilOf(this.veil, 0, VEIL_FEATHER, s.x, s.y);
+      const own = b === this.hovered;
+      u.uVeilK.value = opened ? 0 : cv * (1 - (own ? CAP_PIECE_INK : VEIL_INK));
+      u.uVeilPad.value = own ? 0 : CAP_VEIL_PAD;
+      u.uVeilSoft.value = own ? CAP_CLEAR : CAP_VEIL_FEATHER;
       if (!pc.onBall) ink = 0;
       if (b.i > drawn) ink = 0;
       let blur = b.side < 0 ? 0.45 : 0;
