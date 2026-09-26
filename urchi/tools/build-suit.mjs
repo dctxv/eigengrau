@@ -31,12 +31,13 @@
 //     plane between them, baked, and the painter orders them exactly from any side.
 //  3. Checks, printed: exact mirror symmetry (every vertex has a partner at (-x, y, z) and every
 //     face a mirrored face), each part closed and consistently wound, no degenerate faces, the
-//     body's parts convex and apart, the triangle count per part, the helmet's fit and the
-//     eyes' margin inside the visor.
+//     body's parts convex and apart, the triangle count per part, the helmet's fit, the eyes'
+//     margin inside the visor, and the rim whole round the glass in every pose the head reaches.
 //  4. Bake: vertices, triangles, the plane each belongs to, part and material per vertex, the
 //     faces never seen (inside another part, or flat against one), the planes between the body's
-//     parts, the head's tucked vertices, and the canvas frame that holds the suited figure in
-//     any pose.
+//     parts (mirrored as the parts are), the head's tucked vertices, the visor's window as seen
+//     from the helmet's middle, and (beside it, in suit-frame.json) the canvas frame that holds
+//     the suited figure in any pose.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -45,6 +46,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const HEAD = JSON.parse(readFileSync(resolve(ROOT, 'src/engine/urchi/mesh.json'), 'utf8'));
 const OUT = resolve(ROOT, 'src/engine/urchi/suit.json');
+// the frame alone, tiny, which the painter needs before the model itself is loaded
+const OUT_FRAME = resolve(ROOT, 'src/engine/urchi/suit-frame.json');
 const DRY = process.argv.includes('--dry');
 const VERBOSE = process.argv.includes('--verbose');
 
@@ -75,7 +78,8 @@ const CORE = HEAD.v.filter((p) => !isProtrusion(p));
 // Every pose the head can take on the site, as far as its springs carry it (character.ts,
 // attention.ts, acts.ts), rounded out:
 //   yaw   the gaze's aim reaches 41.25 (41.9 with the spring's overshoot), a curious tilt turns
-//         up to 5 more (5.5 swinging across), a mote's wind-up holds a pose of 5: 52.4 in all.
+//         up to 5 more (5.5 swinging across), a mote's wind-up holds a pose of 5: 52.4 in all
+//         (though the wind-up turns away from where it then looks, so it never adds to a gaze).
 //         A glance (22) turns against the gaze, so it only adds to a gaze under about 30.
 //   pitch up: the gaze 17.5, a tilt 3, a sleeper's breath 3.15 x 1.4, the stretch 9.5, a
 //         startle's kick about 4 on the pose's spring (the intro's deep breath, 3 x 3.15, comes
@@ -84,6 +88,23 @@ const CORE = HEAD.v.filter((p) => !isProtrusion(p));
 //   roll  a tilt up to 15 (13 cued), overshooting to 17.5 when it swings across, the owl's bob
 //         3 or the listening sway 2.5 on top: 20.5.
 const RANGE = { yaw: 56, pitchUp: 42, pitchDown: 34, roll: 22 };
+/**
+ * What the head reaches together, rather than axis by axis: the gaze at a corner of the screen
+ * (41.9 across, 17.5 up or 15 down) with a curious tilt on it (5.5, 3 up or 2 down, 17.5 roll), a
+ * breath (3.15), the owl's bob (3), and on top the stretch as it wakes looking at you (9.5 up) or
+ * a nod over a pill (4 down). The sleeper's deeper breath and dip come with no gaze to follow, and
+ * a startle's kick replaces the stretch, never adds to it. The rim must stay whole all through
+ * this, and at every yaw of the sweep with the head about level (LEVEL); past it, at the sweep's
+ * far corners where every extra comes at once, the tool measures and reports it.
+ */
+const REACH = { yaw: 47.4, pitchUp: 33.2, pitchDown: 24.2, roll: 20.5 };
+const LEVEL = 6;
+const inReach = ({ yaw, pitch, roll }) => (Math.abs(yaw) <= REACH.yaw + 1e-9 && pitch >= -REACH.pitchUp - 1e-9 && pitch <= REACH.pitchDown + 1e-9 && Math.abs(roll) <= RANGE.roll) || Math.abs(pitch) <= LEVEL;
+/** The reach's own corners and edges, and every yaw of the sweep with the head level, to add to the sweep. */
+function* reachGrid() {
+  for (const yaw of [-REACH.yaw, -30, 30, REACH.yaw]) for (const pitch of [-REACH.pitchUp, 0, REACH.pitchDown]) for (const roll of [-REACH.roll, 0, REACH.roll]) yield { yaw, pitch, roll };
+  for (const yaw of [-RANGE.yaw, -52, 52, RANGE.yaw]) for (const pitch of [-LEVEL, 0, LEVEL]) for (const roll of [-RANGE.roll, 0, RANGE.roll]) yield { yaw, pitch, roll };
+}
 function* poseSweep(n) {
   for (const yaw of [-RANGE.yaw, -40, -20, 0, 20, 40, RANGE.yaw])
     for (const pitch of [-RANGE.pitchUp, -25, -10, 0, 12, RANGE.pitchDown])
@@ -106,7 +127,7 @@ function headProjector({ yaw, pitch, roll }) {
 }
 
 // ------------------------------------------------------------------ parts
-const MATERIALS = ['fabric', 'grey', 'dark', 'glass', 'accent'];
+const MATERIALS = ['fabric', 'grey', 'dark', 'glass', 'accent', 'pack'];
 const parts = [];
 /**
  * A part. `centre` parts cross the middle: built as their right half (x >= 0, the middle exactly
@@ -225,6 +246,7 @@ function earClip(v, loop, n) {
  */
 function hullPart(name, material, pts, o = {}) {
   const P = part(name, material, o);
+  P.convex = true;
   if (!P.centre) {
     for (const p of pts) P.vert(p);
     const F = hull3(P.v);
@@ -290,7 +312,7 @@ const X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
 // must hold the core with CLEAR to spare: flat facets cut inside the smooth surface, so the check
 // is against the facets.
 const coreReach = (k, s) => Math.max(...CORE.map((p) => s * p[k]));
-const MARGIN = { side: 80, top: 102, chin: 64, front: 72, back: 58 };
+const MARGIN = { side: 100, top: 102, chin: 64, front: 92, back: 58 };
 const H = {
   c: [0, PIVOT_Y - 6, 0],
   a: coreReach(0, 1) + MARGIN.side,
@@ -346,42 +368,100 @@ const HELMET_FLOOR = Math.max(...shell.v.map((p) => p[1]));
 // The visor: its outline in the front view (the right half, from the top of the middle round to
 // the bottom of the middle), set on the helmet's front. A wide rounded shield, its top gently
 // arched and its bottom corners well rounded, framing the eyes with room for every turn.
-const VISOR = [[0, -178], [150, -171], [276, -146], [364, -90], [414, 0], [430, 104], [420, 210], [372, 298], [282, 354], [150, 384], [0, 394]];
-const VISOR_OUT = 3;   // the glass sits this far out from the smooth surface
-const onVisor = ([x, y]) => { const p = helmetFront(x, y); return add(p, mul(helmetNormal(p), VISOR_OUT)); };
+const VISOR = [[0, -182], [150, -176], [258, -154], [326, -106], [368, -16], [384, 104], [368, 224], [320, 294], [250, 348], [140, 384], [0, 396]];
+/** A point on the smooth surface where the line from the helmet's middle through p leaves it, and `h` out along its normal there. */
+function onShell(p, h = 0) {
+  const s = helmetAlong(H.c, unit(sub(p, H.c)));
+  return add(s, mul(helmetNormal(s), h));
+}
+// The glass sits in the rim, not on it: recessed this far under the smooth surface at its edge,
+// and a little more toward its middle, so the rim stands well proud of it and frames it from
+// every side, as the reference's does. The face stays well behind it (checked below).
+const GLASS = { edge: 14, middle: 6 };
+const onVisor = ([x, y], h) => { const p = helmetFront(x, y); return add(p, mul(helmetNormal(p), -h)); };
 const lens = part('visor', 'glass', { centre: true, rigid: 'head' });
 {
   const P = lens;
   // the outline, a ring inside it and the middle: facets like the shell's; a shallow cone behind
-  const O = VISOR.map(onVisor).map((p) => P.vert(p));
-  const I = VISOR.map(([x, y]) => onVisor([x * 0.56, 112 + (y - 112) * 0.6])).map((p) => P.vert(p));
-  const c = P.vert(onVisor([0, 108]));
+  const O = VISOR.map((p) => onVisor(p, GLASS.edge)).map((p) => P.vert(p));
+  const I = VISOR.map(([x, y]) => onVisor([x * 0.56, 112 + (y - 112) * 0.6], GLASS.middle)).map((p) => P.vert(p));
+  const c = P.vert(onVisor([0, 108], GLASS.middle));
   for (let i = 0; i + 1 < O.length; i++) P.quad(O[i], O[i + 1], I[i + 1], I[i]);
   for (let i = 0; i + 1 < I.length; i++) P.tri(c, I[i], I[i + 1]);
   P.back = P.vert(add(helmetFront(0, 108), [0, 0, -140]));
   for (let i = 0; i + 1 < O.length; i++) P.tri(P.back, O[i + 1], O[i]);
 }
 
-// The rim: a thick, rounded band round the visor, sitting on the shell.
+// The rim: a thick, rounded tube round the visor, sitting on the shell. Its section runs from a
+// foot inside the glass's edge up a tall inner wall (what frames the glass when the helmet turns),
+// over a rounded crown and down a long outer slope to a foot sunk well under the shell's facets
+// (so no gap ever opens between the two); each point is wrapped onto the curved surface, so the
+// band hugs the helmet all the way round instead of lifting off at the sides. It stands tallest
+// at the visor's sides, which frame the glass as the head turns, and lower across the top and
+// the bottom, which are seen side on from the side, where a tall crown would stick out like a hook.
+const RIM = { W: 94, UP: 78, UP_MID: 36, IN: 8, SINK: 1 };
+// [across, up]: across as a fraction of W from the foot inside the glass; up as a fraction of the
+// rim's height there (units, if not within -1..1), or 'foot': on the shell's facets, SINK under them
+const RIM_SECTION = [[0, -GLASS.edge - 8], [0, 0.55], [0.16, 0.9], [0.42, 1], [0.7, 0.82], [0.93, 0.34], [1, 'foot']];
+/** How far a point is inside the faceted shell (negative: outside it). */
+const shellInside = (() => {
+  const planes = shell.f.map(([a, b, c]) => {
+    let n = unit(cross(sub(shell.v[b], shell.v[a]), sub(shell.v[c], shell.v[a]))), d = dot(n, shell.v[a]);
+    if (dot(n, H.c) > d) { n = mul(n, -1); d = -d; }
+    return { n, d };
+  });
+  return (p) => Math.min(...planes.map(({ n, d }) => d - dot(n, p)));
+})();
+/** A point on the smooth surface taken in along its normal until it is `sink` inside the shell's facets. */
+function ontoFacets(p, sink) {
+  const n = helmetNormal(p);
+  let lo = 0, hi = 80;
+  for (let k = 0; k < 40; k++) { const t = (lo + hi) / 2; if (shellInside(add(p, mul(n, -t))) >= sink) hi = t; else lo = t; }
+  return add(p, mul(n, -hi));
+}
+const smoothstep = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+/** The rim's height at a point of the visor's outline: UP at the sides, UP_MID in the middle of the top and bottom. */
+const rimUp = (i) => lerp(RIM.UP_MID, RIM.UP, smoothstep(0.2, 0.8, VISOR[i][0] / Math.max(...VISOR.map((p) => p[0]))));
+/** At each point of the visor's outline: where it lies on the smooth surface, the surface's normal there, and the way out from the glass along the surface. */
+const VISOR_FRAME = VISOR.map(([x, y], i) => {
+  const s = helmetFront(x, y), nrm = helmetNormal(s);
+  const prev = VISOR[Math.max(0, i - 1)], next = VISOR[Math.min(VISOR.length - 1, i + 1)];
+  // the outline runs clockwise on screen: rightward across the top, leftward along the bottom
+  let tan = i === 0 ? [1, 0, 0] : i === VISOR.length - 1 ? [-1, 0, 0] : [next[0] - prev[0], next[1] - prev[1], 0];
+  tan = unit(sub(tan, mul(nrm, dot(tan, nrm))));
+  return { s, nrm, out: unit(cross(tan, nrm)) };   // out: away from the glass
+});
 const rim = part('rim', 'fabric', { centre: true, rigid: 'head', decal: 1 });
 {
   const P = rim;
-  const W = 58, UP = 26, BEV = 12, IN = 6, DOWN = 5;
-  const rings = VISOR.map(([x, y], i) => {
-    const s = helmetFront(x, y), nrm = helmetNormal(s);
-    const prev = VISOR[Math.max(0, i - 1)], next = VISOR[Math.min(VISOR.length - 1, i + 1)];
-    // the outline runs clockwise on screen: rightward across the top, leftward along the bottom
-    let tan = i === 0 ? [1, 0, 0] : i === VISOR.length - 1 ? [-1, 0, 0] : [next[0] - prev[0], next[1] - prev[1], 0];
-    tan = unit(sub(tan, mul(nrm, dot(tan, nrm))));
-    const out = unit(cross(tan, nrm));   // away from the glass
-    const at = (u, h) => add(s, add(mul(out, u), mul(nrm, h)));
-    return [at(-IN, -DOWN), at(-IN, UP - BEV), at(-IN + BEV, UP), at(W - IN - 9, UP - 5), at(W - IN + 2, -DOWN)];
-  });
+  // across in units (a fraction of the width, from the foot inside the glass), up as a fraction of UP (or units, if not in 0..1)
+  const rings = VISOR_FRAME.map(({ s, out }, i) => RIM_SECTION.map(([u, h]) => {
+    const at = add(s, mul(out, u * RIM.W - RIM.IN));
+    return h === 'foot' ? ontoFacets(onShell(at), RIM.SINK) : onShell(at, Math.abs(h) <= 1 ? h * rimUp(i) : h);
+  }));
   for (const r of [rings[0], rings[rings.length - 1]]) for (const p of r) p[0] = 0;   // square on to the middle
   const ids = rings.map((r) => r.map((p) => P.vert(p)));
   const k6 = ids[0].length;
   for (let k = 0; k + 1 < ids.length; k++) for (let j = 0; j < k6; j++) P.quad(ids[k][j], ids[k][(j + 1) % k6], ids[k + 1][(j + 1) % k6], ids[k + 1][j]);
 }
+/**
+ * The visor's window on the shell: the glass and the rim's footprint, out to a little past the
+ * rim's outer foot, as seen from the helmet's middle: each point of its outline as (x, y) / z
+ * from there (a point on the shell is in the window when its own lies inside the loop). A line to
+ * the eye that crosses the shell only inside it passes through glass or under the rim, never
+ * through the opaque shell: the painter's occlusion test. Seen from the middle, not flattened
+ * onto the front view, so the sides of the helmet (which the front view squashes up against the
+ * visor's edge) are never taken for the window.
+ */
+const WINDOW_MARGIN = 14;
+const toWindow = (p) => [(p[0] - H.c[0]) / (p[2] - H.c[2]), (p[1] - H.c[1]) / (p[2] - H.c[2])];
+const WINDOW = (() => {
+  const half = VISOR_FRAME.map(({ s, out }, i) => {
+    const q = toWindow(onShell(add(s, mul(out, RIM.W - RIM.IN + WINDOW_MARGIN))));
+    return i === 0 || i === VISOR.length - 1 ? [0, q[1]] : q;
+  });
+  return [...half, ...half.slice(1, -1).reverse().map(([x, y]) => [-x, y])];
+})();
 
 // Comm discs on the helmet's sides, level with the eyes, a little behind the rim.
 const DISC = { y: 112, z: 26, r: 102, up: 40, bevel: 16, sides: 10 };
@@ -419,26 +499,31 @@ function bodyProjector({ yaw, roll }, turn = 0) {
 hullPart('neck ring', 'grey', [430, 560].flatMap((y) => ring([0, y, 0], X, Z, 210, 174, 10, 0).filter((p) => p[0] >= -1e-9)), { centre: true });
 
 // The torso: rounded-box sections, in three parts, the chest, a grey belt and the hips, flat on to
-// each other. Flat where things meet it: the chest (x within 150, y 640 to 790, z 225) for the
-// chest panel; each side (x 290, y 585 to 700) for a shoulder; the back (x within 210, y 640 to
-// 812, z -200) for the backpack; the underside (y 950) for the legs; the top (y 560) for the
-// neck ring. Widest at the shoulders, in a little toward the hips.
+// each other. Flat where things meet it: the chest (x within 130, y 640 to 790, z 225) for the
+// chest panel; each side (x 290, y 590 to 716) for a shoulder; the back (x within 196, y 640 to
+// 790, z -200) for the backpack; the underside (y 950) for the legs; the top (y 560) for the neck
+// ring. A barrel, as the reference's: widest across the chest and shoulders, drawn in to the
+// waist at the belt, a little fuller again at the hips.
 //   [y, front flat half-width, front z, side x, side's front z, side's back z, back flat half-width, back z]
 const TORSO = [
-  [560, 120, 184, 234, 116, -112, 120, -180],
-  [585, 150, 206, 290, 120, -116, 176, -192],
-  [640, 150, 225, 290, 124, -118, 210, -200],
-  [700, 150, 225, 290, 124, -118, 210, -200],
-  [790, 150, 225, 288, 122, -118, 210, -200],
-  [840, 144, 216, 282, 119, -116, 210, -200],
-  [905, 130, 196, 264, 111, -109, 198, -191],
-  [950, 156, 156, 246, 114, -114, 176, -156],
+  [560, 110, 182, 228, 112, -110, 118, -178],
+  [590, 132, 208, 290, 120, -116, 176, -192],
+  [640, 132, 225, 290, 124, -118, 196, -200],
+  [716, 132, 225, 290, 124, -118, 196, -200],
+  [790, 130, 225, 272, 121, -117, 196, -200],
+  [840, 122, 212, 250, 115, -112, 188, -196],
+  [905, 118, 198, 254, 111, -109, 178, -189],
+  [950, 150, 156, 242, 114, -114, 170, -156],
 ];
 const sectionAt = (y) => {
   const k = TORSO.findIndex((r) => r[0] >= y), a = TORSO[Math.max(0, k - 1)], b = TORSO[k], t = b[0] === a[0] ? 0 : (y - a[0]) / (b[0] - a[0]);
   return a.map((v, i) => lerp(v, b[i], t));
 };
-const cornersOf = ([y, fx, zf, a, zsf, zsb, bx, zb]) => [[fx, y, zf], [a, y, zsf], [a, y, zsb], [bx, y, zb]];
+/** A section's corners: the flats' ends, and the cut corners between them bowed out a little, so the barrel is round rather than boxy. */
+const cornersOf = ([y, fx, zf, a, zsf, zsb, bx, zb]) => {
+  const bow = (x0, z0, x1, z1, k) => { const dx = x1 - x0, dz = z1 - z0; return [(x0 + x1) / 2 - dz * k, y, (z0 + z1) / 2 + dx * k]; };
+  return [[fx, y, zf], bow(fx, zf, a, zsf, 0.13), [a, y, zsf], [a, y, zsb], bow(a, zsb, bx, zb, 0.11), [bx, y, zb]];
+};
 const BELT = { top: 812, bottom: 852, out: 10 };
 hullPart('torso', 'fabric', [...TORSO.filter((r) => r[0] < BELT.top), sectionAt(BELT.top)].flatMap(cornersOf), { centre: true });
 {
@@ -451,7 +536,7 @@ hullPart('hips', 'fabric', [sectionAt(BELT.bottom), ...TORSO.filter((r) => r[0] 
 const TORSO_SIDE = 290, TORSO_FRONT = 225, TORSO_BACK = -200, TORSO_FLOOR = 950;
 
 // The chest panel: a bevelled grey slab flat on the chest, with a few buttons and two lights.
-const PANEL = { x: 138, y0: 648, y1: 784, z0: TORSO_FRONT, z1: TORSO_FRONT + 44, bevel: 11 };
+const PANEL = { x: 126, y0: 648, y1: 784, z0: TORSO_FRONT, z1: TORSO_FRONT + 44, bevel: 11 };
 {
   const { x, y0, y1, z0, z1, bevel } = PANEL;
   const rect = (i, z) => [[0, y0 + i, z], [x - i, y0 + i, z], [x - i, y1 - i, z], [0, y1 - i, z]];
@@ -467,13 +552,21 @@ button('slot.R', 'dark', 62, 684, 38, 11, 8);
 button('button.R', 'dark', 44, 740, 15, 15, 10, true);
 button('light.R', 'accent', 100, 740, 9, 9, 7);
 
-// The backpack: a bevelled box flat on the back, from under the helmet to the small of the back.
+// The backpack: the life-support pack, a tall box of its own flat on the back, from under the
+// helmet to the small of the back, narrower than the torso and deep, in a grey of its own so it
+// reads as a separate thing from behind. Its back is bevelled deep all round, with a raised panel
+// in the middle whose facets slope down to the bevel (the reference's), and a lid across its top
+// (a grey band), so from behind it shows its depth and catches the light at its top edge.
+const PACK = { side: 158, y: 866, z: -316, top: 572, lid: 50, bottom: 940, back: -446 };
 {
-  const hw = 210, y0 = 566, y1 = 912, z0 = TORSO_BACK, z1 = -426, b = 34, b2 = 16;
+  const hw = PACK.side, y0 = PACK.top + PACK.lid, y1 = PACK.bottom, z0 = TORSO_BACK, z1 = PACK.back, b = 44, b2 = 22;
   const face = (z, i) => [[0, y0 + i, z], [hw - i, y0 + i, z], [hw, y0 + i + b2, z], [hw, y1 - i - b2, z], [hw - i, y1 - i, z], [0, y1 - i, z]].map(([x, y, zz]) => [Math.min(x, hw - (i ? b2 : 0)), y, zz]);
-  hullPart('backpack', 'fabric', [...face(z0, 0), ...face(z1 + b, 0), ...face(z1, b), [0, y0 + 80, z1 - 26], [0, y1 - 80, z1 - 26]], { centre: true });
+  const panel = (i, z) => [[0, y0 + i, z], [hw - i, y0 + i, z], [hw - i, y1 - i, z], [0, y1 - i, z]];
+  hullPart('backpack', 'pack', [...face(z0, 0), ...face(z1 + b, 0), ...face(z1, b), ...panel(86, z1 - 24)], { centre: true });
+  // the lid: a grey band across the top, flat on the pack's top, a little proud all round
+  const lid = (y, o) => [[0, y, z0], [hw + o - 10, y, z0], [hw + o, y, z0 - 12], [hw + o, y, z1 + b - o], [hw + o - 22, y, z1 - o], [0, y, z1 - o]];
+  hullPart('pack lid', 'grey', [...lid(PACK.top, 0), ...lid(y0, 8)], { centre: true });
 }
-const PACK = { side: 210, y: 866, z: -308 };
 
 // The arms: a shoulder flat on the torso's side, then along one axis, hanging a little outward:
 // the upper arm, a joint ring at the elbow, the forearm, a ring at the cuff, and the mitten.
@@ -528,24 +621,26 @@ const GLOVE = { t, hx: 92, hz: 122, c: 46 };
 
 // The legs: short, straight and a little tapered, from the torso's underside to the boots; a
 // flat front for the knee pad.
-const LEG = { x: 140, top: TORSO_FLOOR, bottom: 1146 };
-hullPart('leg.R', 'fabric', [...octagon([LEG.x, LEG.top, 0], X, Z, 94, 104, 36), ...octagon([LEG.x, LEG.bottom, 0], X, Z, 90, 100, 34)]);
+const LEG = { x: 140, top: TORSO_FLOOR, bottom: 1172 };
+hullPart('leg.R', 'fabric', [...octagon([LEG.x, LEG.top, 0], X, Z, 94, 104, 36), ...octagon([LEG.x, LEG.bottom, 0], X, Z, 88, 98, 34)]);
 {
   // the knee pad: flat on the leg's front, which leans back a hair toward the ankle
-  const n = unit([0, 4, LEG.bottom - LEG.top]), y0 = 1030, y1 = 1104, hw = 50;
-  const onFront = (x, y) => [x, y, 104 - ((y - LEG.top) * 4) / (LEG.bottom - LEG.top)];
+  const n = unit([0, 6, LEG.bottom - LEG.top]), y0 = 1040, y1 = 1116, hw = 50;
+  const onFront = (x, y) => [x, y, 104 - ((y - LEG.top) * 6) / (LEG.bottom - LEG.top)];
   const rect = (i, h) => [[LEG.x - hw + i, y0 + i], [LEG.x + hw - i, y0 + i], [LEG.x + hw - i, y1 - i], [LEG.x - hw + i, y1 - i]].map(([x, y]) => add(onFront(x, y), mul(n, h)));
   hullPart('knee.R', 'grey', [...rect(0, 0), ...rect(6, 15)]);
 }
-// The boots: chunky and round-toed, the toe running forward and down; on dark soles.
-const BOOT = { x: 146, top: LEG.bottom, bottom: LEG.bottom + 186, sole: LEG.bottom + 234 };
+// The boots: a grey cuff at the ankle, then a short upper and a chunky round toe that runs well
+// forward of the leg (the heel only a little behind it), on a dark sole that follows the foot.
+const BOOT = { x: 146, cuff: LEG.bottom + 24, bottom: LEG.bottom + 146, sole: LEG.bottom + 188 };
 {
-  // [y, half width, back z, front z, corner]
-  const secs = [[BOOT.top, 110, -120, 116, 38], [BOOT.top + 92, 130, -144, 224, 52], [BOOT.bottom, 132, -148, 256, 58]];
+  hullPart('ankle cuff.R', 'grey', [...octagon([BOOT.x, LEG.bottom, 0], X, Z, 96, 106, 36), ...octagon([BOOT.x, BOOT.cuff, 0], X, Z, 96, 106, 36)]);
+  // [y, half width, back z, front z, corner]: the upper square under the cuff, the toe cap sloping down and forward
+  const secs = [[BOOT.cuff, 104, -114, 114, 36], [BOOT.cuff + 40, 116, -128, 158, 44], [BOOT.cuff + 80, 128, -140, 262, 56], [BOOT.bottom, 130, -142, 300, 60]];
   const sec = ([y, hw, zb, zf, c]) => octagon([BOOT.x, y, (zb + zf) / 2], X, Z, hw, (zf - zb) / 2, c);
   hullPart('boot.R', 'fabric', secs.flatMap(sec));
-  const s = (i, y) => octagon([BOOT.x, y, 54], X, Z, 138 - i, 208 - i, 60);
-  hullPart('sole.R', 'dark', [...s(0, BOOT.bottom), ...s(7, BOOT.sole)]);
+  const s = (i, y) => octagon([BOOT.x, y, 80], X, Z, 136 - i, 228 - i, 66);
+  hullPart('sole.R', 'dark', [...s(0, BOOT.bottom), ...s(8, BOOT.sole)]);
 }
 
 // Hoses: from under the chest panel's lower corners, down past the belt, out and round the hips
@@ -563,7 +658,7 @@ const BOOT = { x: 146, top: LEG.bottom, bottom: LEG.bottom + 186, sole: LEG.bott
     [[222, 912, 206], null],
     [[298, 928, 72], null],
     [[300, 922, -80], null],
-    [[PACK.side + PC.h + 46, PACK.y + 20, PACK.z + 36], null],
+    [[PACK.side + PC.h + 60, PACK.y + 24, PACK.z + 64], null],
     [[PACK.side + PC.h, PACK.y, PACK.z], [-1, 0, 0]],
   ];
   J.forEach((j, k) => { if (!j[1]) j[1] = unit(sub(J[k + 1][0], J[k - 1][0])); });
@@ -694,7 +789,7 @@ const faceNormal = (fi) => { const [a, b, c] = F[fi].map((i) => V[i]); return mu
 
 // counts per part
 {
-  const groups = [['helmet', ['helmet', 'visor', 'rim', 'disc']], ['torso', ['neck ring', 'torso', 'belt', 'hips', 'chest panel', 'slot', 'button', 'light', 'backpack']], ['hoses', ['connector', 'hose', 'pack connector']], ['arms', ['shoulder', 'upper arm', 'elbow ring', 'forearm', 'cuff', 'glove', 'palm', 'thumb']], ['legs', ['leg', 'knee', 'boot', 'sole']]];
+  const groups = [['helmet', ['helmet', 'visor', 'rim', 'disc']], ['torso', ['neck ring', 'torso', 'belt', 'hips', 'chest panel', 'slot', 'button', 'light', 'backpack', 'pack lid']], ['hoses', ['connector', 'hose', 'pack connector']], ['arms', ['shoulder', 'upper arm', 'elbow ring', 'forearm', 'cuff', 'glove', 'palm', 'thumb']], ['legs', ['leg', 'knee', 'ankle cuff', 'boot', 'sole']]];
   const count = (P) => P.f.length;
   const line = groups.map(([g, names]) => {
     const ps = all.filter((P) => names.some((n) => P.name.replace(/ \d+/, '').replace(/\.[RL]$/, '') === n) && !P.name.endsWith('.L'));
@@ -714,6 +809,9 @@ const hidden = new Array(F.length).fill(0);
   F.forEach((f, fi) => {
     const P = all[FP[fi]];
     if (P.back !== undefined && f.some((i) => i - partBase[FP[fi]] === P.back)) { hidden[fi] = 1; count++; return; }
+    if (P.name === 'visor') return;   // the glass is recessed into the shell, and always drawn where it faces the eye
+    // the rim's underside, its feet sunk under the smooth surface: in the helmet's wall
+    if (P.name === 'rim' && f.every((i) => outside(V[i]) < 1 - 1e-6)) { hidden[fi] = 1; count++; return; }
     const pts = [...f.map((i) => V[i]), faceCentre(fi)];
     for (let qi = 0; qi < all.length; qi++) {
       const Q = all[qi];
@@ -755,10 +853,28 @@ const sep = [];
   const overlaps = (a, b) => views.some((_, k) => boxes[a][k][0] - PAD < boxes[b][k][2] && boxes[b][k][0] - PAD < boxes[a][k][2] && boxes[a][k][1] - PAD < boxes[b][k][3] && boxes[b][k][1] - PAD < boxes[a][k][3]);
   let worst = { gap: Infinity }, touching = 0, pairs = 0;
   const tight = [];
+  // a pair's mirror twin takes the mirror of its plane, so the painter orders the two sides alike
+  const twinOf = all.map((P) => byName.get(P.centre ? P.name : P.name.endsWith('.R') ? P.name.replace(/\.R$/, '.L') : P.name.replace(/\.L$/, '.R')));
+  const planeOf = new Map();
   for (let a = 0; a < info.length; a++) for (let b = a + 1; b < info.length; b++) {
     pairs++;
     if (!overlaps(a, b)) continue;
     const A = info[a], B = info[b];
+    const ta = twinOf[A.i], tb = twinOf[B.i], m = planeOf.get(`${ta}|${tb}`) || (planeOf.has(`${tb}|${ta}`) && (({ n, d }) => ({ n: mul(n, -1), d: -d }))(planeOf.get(`${tb}|${ta}`)));
+    // the gap along a plane between the two (n.p < d on A's side), to check it and report the closest
+    const gapAlong = (n, d) => Math.min(...B.pts.map((p) => dot(n, p) - d)) + Math.min(...A.pts.map((p) => d - dot(n, p)));
+    const keep = (n, d) => {
+      const gap = gapAlong(n, d);
+      if (gap < -0.5) fail(`${A.P.name} and ${B.P.name} overlap by ${(-gap).toFixed(1)}: no plane between them`);
+      if (gap < worst.gap) worst = { gap, a: A.P.name, b: B.P.name };
+      if (gap < 0.5) touching++;
+      tight.push([gap, A.P.name, B.P.name]);
+      planeOf.set(`${A.i}|${B.i}`, { n, d });
+      sep.push([A.i, B.i, ...n, d]);
+    };
+    if (m) { keep([-m.n[0] + 0, m.n[1], m.n[2]], m.d); continue; }
+    // a part and its own twin (a side part lies wholly right of the middle): the middle plane
+    if (ta === B.i) { keep(A.P.name.endsWith('.R') ? [-1, 0, 0] : [1, 0, 0], 0); continue; }
     const cands = [...A.normals, ...B.normals];
     for (const ea of A.edges) for (const eb of B.edges) { const c = cross(ea, eb); if (len(c) > 1e-3) cands.push(unit(c)); }
     let best = null;
@@ -769,14 +885,17 @@ const sep = [];
       if (!best || b0 - a1 > best.gap) best = { gap: b0 - a1, n, d: (a1 + b0) / 2 };
       if (a0 - b1 > best.gap) best = { gap: a0 - b1, n: mul(n, -1), d: -(a0 + b1) / 2 };
     }
-    if (best.gap < worst.gap) worst = { gap: best.gap, a: A.P.name, b: B.P.name };
-    if (best.gap < 0.5) touching++;
-    tight.push([best.gap, A.P.name, B.P.name]);
     if (best.gap < -0.5) fail(`${A.P.name} and ${B.P.name} overlap by ${(-best.gap).toFixed(1)}: no plane between them`);
-    sep.push([A.i, B.i, ...best.n.map((c) => Math.round(c * 1e4) / 1e4), Math.round(best.d * 10) / 10]);
+    keep(best.n.map((c) => Math.round(c * 1e4) / 1e4 + 0), Math.round(best.d * 10) / 10 + 0);
   }
   if (VERBOSE) console.log('  tightest pairs:', tight.sort((p, q) => p[0] - q[0]).slice(0, 16).map(([g, a, b]) => `${a}/${b} ${g.toFixed(1)}`).join(', '));
-  report.push(`apart: every two of the body's ${info.length} parts that can overlap on screen (${sep.length} of ${pairs} pairs) have a plane between them; ${touching} pairs meet flat on, the closest others are ${tight.filter((p) => p[0] >= 0.5).sort((p, q) => p[0] - q[0])[0][0].toFixed(1)} apart`);
+  // and the planes mirror as the parts do
+  for (const [a, b, nx, ny, nz, d] of sep) {
+    const m = planeOf.get(`${twinOf[a]}|${twinOf[b]}`), w = planeOf.get(`${twinOf[b]}|${twinOf[a]}`);
+    const ok = (m && m.n[0] === -nx && m.n[1] === ny && m.n[2] === nz && m.d === d) || (w && w.n[0] === nx && w.n[1] === -ny && w.n[2] === -nz && w.d === -d) || (w && twinOf[a] === b && w.n[0] === nx && w.n[1] === -ny && w.n[2] === -nz && w.d === -d);
+    if (!ok) fail(`symmetry: the plane between ${all[a].name} and ${all[b].name} has no mirror`);
+  }
+  report.push(`apart: every two of the body's ${info.length} parts that can overlap on screen (${sep.length} of ${pairs} pairs) have a plane between them, mirrored as the parts are; ${touching} pairs meet flat on, the closest others are ${tight.filter((p) => p[0] >= 0.5).sort((p, q) => p[0] - q[0])[0][0].toFixed(1)} apart`);
 }
 
 // ------------------------------------------------------------------ 7. fit
@@ -811,26 +930,73 @@ HEAD.v.forEach((p, i) => {
 });
 report.push(`tucked: ${tuck.length} head vertices (the ear tips and the spikes: ${tuck.map((t) => t[0]).join(', ')}) drawn in under the shell`);
 
-// ------------------------------------------------------------------ 8. the eyes in the visor
-// The painter draws a plane of the rim after the glass when the line from its middle to the eye
-// passes clear of the shell, and a disc after the glass while its axis faces the eye; otherwise
-// before the shell (which then covers what of them is behind). So a decal face covers the eyes
-// only if it faces the eye and is drawn after the glass. For every pose: each point of each eye's outline (as wide as it
-// ever opens), and a ring of points round it, must fall inside the visor's front-facing glass
-// and outside every such face. Eyes the painter hides (turned too far) are skipped.
+// ------------------------------------------------------------------ 8. the eyes in the visor, the rim round it
+// How the painter draws a plane of the rim, by the lines from its corners and its middle to the
+// eye (a disc goes after the glass while its axis faces the eye, before the shell while it does not):
+//  - behind: any of them crosses the opaque shell (anywhere outside the visor's window, which is
+//    the glass and the rim's footprint as seen from the helmet's middle): drawn before the shell,
+//    which covers what of it is behind (what sticks out past the shell's outline still shows);
+//  - through the glass: the line from its middle crosses a facet of the glass (the far side of the
+//    rim, seen across the inside of the helmet): drawn in the glass, after the helmet's dark
+//    inside and before the head, so the head covers it where it is nearer;
+//  - in front: clear of the glass: drawn after the glass, over the head.
+// So only the rim in front, and a disc facing the eye, can cover the eyes. For every pose of the sweep:
+//  - each point of each eye's outline (as wide as it ever opens), and a ring of points round it,
+//    must fall inside the visor's front-facing glass and outside every face that covers the eyes
+//    (eyes the painter hides, turned too far, are skipped);
+//  - the rim stays whole, in every pose within the head's reach (REACH, LEVEL: the sweep's poses
+//    in it and the reach's own corners): round every point of the edge of the glass that faces
+//    the eye (its outline, or where it turns away) there is only glass or rim, so the glass never
+//    meets the shell or the helmet's outline and the band round it never breaks. Past the reach,
+//    at the sweep's far corners, how much of the glass shows past the rim is measured and reported.
 //   POSE=yaw,pitch,roll node urchi/tools/build-suit.mjs --dry   checks that one pose alone
-/** Whether the line from p to the eye e passes clear of the shell (convex: clip it to every facet's plane). */
-function clearOfShell(p, e) {
+const inPolygon = (x, y, P) => {
+  let inn = false;
+  for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+    const [xi, yi] = P[i], [xj, yj] = P[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inn = !inn;
+  }
+  return inn;
+};
+const inWindow = (p) => p[2] - H.c[2] > 1 && inPolygon(...toWindow(p), WINDOW);
+/** Where the line p + t (e - p), t in 0..1, is inside a convex solid (outward planes): [t0, t1], or null. */
+function clipLine(planes, p, e) {
   const d = sub(e, p);
   let t0 = 0, t1 = 1;
-  for (const pl of shellP.planes) {
+  for (const pl of planes) {
     const a = dot(pl.n, p) - pl.d, b = dot(pl.n, d);
-    if (Math.abs(b) < 1e-12) { if (a > 0) return true; continue; }
+    if (Math.abs(b) < 1e-12) { if (a > 0) return null; continue; }
     const t = -a / b;
     if (b < 0) t0 = Math.max(t0, t); else t1 = Math.min(t1, t);
-    if (t1 - t0 < 1e-4) return true;
+    if (t1 - t0 < 1e-4) return null;
   }
-  return false;
+  return [t0, t1];
+}
+/** The glass's own facets (not its hidden back), as triangles of points. */
+const glassTris = F.flatMap((f, fi) => (FP[fi] === byName.get('visor') && !hidden[fi] ? [f.map((i) => V[i])] : []));
+/** Whether the segment from p to e crosses a triangle (Moller and Trumbore's test). */
+function crosses(p, e, [a, b, c]) {
+  const d = sub(e, p), e1 = sub(b, a), e2 = sub(c, a), h = cross(d, e2), det = dot(e1, h);
+  if (Math.abs(det) < 1e-12) return false;
+  const s = sub(p, a), u = dot(s, h) / det;
+  if (u < 0 || u > 1) return false;
+  const q = cross(s, e1), v = dot(d, q) / det;
+  if (v < 0 || u + v > 1) return false;
+  const t = dot(e2, q) / det;
+  return t > 1e-6 && t < 1;
+}
+/** Whether the opaque shell stands between p and the eye e: the line crosses it, and not only in the visor's window. */
+function behindShell(p, e) {
+  const s = clipLine(shellP.planes, p, e);
+  return !!s && !(inWindow(add(p, mul(sub(e, p), s[0]))) && inWindow(add(p, mul(sub(e, p), s[1]))));
+}
+/**
+ * How the painter draws a rim plane, the eye at e: 0 behind the shell (any of its corners, or its
+ * middle), 1 through the glass (the line from its middle to the eye crosses the glass), 2 in front.
+ */
+function rimView(g, e) {
+  if (planeCorners[g].some((i) => behindShell(V[i], e)) || behindShell(planeMid[g], e)) return 0;
+  return glassTris.some((t) => crosses(planeMid[g], e, t)) ? 1 : 2;
 }
 // each plane's middle: the mean of the middles of its triangles that can be seen, as the painter takes it
 const planeMid = (() => {
@@ -838,58 +1004,138 @@ const planeMid = (() => {
   F.forEach((_, fi) => { if (hidden[fi]) return; const g = G[fi]; sum.set(g, add(sum.get(g) || [0, 0, 0], faceCentre(fi))); n.set(g, (n.get(g) || 0) + 1); });
   return Object.fromEntries([...sum].map(([g, v]) => [g, mul(v, 1 / n.get(g))]));
 })();
+// and its corners, from the same triangles
+const planeCorners = (() => {
+  const c = {};
+  F.forEach((f, fi) => { if (!hidden[fi]) (c[G[fi]] ||= new Set()); if (!hidden[fi]) f.forEach((i) => c[G[fi]].add(i)); });
+  return Object.fromEntries(Object.entries(c).map(([g, set]) => [g, [...set]]));
+})();
+/** The eye, in the head's space, for a pose (degrees). */
+function eyeFor(pose) {
+  const cy = Math.cos(pose.yaw * D2R), sy = Math.sin(pose.yaw * D2R), cp = Math.cos(pose.pitch * D2R), sp = Math.sin(pose.pitch * D2R), cr = Math.cos(pose.roll * D2R), sr = Math.sin(pose.roll * D2R);
+  const ex0 = 0, ey0 = -PIVOT_Y, ez0 = PERSPECTIVE;
+  const x1 = ex0 * cr + (ey0 - TILT_PIVOT) * sr, y2 = -ex0 * sr + (ey0 - TILT_PIVOT) * cr + TILT_PIVOT;
+  const y = y2 * cp - ez0 * sp, z1 = y2 * sp + ez0 * cp;
+  return [x1 * cy - z1 * sy, y + PIVOT_Y, x1 * sy + z1 * cy];
+}
+const glassF = F.map((_, fi) => fi).filter((fi) => FP[fi] === byName.get('visor') && !hidden[fi]);
+// the head as the suit paints it (tucked)
+const tuckedHead = HEAD.v.map((p, i) => { const t = tuck.find((r) => r[0] === i); return t ? t.slice(1) : p; });
 {
-  const glassF = F.map((_, fi) => fi).filter((fi) => FP[fi] === byName.get('visor') && !hidden[fi]);
   const coverF = F.map((_, fi) => fi).filter((fi) => all[FP[fi]].decal && !hidden[fi]);
-  const inTri = (p, a, b, c) => {
+  const inTri = (p, t) => {
+    const [a, b, c] = t;
     const d1 = (p[0] - b[0]) * (a[1] - b[1]) - (a[0] - b[0]) * (p[1] - b[1]);
     const d2 = (p[0] - c[0]) * (b[1] - c[1]) - (b[0] - c[0]) * (p[1] - c[1]);
     const d3 = (p[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (p[1] - a[1]);
     return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
   };
-  let worstM = Infinity, worstPose = null, poses = 0;
-  const byYaw = new Map();
+  /** Triangles on screen with their boxes, and the ones whose box comes within r of a point. */
+  const boxed = (tris) => tris.map((t) => ({ t, x0: Math.min(t[0][0], t[1][0], t[2][0]), x1: Math.max(t[0][0], t[1][0], t[2][0]), y0: Math.min(t[0][1], t[1][1], t[2][1]), y1: Math.max(t[0][1], t[1][1], t[2][1]) }));
+  const nearTo = (list, s, r) => list.filter((b) => b.x0 - r <= s[0] && s[0] <= b.x1 + r && b.y0 - r <= s[1] && s[1] <= b.y1 + r).map((b) => b.t);
+  const inAny = (tris, p) => tris.some((t) => inTri(p, t));
+  /** Whether p is within r of a triangle (inside it, or near one of its edges). */
+  const nearAny = (tris, p, r) => tris.some((t) => inTri(p, t) || [0, 1, 2].some((k) => { const a = t[k], b = t[(k + 1) % 3], dx = b[0] - a[0], dy = b[1] - a[1], u = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1))); return Math.hypot(a[0] + dx * u - p[0], a[1] + dy * u - p[1]) <= r; }));
+  /** The largest radius (up to hi) whose ring of `n` points round s passes the test, -1 if s itself fails. */
+  const room = (s, ok, hi, n, steps) => {
+    if (!ok(s)) return -1;
+    let lo = 0;
+    for (let k = 0; k < steps; k++) { const m = (lo + hi) / 2; if (Array.from({ length: n }, (_, j) => [s[0] + m * Math.cos((2 * j * Math.PI) / n), s[1] + m * Math.sin((2 * j * Math.PI) / n)]).every(ok)) lo = m; else hi = m; }
+    return lo;
+  };
+  // the glass's edges: each directed edge of a glass face, and the glass face across it (if any)
+  const glassSet = new Set(glassF), across = new Map();
+  for (const fi of glassF) for (let k = 0; k < 3; k++) across.set(`${F[fi][k]}>${F[fi][(k + 1) % 3]}`, fi);
+  const RIM_ROOM = 1;   // the rim borders each point of the glass's edge with this much to spare round it
+  // glass reaching past the rim by no more than the dark base line (1.5 units) that runs round the whole figure reads as that line
+  const SLOP = 1.5;
+  let worstM = Infinity, worstPose = null, poses = 0, rimSamples = 0, rimWorst = Infinity, rimWorstPose = null, reachPoses = 0, farRim = Infinity, farPose = null, farOpen = 0, farPoses = 0, farYaw = Infinity, farPitch = Infinity;
+  const byYaw = new Map(), rimByYaw = new Map(), views = [0, 0, 0];
+  const failing = [];
   const only = process.env.POSE ? [Object.fromEntries(['yaw', 'pitch', 'roll'].map((k, i) => [k, Number(process.env.POSE.split(',')[i])]))] : null;
-  for (const pose of only || poseSweep(600)) {
+  for (const pose of only || [...poseSweep(600), ...reachGrid()]) {
     poses++;
     const pr = headProjector(pose);
     const Q = V.map(() => null), q = (i) => Q[i] || (Q[i] = pr(V[i]));
     const vis = (fi) => { const P3 = F[fi].map(q); let area = 0; for (let k = 0; k < 3; k++) { const a = P3[k], b = P3[(k + 1) % 3]; area += a[0] * b[1] - b[0] * a[1]; } return area > 0 ? P3 : null; };
-    // the eye, back in the head's space
-    const cy = Math.cos(pose.yaw * D2R), sy = Math.sin(pose.yaw * D2R), cp = Math.cos(pose.pitch * D2R), sp = Math.sin(pose.pitch * D2R), cr = Math.cos(pose.roll * D2R), sr = Math.sin(pose.roll * D2R);
-    let E;
-    {
-      const ex0 = 0, ey0 = -PIVOT_Y, ez0 = PERSPECTIVE;
-      const x1 = ex0 * cr + (ey0 - TILT_PIVOT) * sr, y2 = -ex0 * sr + (ey0 - TILT_PIVOT) * cr + TILT_PIVOT;
-      const y = y2 * cp - ez0 * sp, z1 = y2 * sp + ez0 * cp;
-      E = [x1 * cy - z1 * sy, y + PIVOT_Y, x1 * sy + z1 * cy];
-    }
-    const near = (fi) => {
+    const sp = Math.sin(pose.pitch * D2R), cp = Math.cos(pose.pitch * D2R), sy = Math.sin(pose.yaw * D2R), cy = Math.cos(pose.yaw * D2R);
+    const E = eyeFor(pose);
+    // the decal faces facing the eye: those drawn over the head, and the rim's seen through the glass
+    const front = [], through = [], viewOf = new Map();
+    for (const fi of coverF) {
+      const t = vis(fi);
+      if (!t) continue;
       const P = all[FP[fi]];
-      if (P.decal === 1) return clearOfShell(planeMid[G[fi]], E);
-      const c = P.centre3 || (P.centre3 = centroid(P.v));
-      return dot(sub(c, H.c), sub(E, c)) > 0;
-    };
-    const glass = glassF.map(vis).filter(Boolean), cover = coverF.filter(near).map(vis).filter(Boolean);
-    const seen = (p) => glass.some(([a, b, c]) => inTri(p, a, b, c)) && !cover.some(([a, b, c]) => inTri(p, a, b, c));
+      if (P.decal === 1) { if (!viewOf.has(G[fi])) viewOf.set(G[fi], rimView(G[fi], E)); const v = viewOf.get(G[fi]); views[v]++; if (v === 2) front.push(t); else if (v === 1) through.push(t); }
+      else { const c = P.centre3 || (P.centre3 = centroid(P.v)); if (dot(sub(c, H.c), sub(E, c)) > 0) front.push(t); }
+    }
+    const facing = new Set(glassF.filter((fi) => vis(fi)));
+    const glass = boxed([...facing].map(vis)), cover = boxed(front), behind = boxed(through);
+    const kb = Math.round(pose.yaw / 20) * 20;
+    let poseEye = Infinity, poseRim = Infinity;
     for (const e of HEAD.eyes) {
       if (-e.n[1] * sp + (-e.n[0] * sy + e.n[2] * cy) * cp < 0.15) continue;
       for (const p of eyeRing(e, EYE_GROW, 32)) {
-        const s = pr(p);
-        let lo = 0, hi = 80;
-        if (!seen(s)) lo = -1;
-        else for (let k = 0; k < 10; k++) { const m = (lo + hi) / 2; if (Array.from({ length: 12 }, (_, j) => [s[0] + m * Math.cos((j * Math.PI) / 6), s[1] + m * Math.sin((j * Math.PI) / 6)]).every(seen)) lo = m; else hi = m; }
+        const s = pr(p), G2 = nearTo(glass, s, 80), C2 = nearTo(cover, s, 80);
+        const lo = room(s, (x) => inAny(G2, x) && !inAny(C2, x), 80, 12, 10);
         if (lo < worstM) { worstM = lo; worstPose = { ...pose, eye: e.c[0] > 0 ? 'right' : 'left', at: p.map(Math.round) }; }
-        const kb = Math.round(pose.yaw / 20) * 20; byYaw.set(kb, Math.min(byYaw.get(kb) ?? Infinity, lo));
+        byYaw.set(kb, Math.min(byYaw.get(kb) ?? Infinity, lo));
+        poseEye = Math.min(poseEye, lo);
       }
     }
+    // the rim round the glass: the edge of what of the glass faces the eye, every few units
+    for (const fi of facing) for (let k = 0; k < 3; k++) {
+      const a = F[fi][k], b = F[fi][(k + 1) % 3], other = across.get(`${b}>${a}`);
+      if (other !== undefined && glassSet.has(other) && facing.has(other)) continue;
+      const A = q(a), B = q(b), n = Math.max(2, Math.ceil(Math.hypot(B[0] - A[0], B[1] - A[1]) / 6));
+      for (let j = 0; j <= n; j++) {
+        // on the edge, a hair inside its own triangle (toward its middle), so it counts as glass
+        const T = vis(fi), mx = (T[0][0] + T[1][0] + T[2][0]) / 3, my = (T[0][1] + T[1][1] + T[2][1]) / 3, e0 = [lerp(A[0], B[0], j / n), lerp(A[1], B[1], j / n)], el = Math.hypot(mx - e0[0], my - e0[1]) || 1;
+        const s = [e0[0] + ((mx - e0[0]) / el) * 0.05, e0[1] + ((my - e0[1]) / el) * 0.05];
+        const C2 = nearTo(cover, s, 40), T2 = nearTo(behind, s, 40), G2 = nearTo(glass, s, 40);
+        rimSamples++;
+        const lo = room(s, (x) => inAny(G2, x) || nearAny(C2, x, SLOP) || nearAny(T2, x, SLOP), 40, 16, 7);
+        if (!inReach(pose) && !only) { if (lo < farRim) { farRim = lo; farPose = { ...pose, at: s.map(Math.round) }; } }
+        else if (lo < rimWorst) { rimWorst = lo; rimWorstPose = { ...pose, at: s.map(Math.round) }; }
+        rimByYaw.set(kb, Math.min(rimByYaw.get(kb) ?? Infinity, lo));
+        poseRim = Math.min(poseRim, lo);
+      }
+    }
+    failing.push([pose.yaw, pose.pitch, pose.roll, poseEye, poseRim]);
+    if (inReach(pose)) reachPoses++;
+    else { farPoses++; if (poseRim < RIM_ROOM) { farOpen++; farYaw = Math.min(farYaw, Math.abs(pose.yaw)); farPitch = Math.min(farPitch, Math.abs(pose.pitch)); } }
   }
   const fmt = (p) => `yaw ${p.yaw.toFixed(0)}, pitch ${p.pitch.toFixed(0)}, roll ${p.roll.toFixed(0)}, the ${p.eye} eye at (${p.at})`;
-  if (VERBOSE || only) console.log('  visor margin by yaw:', [...byYaw].sort((a, b) => a[0] - b[0]).map(([k, m]) => `${k}: ${m.toFixed(0)}`).join(', '));
-  if (worstM < 12) fail(`the visor does not frame the eyes: margin ${worstM.toFixed(1)} at ${fmt(worstPose)}`);
+  const fmtRim = (p) => `yaw ${p.yaw.toFixed(0)}, pitch ${p.pitch.toFixed(0)}, roll ${p.roll.toFixed(0)}, at (${p.at}) on screen`;
+  const byYawText = (m) => [...m].sort((a, b) => a[0] - b[0]).map(([k, v]) => `${k}: ${v.toFixed(0)}`).join(', ');
+  if (VERBOSE) { const bad = failing.filter((f) => f[3] < 12 || (f[4] < RIM_ROOM && inReach({ yaw: f[0], pitch: f[1], roll: f[2] }))); console.log(`  poses failing: ${bad.length} of ${failing.length}:`, bad.slice(0, 40).map((f) => `[${f.slice(0, 3).map((v) => v.toFixed(0))}] eye ${f[3].toFixed(0)} rim ${f[4].toFixed(0)}`).join("; ")); }
+  if (VERBOSE || only) console.log('  visor margin by yaw:', byYawText(byYaw), '\n  rim cover by yaw:', byYawText(rimByYaw), '\n  rim faces drawn behind / through the glass / in front:', views.join(' / '));
+  if (worstM < 12) (process.env.DRAFT ? console.log : fail)(`the visor does not frame the eyes: margin ${worstM.toFixed(1)} at ${fmt(worstPose)}`);
+  if (rimWorst < RIM_ROOM) (process.env.DRAFT ? console.log : fail)(`the rim breaks: the glass's edge is ${rimWorst < 0 ? 'bare' : `covered by only ${rimWorst.toFixed(1)}`} at ${fmtRim(rimWorstPose)}`);
   report.push(`visor: both eyes (${EYE_GROW}x as wide as drawn) whole inside the glass and clear of the rim and discs in all ${poses} poses of the sweep (yaw to ${RANGE.yaw}, pitch ${RANGE.pitchUp} up to ${RANGE.pitchDown} down, roll to ${RANGE.roll}); least margin ${worstM.toFixed(0)} units (${fmt(worstPose)})`);
+  report.push(`rim: whole round the glass in all ${reachPoses} poses within the head's reach (yaw to ${REACH.yaw}, pitch ${REACH.pitchUp} up to ${REACH.pitchDown} down, roll to ${RANGE.roll}; and every yaw to ${RANGE.yaw} with the head within ${LEVEL} of level): round every point of the glass's visible edge (${rimSamples} in all) only glass or rim, the rim at least ${rimWorst.toFixed(1)} units wide (${fmtRim(rimWorstPose)})`);
+  if (farPoses) report.push(`rim, past the reach (${farPoses} poses of the sweep, where it adds every extra at once): whole in ${farPoses - farOpen}; in ${farOpen}, all with yaw ${farYaw.toFixed(0)} or more and pitch ${farPitch.toFixed(0)} or more, a sliver of glass shows past the far rim${farOpen ? ` (the worst at ${fmtRim(farPose)})` : ''}`);
 }
-
+// The face stays behind the glass: every vertex of the head (as painted, tucked) under the glass
+// in the front view is at least FACE_GAP behind it, so nothing of the head is ever in front of it.
+const FACE_GAP = 16;
+{
+  let least = Infinity, at = null;
+  for (const p of tuckedHead) {
+    if (p[2] <= 0) continue;
+    for (const fi of glassF) {
+      const [a, b, c] = F[fi].map((i) => V[i]);
+      const d = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]);
+      if (Math.abs(d) < 1e-9) continue;
+      const u = ((p[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (p[1] - a[1])) / d, v = ((b[0] - a[0]) * (p[1] - a[1]) - (p[0] - a[0]) * (b[1] - a[1])) / d;
+      if (u < 0 || v < 0 || u + v > 1) continue;
+      const gap = a[2] + u * (b[2] - a[2]) + v * (c[2] - a[2]) - p[2];
+      if (gap < least) { least = gap; at = p; }
+    }
+  }
+  if (least < FACE_GAP) fail(`the face comes through the glass: (${at.map(Math.round)}) is ${least.toFixed(1)} behind it (want ${FACE_GAP})`);
+  report.push(`glass: recessed ${GLASS.edge} (at its edge) to ${GLASS.middle} units under the helmet's surface, inside the rim; the face at least ${least.toFixed(0)} behind it (${at.map(Math.round)})`);
+}
 // ------------------------------------------------------------------ 9. the frame
 // It holds the suited figure in every pose of the sweep at any turn of the whole figure (the sheet's views).
 let frame;
@@ -921,7 +1167,8 @@ const suit = {
   vp: VP,
   vm: VM,
   materials: MATERIALS,
-  parts: all.map((P) => ({ name: P.name, material: MATERIALS.indexOf(P.material), rigid: P.rigid === 'head' ? 1 : 0, decal: P.decal })),
+  // per part: its material, what carries it (1 the head), how it lies on the shell (1 plane by plane, 2 as a whole), and whether it is convex
+  parts: all.map((P) => ({ name: P.name, material: MATERIALS.indexOf(P.material), rigid: P.rigid === 'head' ? 1 : 0, decal: P.decal, convex: P.convex ? 1 : 0 })),
   // faces never seen (inside another part, or flat against one)
   hidden: hidden.flatMap((h, fi) => (h ? [fi] : [])),
   // the planes between the body's parts that can overlap: [a, b, nx, ny, nz, d], part a on the side n.p < d
@@ -929,8 +1176,15 @@ const suit = {
   neck: NECK,
   body: BODY,
   tuck,
-  frame,
+  // the visor's window on the shell as seen from the helmet's middle `hub` (each point's x and y over
+  // its z from there, flat, the whole loop): a line to the eye that crosses the shell only inside it
+  // passes through glass or under the rim (the occlusion test)
+  hub: H.c,
+  window: WINDOW.flatMap(([x, y]) => [x, y].map((c) => Math.round(c * 1e5) / 1e5 + 0)),
 };
-if (!DRY) writeFileSync(OUT, JSON.stringify(suit) + '\n');
+if (!DRY) {
+  writeFileSync(OUT, JSON.stringify(suit) + '\n');
+  writeFileSync(OUT_FRAME, JSON.stringify(frame) + '\n');
+}
 report.forEach((l) => console.log('  ' + l));
-console.log(DRY ? 'checked (a dry run: nothing written)' : `baked ${V.length} vertices, ${F.length} triangles, ${all.length} parts into src/engine/urchi/suit.json (${Math.round(JSON.stringify(suit).length / 1024)} KB)`);
+console.log(DRY ? 'checked (a dry run: nothing written)' : `baked ${V.length} vertices, ${F.length} triangles, ${all.length} parts into src/engine/urchi/suit.json (${Math.round(JSON.stringify(suit).length / 1024)} KB), and its frame into suit-frame.json`);

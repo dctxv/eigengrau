@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { URCHI_BOX, URCHI_FRAME, URCHI_HEAD, URCHI_SUIT_FRAME, createUrchi, type UrchiCharacter, type UrchiOptions } from "@/engine/urchi/character";
+import { URCHI_BOX, URCHI_FRAME, URCHI_HEAD, URCHI_SUIT_FRAME, createUrchi, preloadSuit, type UrchiCharacter, type UrchiDevOptions } from "@/engine/urchi/character";
 
 /** A pose to hold: the head's angles (degrees), the whole figure's turn, the lids, the suit. */
 type Shot = {
@@ -16,8 +16,8 @@ type Shot = {
   lids?: [number, number];
   wide?: number;
   smooth?: boolean;
-  layer?: UrchiOptions["suitLayer"];
-  part?: UrchiOptions["suitPart"];
+  layer?: UrchiDevOptions["suitLayer"];
+  part?: UrchiDevOptions["suitPart"];
 };
 /** A window onto the figure, in mesh units. */
 type Win = { x: number; y: number; w: number; h: number };
@@ -42,12 +42,11 @@ function still(shot: Shot, boxPx: number): UrchiCharacter {
   history.replaceState(history.state, "", `?${q}`);
   let ch: UrchiCharacter;
   try {
-    ch = createUrchi({ smooth: shot.smooth ?? true, input: false, suitLayer: shot.layer, suitPart: shot.part });
+    ch = createUrchi({ smooth: shot.smooth ?? true, input: false }, { suitLayer: shot.layer, suitPart: shot.part, turn: shot.turn ?? 0 });
   } finally {
     history.replaceState(history.state, "", was || location.pathname);
   }
   ch.setSuit(shot.suit ?? 1);
-  ch.setTurn(shot.turn ?? 0);
   if (boxPx > 0) ch.setResolution(boxPx);
   if (shot.rest) ch.setRestLid(shot.rest);
   if (shot.lids) ch.setLids(shot.lids[0], shot.lids[1], 0);
@@ -110,6 +109,14 @@ function drawSheet(g: CanvasRenderingContext2D, W: number, H: number) {
   cell(looks, HELMET, helmH, lookRowH, H * 0.62);
 }
 
+/** Where a character's painting reaches, left to right, in mesh units (from its canvas's alpha). */
+function across(ch: UrchiCharacter): [number, number] {
+  const c = ch.canvas, px = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data, f = ch.frame, cell = f.w / c.width;
+  let l = c.width, r = 0;
+  for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (px[(y * c.width + x) * 4 + 3] > 8) { l = Math.min(l, x); r = Math.max(r, x); }
+  return [f.x + l * cell, f.x + (r + 1) * cell];
+}
+
 /** Where a character's painting reaches, top to bottom, in mesh units (from its canvas's alpha). */
 function reach(ch: UrchiCharacter): [number, number] {
   const c = ch.canvas, px = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data, f = ch.frame, cell = f.h / c.height;
@@ -120,30 +127,37 @@ function reach(ch: UrchiCharacter): [number, number] {
 
 /**
  * The figure as small as it will be on other tabs: 150, 165 and 180px tall, rim to rim (the
- * helmet then about 64 to 76px), smooth above and in hard pixels below, on eigengrau.
+ * helmet then about 64 to 76px), smooth and in hard pixels, on eigengrau: the sizes across and
+ * the two paints down on a wide screen, the sizes down and the paints across on a narrow one.
  */
 function drawSmall(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
   g.fillStyle = BG;
   g.fillRect(0, 0, W, H);
   const labelPx = Math.round(13 * dpr);
   // the figure's reach and the helmet's, rim to rim, in mesh units, from one large painting
-  const probe = still({ yaw: -12 }, 700), [top, bottom] = reach(probe);
+  const probe = still({ yaw: -12 }, 700), [top, bottom] = reach(probe), [left, right] = across(probe);
   probe.dispose();
   const helmetProbe = still({ yaw: -12, part: "helmet" }, 700), [ht, hb] = reach(helmetProbe);
   helmetProbe.dispose();
-  let x = 60 * dpr;
-  for (const css of [150, 165, 180]) {
-    const unit = (css * dpr) / (bottom - top), h = FIGURE.h * unit, w = FIGURE.w * unit;
-    for (const [row, smooth] of [true, false].entries()) {
+  const sizes = [150, 165, 180], gap = 30 * dpr;
+  // the figure's own width at each size, rim to rim
+  const widthAt = (css: number) => ((right - left) * css * dpr) / (bottom - top);
+  const narrow = sizes.reduce((sum, css) => sum + widthAt(css) + gap, gap) > W;
+  sizes.forEach((css, i) => {
+    const unit = (css * dpr) / (bottom - top), h = FIGURE.h * unit, w = widthAt(css);
+    for (const [k, smooth] of [true, false].entries()) {
+      // where this figure's left rim and top rim go
+      const x = narrow ? gap + k * (widthAt(180) + gap) : gap + sizes.slice(0, i).reduce((sum, c) => sum + widthAt(c) + gap, 0);
+      const y = narrow ? (52 + i * 220) * dpr : (70 + k * 250) * dpr;
       const ch = still({ smooth, yaw: -12 }, URCHI_BOX.w * unit);
       g.imageSmoothingEnabled = smooth;
-      blit(g, ch, FIGURE, x, (70 + row * 250) * dpr - (top - FIGURE.y) * unit, h);
+      blit(g, ch, FIGURE, x - (left - FIGURE.x) * unit, y - (top - FIGURE.y) * unit, h);
       g.imageSmoothingEnabled = true;
       ch.dispose();
+      const text = `${css}px (helmet ${Math.round(((hb - ht) * css) / (bottom - top))}px)`;
+      if (k === 0) label(g, text, narrow ? gap + widthAt(180) + gap / 2 : x + w / 2, narrow ? y - 24 * dpr : 30 * dpr, labelPx);
     }
-    label(g, `${css}px (helmet ${Math.round(((hb - ht) * css) / (bottom - top))}px)`, x + w / 2, 30 * dpr, labelPx);
-    x += w + 30 * dpr;
-  }
+  });
 }
 
 /**
@@ -155,33 +169,33 @@ function drawSpace(g: CanvasRenderingContext2D, W: number, H: number, dpr: numbe
   g.fillRect(0, 0, W, H);
   const labelPx = Math.round(13 * dpr);
   const unitPx = (0.48 * 900 * dpr) / (URCHI_HEAD.bottom - URCHI_HEAD.top);
-  const HEADWIN: Win = { x: -530, y: -520, w: 1060, h: 1060 };
+  const HEADWIN: Win = { x: -520, y: -520, w: 1040, h: 1060 };
   const top = 30 * dpr;
-  let x = 20 * dpr;
+  let x = 12 * dpr;
   {
     const ch = still({ suit: 0 }, URCHI_BOX.w * unitPx);
     blit(g, ch, HEADWIN, x, top, HEADWIN.h * unitPx);
     ch.dispose();
     label(g, "the head on Space today", x + (HEADWIN.w * unitPx) / 2, 8 * dpr, labelPx);
-    x += HEADWIN.w * unitPx + 10 * dpr;
+    x += HEADWIN.w * unitPx + 6 * dpr;
   }
   {
     // the same scale: the helmet the size of today's head, the body running off the bottom
-    const ch = still({}, URCHI_BOX.w * unitPx), win = { ...FIGURE, x: -545, w: 1090 };
+    const ch = still({}, URCHI_BOX.w * unitPx), win = { ...FIGURE, x: -585, w: 1170 };
     blit(g, ch, win, x, top + (FIGURE.y - HEADWIN.y) * unitPx, FIGURE.h * unitPx);
     ch.dispose();
     label(g, "suited, the same scale", x + (win.w * unitPx) / 2, 8 * dpr, labelPx);
-    x += win.w * unitPx + 10 * dpr;
+    x += win.w * unitPx + 6 * dpr;
   }
   {
     // the whole figure, rim to rim, as tall as today's head, its top level with the ear tips
     const probe = still({ yaw: -12 }, 700), [t0, b0] = reach(probe);
     probe.dispose();
     const unit = (0.48 * 900 * dpr) / (b0 - t0), h = FIGURE.h * unit;
-    const ch = still({ yaw: -12 }, URCHI_BOX.w * unit);
-    blit(g, ch, FIGURE, x, top + (URCHI_HEAD.top - HEADWIN.y) * unitPx - (t0 - FIGURE.y) * unit, h);
+    const ch = still({ yaw: -12 }, URCHI_BOX.w * unit), win = { ...FIGURE, x: -600, w: 1200 };
+    blit(g, ch, win, x, top + (URCHI_HEAD.top - HEADWIN.y) * unitPx - (t0 - FIGURE.y) * unit, h);
     ch.dispose();
-    label(g, "suited, as tall as that head", x + (FIGURE.w * unit) / 2, 8 * dpr, labelPx);
+    label(g, "suited, as tall as that head", x + (win.w * unit) / 2, 8 * dpr, labelPx);
   }
 }
 
@@ -370,6 +384,7 @@ function runPerf() {
     ch.setSuit(suit);
     ch.setResolution(box);
     const g = ch.canvas.getContext("2d")!;
+    ch.update(1 / 60);
     const paint: number[] = [], flushed: number[] = [];
     for (let i = 0; i < 480; i++) {
       ch.lookAt(Math.sin(i / 20), Math.cos(i / 31) * 0.5);
@@ -408,8 +423,8 @@ export function SuitSheet() {
     const g = c.getContext("2d")!;
     const view = new URLSearchParams(location.search).get("view") || "sheet";
     let alive = true;
-    // after the fonts, so the labels are set in the site's own
-    document.fonts.ready.then(() => {
+    // after the fonts, so the labels are set in the site's own, and the suit's model
+    Promise.all([document.fonts.ready, preloadSuit()]).then(() => {
       if (!alive) return;
       if (view === "small") drawSmall(g, W, H, dpr);
       else if (view === "space") drawSpace(g, W, H, dpr);
