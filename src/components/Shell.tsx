@@ -11,6 +11,7 @@ import { DUR, EASE, prefersReducedMotion } from "@/lib/motion";
 import { isTab, tabIndex } from "@/lib/routes";
 import { installViewportVars } from "@/lib/viewport";
 import { noteVisit } from "@/lib/visits";
+import { arrive } from "@/lib/where";
 import { FloatingLogo, measureLogoSlot } from "./chrome/FloatingLogo";
 import { LiveIcon } from "./chrome/LiveIcon";
 import { Nav } from "./chrome/Nav";
@@ -95,7 +96,10 @@ export function Shell({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     noteVisit(pathname); // on mount too: the visit's clock, and which tab was just left (Space looks back at it)
     const prev = prevPath.current;
-    if (prev === pathname) return;
+    if (prev === pathname) {
+      arrive(pathname, null);
+      return;
+    }
     prevPath.current = pathname;
     setFlag("cameFromInAppNav", true);
     const current = panels.find((p) => p.path === prev) ?? panels[0];
@@ -106,11 +110,13 @@ export function Shell({ children }: { children: ReactNode }) {
       tweenRef.current = null;
       pendingRef.current = null;
       if (rowRef.current) gsap.set(rowRef.current, { x: 0 });
+      arrive(pathname, prev);
       setPanels([next]);
       return;
     }
     const dir: 1 | -1 = tabIndex(pathname) > tabIndex(prev) ? 1 : -1;
     pendingRef.current = { dir, next };
+    arrive(pathname, prev, DUR.slideDelay * 1000, DUR.slide * 1000);
     setPanels(dir > 0 ? [current, next] : [next, current]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
