@@ -36,12 +36,20 @@ const PIXEL = { max: 3, head: 0.45, box: 0.8, maxRatio: 3 };
  */
 const SIZE = { narrow: 640, height: 0.48, width: 0.45, max: 600 };
 /**
+ * How far a head turned to look into a corner reaches past its outline at rest, as shares of its
+ * height (measured on the drawn silhouette, rim and roll included): the ear tips rise up to `rise`
+ * above where they rest, and the chin drops up to `drop` below. Whatever sits at the head's limits
+ * (the caption under it here, the tab bar over the game's stack) leaves it that much room.
+ */
+export const URCHI_TURN = { rise: 0.15, drop: 0.11 } as const;
+/**
  * Where it sits when the head grows: placed by its eyes, at 55% of the height, so about two thirds
  * of the screen stays dark around it. The chin keeps `chin` px clear of the caption's band, the
  * bottom `caption` px (globals.css .space-caption: 20px up, a title, 8px, a line), measured to the
- * outline as drawn, which reaches `outline` px past the mesh's chin (the rim, and perspective's
- * slight swell). A head that would not clear it shrinks until it does, though never below the
- * smallest step.
+ * outline as drawn, which reaches `outline` px past the mesh's chin at rest (the rim, and
+ * perspective's slight swell) and URCHI_TURN.drop of the head further when it looks down into a
+ * corner. A head that would not clear it shrinks until it does, though never below the smallest
+ * step. Only a window under about 560px tall is short enough for that.
  */
 const PLACE = { eyes: 0.55, caption: 64, chin: 64, outline: 4 };
 /**
@@ -134,13 +142,14 @@ export class RoomScene {
     this.home = 0;
     if (w > SIZE.narrow) {
       const grown = Math.max(this.pixel * HEAD_ART, Math.min(SIZE.height * h, SIZE.width * w, SIZE.max));
-      // The chin, CHIN_UNDER_EYES heads below eyes at 55% down, keeps clear of the caption.
-      const clear = (h * (1 - PLACE.eyes) - PLACE.caption - PLACE.chin - PLACE.outline) / CHIN_UNDER_EYES;
+      // The chin, CHIN_UNDER_EYES heads below eyes at 55% down (and a turn's drop lower), keeps clear of the caption.
+      const clear = (h * (1 - PLACE.eyes) - PLACE.caption - PLACE.chin - PLACE.outline) / (CHIN_UNDER_EYES + URCHI_TURN.drop);
       const head = Math.min(grown, Math.max(clear, this.minHead));
       this.pixel = head / HEAD_ART;
       this.home = h / 2 - PLACE.eyes * h + EYES_DOWN * head;
     }
-    // Settled, it sinks as far as the chin may go (its size already settled).
+    // Settled, it sinks as far as the chin may go (its size already settled). Asleep it faces
+    // ahead, so its outline at rest is all the room it needs.
     const head = this.pixel * HEAD_ART;
     const chin = h / 2 - this.home + (1 - SETTLE.smaller) * CHIN_DOWN * head;
     this.sink = clamp(h - PLACE.caption - PLACE.chin - PLACE.outline - chin, 0, SETTLE.sink * h);

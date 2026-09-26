@@ -5,7 +5,7 @@ import gsap from "gsap";
 import { sfx } from "@/audio/sfx";
 import { MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
 import { Motes } from "@/engine/space/Motes";
-import { RoomScene } from "@/engine/space/RoomScene";
+import { RoomScene, URCHI_TURN } from "@/engine/space/RoomScene";
 import { runIntro } from "@/engine/space/intro";
 import { comeBack, glanceAt, glanceDown, read, tug } from "@/engine/urchi/acts";
 import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
@@ -27,6 +27,12 @@ const PLATE_MARGIN = 32;
 const STACK_GAP = 24;
 /** Room the stack keeps above and below it: clear of the nav, off the bottom edge. */
 const STACK_CLEAR = 48;
+/**
+ * Turned to the board or past it, the head's ear tips rise over where they rest (URCHI_TURN.rise).
+ * They may take this much of the clear above the stack and still stop short of the tab bar, which
+ * ends about 36px down; the stack makes room for the rest.
+ */
+const STACK_EARS = 8;
 /** Seconds the result caption holds the slot before the hover caption may return. */
 const RESULT_DWELL = 4;
 /** A press that moves less than this (px) and lets go within this (ms) is a click. */
@@ -286,17 +292,24 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const plateSize = () => Math.min(PLATE_MAX, window.innerWidth - PLATE_MARGIN, window.innerHeight - PLATE_MARGIN);
     /**
      * Urchi, a gap and the plate form one centred stack; returns the plate's drop below the centre.
-     * Urchi shrinks, as far as it must and no further, until its head fits above the plate; when
-     * that would leave less than its smallest head (one screen pixel per art pixel), it dims instead.
+     * Urchi shrinks, as far as it must and no further, until its head fits above the plate with room
+     * for its ears as it turns. Where only its smallest head (one screen pixel per art pixel) fits,
+     * it takes that and its ears borrow the clear; where not even that fits at rest, it dims instead.
      */
     const stack = (duration: number) => {
+      const H = window.innerHeight;
       const plate = plateSize();
-      const head = room.urchiSize.h;
-      const zoom = Math.min(1, (window.innerHeight - 2 * STACK_CLEAR - STACK_GAP - plate) / head);
-      const fits = zoom * head >= room.minHead;
-      room.liftUrchi(fits ? (STACK_GAP + plate) / 2 : null, duration, zoom);
+      const fit = H - 2 * STACK_CLEAR - STACK_GAP - plate; // the head's room at rest
+      const turned = (fit + STACK_EARS) / (1 + URCHI_TURN.rise); // and with its ears' rise
+      const head = Math.min(room.urchiSize.h, Math.max(Math.min(fit, turned), room.minHead));
+      const fits = fit >= room.minHead;
+      // Centred, unless the ears' rise needs the stack lower (never off the bottom's clear).
+      const ears = Math.max(0, URCHI_TURN.rise * head - STACK_EARS);
+      const tall = head + STACK_GAP + plate;
+      const top = Math.min(Math.max((H - tall) / 2, STACK_CLEAR + ears), H - STACK_CLEAR - tall);
+      room.liftUrchi(fits ? H / 2 - top - head / 2 : null, duration, head / room.urchiSize.h);
       room.dimUrchi(!fits);
-      return fits ? (zoom * head + STACK_GAP) / 2 : 0;
+      return fits ? top + head + STACK_GAP + plate / 2 - H / 2 : 0;
     };
     const showResult = (date: string, result: number) => {
       const { title, line } = resultCaption(date, result);
