@@ -2,7 +2,8 @@
  * Sound (spec 11). Two sampled files in public/audio: a click for opening a
  * project and an ambient bed that loops with a crossfade at the seam. The
  * other cues are synthesised (Urchi's pats and the Projects horizon's pluck
- * among them), and ticks can come as a train placed on the audio clock. The
+ * among them), and ticks can come as a train placed on the audio clock (Notes'
+ * riffle, and the Projects ball's whirr as it charges). The
  * bed has its own air, a lowpass that can put it through a wall. Music adds a
  * third voice: a song's preview heard through the wall, with the bed ducking
  * under it. Once its door has opened the song stays in Music's room when the
@@ -789,8 +790,9 @@ const trains = new Set<() => void>();
  * The Projects tick, once at each offset (seconds from now), on the audio clock. play() drops a
  * tick within TICK_THROTTLE_MS of the last so a flung ball cannot clatter, and a setTimeout would
  * smear 14ms into whatever the main thread allows. A train is placed on purpose, so every tick in
- * it is scheduled on ctx.currentTime and none is dropped. Notes' riffle uses it; the supernova's
- * whirr will, with `rate` lifting the pitch.
+ * it is scheduled on ctx.currentTime and none is dropped. Notes' riffle uses it, and so does the
+ * supernova's whirr, a few ticks at a time just ahead of the spinning ball, with `rate` lifting the
+ * pitch.
  */
 function train(offsets: readonly number[], gain: number, rate: number): () => void {
   if (!enabled || !offsets.length) return QUIET;
@@ -1126,6 +1128,15 @@ export const sfx = {
   get enabled() {
     return enabled;
   },
+  /**
+   * Sound is on and its clock is running: a gesture has woken it. A train
+   * placed a few ticks at a time as something moves (the supernova's whirr)
+   * waits for this, since on a sleeping clock its ticks would only pile up
+   * and all sound at once when it wakes. A wheel is not a gesture.
+   */
+  get awake() {
+    return enabled && !!ctx && ctx.state === "running";
+  },
   set(on: boolean) {
     enabled = on;
     try {
@@ -1205,7 +1216,12 @@ export const sfx = {
       listeners.delete(l);
     };
   },
-  play(name: Name, volume = 1) {
+  /**
+   * One cue, at `volume`. `rate` is its playbackRate, so pitch and speed rise
+   * together: the supernova's charge lifts the Projects tick from 1 to 1.25,
+   * and at rest the tick plays exactly as it always has.
+   */
+  play(name: Name, volume = 1, rate = 1) {
     if (!enabled) return;
     if (name === "tick") {
       const now = performance.now();
@@ -1221,6 +1237,7 @@ export const sfx = {
     }
     const src = c.createBufferSource();
     src.buffer = buf;
+    if (rate !== 1) src.playbackRate.value = rate;
     const g = c.createGain();
     g.gain.value = volume;
     src.connect(g).connect(master);
