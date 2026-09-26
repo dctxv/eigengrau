@@ -97,7 +97,7 @@ fitted round the head, the ears and spikes folded in under it) and baked into
 `src/engine/urchi/suit.json` (its canvas frame into `suit-frame.json`) with `npm run urchi:suit`,
 which also prints its checks. `setSuit` puts it on, fetching the model the first time, so a
 visit that never sees the suit never downloads it; in development `/dev/suit` shows it from all
-sides.
+sides (a production build leaves the sheet out altogether).
 
 What the site keeps in localStorage, every read and write guarded:
 `eigengrau:sound` (sound on or off), `eigengrau:threshold` (today's result),
