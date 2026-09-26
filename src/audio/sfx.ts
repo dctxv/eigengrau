@@ -1,12 +1,14 @@
 /**
  * Sound (spec 11). Two sampled files in public/audio: a click for opening a
  * project and an ambient bed that loops with a crossfade at the seam. The
- * other cues are synthesised, and ticks can come as a train placed on the
- * audio clock. Music adds a third voice: a song's preview heard through the
- * wall, with the bed ducking under it. Once its door has opened the song
- * stays in Music's room when the visitor leaves, and plays on to its end,
- * heard through the other tabs' walls. Off by default, remembered in
- * localStorage; nothing is fetched until sound is turned on.
+ * other cues are synthesised (Urchi's pats and the Projects horizon's pluck
+ * among them), and ticks can come as a train placed on the audio clock. The
+ * bed has its own air, a lowpass that can put it through a wall. Music adds a
+ * third voice: a song's preview heard through the wall, with the bed ducking
+ * under it. Once its door has opened the song stays in Music's room when the
+ * visitor leaves, and plays on to its end, heard through the other tabs'
+ * walls. Off by default, remembered in localStorage; nothing is fetched until
+ * sound is turned on.
  */
 type Name = "click" | "tab" | "slide" | "focus" | "close" | "tick" | "done" | "pat" | "patOwn";
 type Synth = Exclude<Name, "click">;
@@ -412,56 +414,6 @@ function contextAt(c: AudioContext, ms: number): number {
   const out = typeof c.getOutputTimestamp === "function" ? c.getOutputTimestamp() : null;
   if (out?.performanceTime && out.contextTime !== undefined) return out.contextTime + (ms - out.performanceTime) / 1000;
   return c.currentTime + (ms - performance.now()) / 1000 - ((c.outputLatency || 0) + (c.baseLatency || 0));
-}
-
-/** A pat this late (seconds) still plays, at once; later than that it would land off the blink, so it is dropped. */
-const PAT_LATE = 0.03;
-/** Taking a pat back: its gain falls over this long (seconds) before it stops, so a pat cut off mid-sound does not click. */
-const PAT_CUT = 0.02;
-
-/** Pats scheduled and not over yet: turning the sound off takes them back too, so none is heard after. */
-const patsDue = new Set<() => void>();
-
-/** Schedules one pat to be heard at `at` (performance.now() ms); returns how to take it back. See sfx.pat. */
-function pat(at: number, own: boolean): () => void {
-  const none = () => {};
-  if (!enabled) return none;
-  const c = ensure();
-  const buf = buffers.get(own ? "patOwn" : "pat");
-  // The taps that asked for it were gestures, so the context is running by now; if it is not,
-  // silence rather than a beat that lands wherever the clock happens to restart.
-  if (!c || !master || !buf || c.state !== "running") return none;
-  let when = contextAt(c, at);
-  if (when < c.currentTime - PAT_LATE) return none;
-  when = Math.max(when, c.currentTime);
-  const src = c.createBufferSource();
-  src.buffer = buf;
-  const g = c.createGain();
-  src.connect(g).connect(master);
-  let taken = false;
-  const takeBack = () => {
-    // once only: a second ramp would start from full again, and that is a click
-    if (taken) return;
-    taken = true;
-    patsDue.delete(takeBack);
-    const t = c.currentTime;
-    g.gain.setValueAtTime(1, t);
-    g.gain.linearRampToValueAtTime(0, t + PAT_CUT);
-    try {
-      src.stop(t + PAT_CUT + 0.005);
-    } catch {
-      /* already stopped */
-    }
-  };
-  src.onended = () => {
-    taken = true;
-    patsDue.delete(takeBack);
-    src.disconnect();
-    g.disconnect();
-  };
-  src.start(when);
-  patsDue.add(takeBack);
-  return takeBack;
 }
 
 /**
@@ -890,6 +842,58 @@ function train(offsets: readonly number[], gain: number, rate: number): () => vo
   return cancel;
 }
 
+// ---------------------------------------------------------------- Urchi's pat
+
+/** A pat this late (seconds) still plays, at once; later than that it would land off the blink, so it is dropped. */
+const PAT_LATE = 0.03;
+/** Taking a pat back: its gain falls over this long (seconds) before it stops, so a pat cut off mid-sound does not click. */
+const PAT_CUT = 0.02;
+
+/** Pats scheduled and not over yet: turning the sound off takes them back too, so none is heard after. */
+const patsDue = new Set<() => void>();
+
+/** Schedules one pat to be heard at `at` (performance.now() ms); returns how to take it back. See sfx.pat. */
+function pat(at: number, own: boolean): () => void {
+  const none = () => {};
+  if (!enabled) return none;
+  const c = ensure();
+  const buf = buffers.get(own ? "patOwn" : "pat");
+  // The taps that asked for it were gestures, so the context is running by now; if it is not,
+  // silence rather than a beat that lands wherever the clock happens to restart.
+  if (!c || !master || !buf || c.state !== "running") return none;
+  let when = contextAt(c, at);
+  if (when < c.currentTime - PAT_LATE) return none;
+  when = Math.max(when, c.currentTime);
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  const g = c.createGain();
+  src.connect(g).connect(master);
+  let taken = false;
+  const takeBack = () => {
+    // once only: a second ramp would start from full again, and that is a click
+    if (taken) return;
+    taken = true;
+    patsDue.delete(takeBack);
+    const t = c.currentTime;
+    g.gain.setValueAtTime(1, t);
+    g.gain.linearRampToValueAtTime(0, t + PAT_CUT);
+    try {
+      src.stop(t + PAT_CUT + 0.005);
+    } catch {
+      /* already stopped */
+    }
+  };
+  src.onended = () => {
+    taken = true;
+    patsDue.delete(takeBack);
+    src.disconnect();
+    g.disconnect();
+  };
+  src.start(when);
+  patsDue.add(takeBack);
+  return takeBack;
+}
+
 // ---------------------------------------------------------------- the horizon's pluck
 
 /**
@@ -1265,4 +1269,3 @@ export const sfx = {
     pluckLater();
   },
 };
-
