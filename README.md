@@ -60,7 +60,10 @@ every 20s while he is live and every minute otherwise. Song lengths come from
 `week.fact`, the heading (from `api/now/fact.ts`). Space polls `/api/now` too,
 to know when he is listening. With sound on, `/api/preview` looks the song up
 on the keyless iTunes Search API and proxies its preview same-origin; a 404
-means silence. Nothing is fetched with sound off.
+means silence. Nothing is fetched with sound off. The room's colour is read
+from each cover in the browser (`src/lib/tone.ts`): a grey record leaves the
+room grey, and a sleeve whose colour is only a small accent can be given its
+hue in `OVERRIDES` there.
 
 Threshold is the game behind Urchi: five rounds of squares, one of
 them lighter than eigengrau by 10, 6, 4, 2, then 1 of 255, two boards a round.
@@ -92,7 +95,8 @@ What the site keeps in localStorage, every read and write guarded:
 `eigengrau:sound` (sound on or off), `eigengrau:threshold` (today's result),
 `eigengrau:visits` (`{ prev, seen }` in ms: when the last visit ended, and the
 last activity; Space writes it and Notes reads it) and `eigengrau:told` (the
-visit Urchi has already pointed out what's new for).
+visit Urchi has already pointed out what's new for). In sessionStorage,
+`eigengrau:tones` keeps each cover's colour for the visit.
 
 The placeholder artwork in `public/work/` is generated, not photographed:
 
