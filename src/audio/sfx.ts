@@ -214,15 +214,23 @@ const WALL_LEVEL = 0.16; // about -16 dB
 const OPEN_LEVEL = 0.5; // about -6 dB
 const ROOM_WET = { wall: 0.45, open: 0.06 };
 const BED_DUCK = { wall: 0.5, open: 0.32 }; // -6 dB, then -10 dB
-const WALL_IN = 0.6; // the song fades up behind the wall
-const DOOR_WAIT = 1.2; // then waits there this long before the door starts to open
-const DOOR_OPEN = 3;
-const DOOR_CLOSE = 1.2;
+/**
+ * The door's clock, in seconds. Exported because the Music room's colour keeps
+ * the same one: muffled sound, muted colour; the door opens, the colour opens.
+ */
+export const WALL_IN = 0.6; // the song fades up behind the wall
+export const DOOR_WAIT = 1.2; // then waits there this long before the door starts to open
+export const DOOR_OPEN = 3;
+export const DOOR_CLOSE = 1.2;
 const QUICK_CLOSE = 0.3; // sound turned off, or the tab hidden
 const WAKE_WAIT_MS = 300;
 
-/** What the Music page gets back: how long the song runs, where it lives on Apple Music, and how to leave. */
-export type Preview = { duration: number; link: string | null; ended: Promise<void>; stop: () => void };
+/**
+ * What the Music page gets back: how long the song runs, where it lives on
+ * Apple Music, when its first sample reaches the speakers (performance.now()
+ * ms, a little after the promise resolves), and how to leave.
+ */
+export type Preview = { duration: number; link: string | null; heardAt: number; ended: Promise<void>; stop: () => void };
 
 type Voice = { src: AudioBufferSourceNode; lp: BiquadFilterNode; level: GainNode; wet: GainNode };
 let voice: Voice | null = null;
@@ -242,6 +250,17 @@ function roomTone(c: AudioContext): AudioBuffer {
     }
   }
   return (roomIr = buf);
+}
+
+/**
+ * When a sound scheduled at context time `t` is heard, on performance.now()'s
+ * clock: the output timestamp maps one clock onto the other, and the output
+ * latency stands in where there is none yet.
+ */
+function heardAt(c: AudioContext, t: number): number {
+  const out = typeof c.getOutputTimestamp === "function" ? c.getOutputTimestamp() : null;
+  if (out?.performanceTime && out.contextTime !== undefined) return out.performanceTime + (t - out.contextTime) * 1000;
+  return performance.now() + ((c.outputLatency || 0) + (c.baseLatency || 0)) * 1000;
 }
 
 /** Holds a param where it is at `t`, dropping whatever was scheduled after, so a new move starts from there. */
@@ -353,7 +372,7 @@ async function listen(url: string, signal?: AbortSignal): Promise<Preview | null
   const stop = () => {
     if (voice === v) hush();
   };
-  return { duration: buffer.duration, link, ended, stop };
+  return { duration: buffer.duration, link, heardAt: heardAt(c, t), ended, stop };
 }
 
 // ---------------------------------------------------------------- context
@@ -439,7 +458,8 @@ export const sfx = {
   },
   /**
    * A song's preview from `url` (same-origin, so it can be filtered), heard
-   * through the wall; the door opens while nobody calls `stop`. Null, having
+   * through the wall; the door opens while nobody calls `stop`. It resolves
+   * as the song starts, with `heardAt` saying when it is heard. Null, having
    * played nothing, when sound is off, the context has not been woken by a
    * gesture yet, there is no preview, or `signal` was aborted first. Nothing
    * is fetched while sound is off.
