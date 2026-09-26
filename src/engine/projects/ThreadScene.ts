@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import gsap from "gsap";
-import type { Text } from "troika-three-text";
+import type { Text, TextRenderInfo } from "troika-three-text";
 import { sfx } from "@/audio/sfx";
 import { statusWord, type Media, type Project, type SpaceItem } from "@/content/site";
 import { GL } from "@/engine/common/color";
@@ -104,17 +104,23 @@ type Layout = {
   length: number;
 };
 
-/** The heading's line, where the horizon had it and where Notes and Music set theirs. */
+/** The heading's line on a phone, where the horizon had it and where Notes and Music set theirs. */
 const HEADING_Y = 206;
 /**
- * Below this height the heading climbs toward the tab bar, about half a
- * pixel for each pixel lost, so a phone held sideways still has room for the
- * ball and its caption under it.
+ * Below this height a phone's heading climbs toward the tab bar, about half
+ * a pixel for each pixel lost, so a short one still has room for the ball
+ * and its caption under it.
  */
 const SHORT = 600;
 const SHORT_CLIMB = 0.55;
 const HEADING_MIN = 80;
 const HEADING_CLEAR = 24;
+/**
+ * The tab pills' foot (the bar sits 8px down and its pills are 27px tall).
+ * On a wide screen the heading and the ball stand together between it and
+ * the page's foot, with as much room over the heading as under the ball.
+ */
+const NAV_FOOT = 35;
 /** The tab bar's foot, with a little air: nothing of an opened project rises past it. */
 const NAV_CLEAR = 56;
 /** What an opened project leaves free at the bottom edge. */
@@ -577,6 +583,8 @@ export class ThreadScene {
   private cx = 0;
   private cy = 0;
   private capY = 0;
+  /** The heading's line, as the last layout set it. */
+  private headY = HEADING_Y;
   /** The caption stands beside the ball (a wide, short screen) from this x, rather than under it. */
   private capSide = false;
   private capX = 0;
@@ -1059,14 +1067,51 @@ export class ThreadScene {
 
   // ---------------------------------------------------------------- layout
 
-  /** The heading's line at this height: 206, as on the other tabs, higher on a short screen. */
+  /** The heading's line, as the last layout set it. */
   private get headingY() {
+    return this.headY;
+  }
+
+  /** A phone's heading line at this height: 206, as on the other tabs, higher on a short screen. */
+  private get phoneHeadingY() {
     const H = this.height;
     return H >= SHORT ? HEADING_Y : Math.round(Math.max(HEADING_MIN, HEADING_Y - (SHORT - H) * SHORT_CLIMB));
   }
 
   private get headingHalf() {
     return this.headingTwoLines ? 22 : 11;
+  }
+
+  /** Where the heading's ink starts, px, as its words were last set. */
+  private headingInkTop() {
+    if (!this.heading) return this.headY - this.headingHalf;
+    return Math.min(
+      ...[this.heading.lead, this.heading.tail].map((m) => {
+        const info = m.t.textRenderInfo as (TextRenderInfo & { visibleBounds?: [number, number, number, number] }) | null;
+        const b = info?.visibleBounds ?? blockBounds(m.t);
+        return -m.base.y - b[3];
+      }),
+    );
+  }
+
+  /** Sets the heading's words on its line: one line centred, or two where the screen is too narrow. */
+  private placeHeading(hy: number) {
+    if (!this.heading) return;
+    const W = this.width;
+    const { lead, tail } = this.heading;
+    const lw = blockBounds(lead.t)[2] - blockBounds(lead.t)[0];
+    const tw = blockBounds(tail.t)[2] - blockBounds(tail.t)[0];
+    const space = 16 * 0.28;
+    const total = lw + space + tw;
+    this.headingTwoLines = total > W - 40;
+    if (!this.headingTwoLines) {
+      const x0 = (W - total) / 2;
+      this.setBase(lead, x0, hy);
+      this.setBase(tail, x0 + lw + space, hy);
+    } else {
+      this.setBase(lead, (W - lw) / 2, hy - 11);
+      this.setBase(tail, (W - tw) / 2, hy + 11);
+    }
   }
 
   /** The hover captions' set: centred under the ball, or left-aligned beside it. */
@@ -1098,25 +1143,11 @@ export class ThreadScene {
     await Promise.all(this.texts.map((t) => syncText(t)));
     if (this.disposed || gen !== this.layoutGen) return;
 
-    // The heading, where the horizon had it (higher on a short screen).
-    const hy = this.headingY;
-    if (this.heading) {
-      const { lead, tail } = this.heading;
-      const lw = blockBounds(lead.t)[2] - blockBounds(lead.t)[0];
-      const tw = blockBounds(tail.t)[2] - blockBounds(tail.t)[0];
-      const space = 16 * 0.28;
-      const total = lw + space + tw;
-      this.headingTwoLines = total > W - 40;
-      if (!this.headingTwoLines) {
-        const x0 = (W - total) / 2;
-        this.setBase(lead, x0, hy);
-        this.setBase(tail, x0 + lw + space, hy);
-      } else {
-        this.setBase(lead, (W - lw) / 2, hy - 11);
-        this.setBase(tail, (W - tw) / 2, hy + 11);
-      }
-    }
-    const headBottom = hy + this.headingHalf;
+    // The heading: on a phone where the horizon had it (higher on a short screen). A wide screen
+    // sets it once to measure its ink, then again where the balance below puts it.
+    let hy = v ? this.phoneHeadingY : HEADING_Y;
+    this.placeHeading(hy);
+    const above = hy - this.headingInkTop();
 
     // The ball: on a wide screen 62% of the short side up to 720px, a little larger with more work,
     // then whatever fits between the heading and the caption. A phone's is 88% of its width.
@@ -1132,21 +1163,33 @@ export class ThreadScene {
     // The room over the ball grows with it, so each fit solves for both.
     const room = v ? PHONE_TOP_ROOM : TOP_ROOM;
     const lift = 1 + room / (2 * R_REF);
-    const avail = H - headBottom - HEADING_CLEAR;
-    const under = Math.min(want, (avail - gap - capFit - 16) / lift);
+    // What the ball may take: on a phone everything under the heading, less what must stay under
+    // the ball. A wide screen balances the pair, the room over the heading (from the tab pills'
+    // foot) matching the room under the ball, so whatever stays under the ball is kept twice.
+    const budget = H - NAV_FOOT - above - this.headingHalf - HEADING_CLEAR;
+    const fit = (keep: number) => (v ? H - (hy + this.headingHalf) - HEADING_CLEAR - keep : budget - 2 * keep) / lift;
+    const under = Math.min(want, fit(gap + capFit + 16));
     // A wide screen too short for a fair ball with the whole caption under it (a phone held
     // sideways) sets the caption beside the ball instead, and the ball takes the height, unless
     // reaching into the caption's slot gives it more.
-    const clear = Math.min(want, (avail - gap - capH - 16) / lift);
-    const beside = Math.min(want, (avail - SIDE_BOTTOM) / lift, W - 2 * (CAP_GAP + SIDE_MIN_W + SIDE_EDGE));
+    const clear = Math.min(want, fit(gap + capH + 16));
+    const beside = Math.min(want, fit(SIDE_BOTTOM), W - 2 * (CAP_GAP + SIDE_MIN_W + SIDE_EDGE));
     const side = !v && clear < SIDE_FROM && beside > under;
     const D = Math.max(D_MIN, side ? beside : under);
     this.R = D / 2;
     this.fitStep();
+    if (!v) {
+      // Equal room over the heading and under the ball, with the ball right under the heading.
+      const g = Math.max(HEADING_CLEAR, (budget - D * lift) / 2);
+      hy = Math.round(NAV_FOOT + g + above);
+      this.placeHeading(hy);
+    }
+    this.headY = hy;
+    const headBottom = hy + this.headingHalf;
     const top = headBottom + HEADING_CLEAR + room * (D / (2 * R_REF)) + this.R;
     const bottom = H - (side ? SIDE_BOTTOM : gap + capFit + 16) - this.R;
     this.cx = W / 2;
-    this.cy = Math.max(top, Math.min(H * 0.54, bottom));
+    this.cy = v ? Math.max(top, Math.min(H * 0.54, bottom)) : top;
     // Under the ball, and never past the bottom edge: over the ball's foot, where it reaches that far.
     this.capY = Math.min(this.cy + this.R + gap, H - capH - 16);
     this.capSide = side;
