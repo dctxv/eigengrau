@@ -148,14 +148,23 @@ export class AboutScene {
     this.lines = this.opts.statement.map((line) =>
       makeText(line, { font: FONT.serif, size, anchorX: "center", anchorY: "middle" }),
     );
-    this.lines.forEach((l) => this.scene.add(l));
     this.current = makeText(this.opts.current, { font: FONT.grotesk, size: 12, anchorX: "center", anchorY: "middle" });
-    this.scene.add(this.current);
-    await Promise.all([...this.lines, this.current].map((t) => syncText(t)));
+    // The frame loop draws from the start, and a text that finishes its sync before it is laid
+    // out would show at the origin, the three lines stacked in the top-left corner for a frame or
+    // two. Hidden until layout and the reveal's masks have placed them (syncText syncs regardless).
+    const texts = [...this.lines, this.current];
+    texts.forEach((t) => {
+      t.visible = false;
+      this.scene.add(t);
+    });
+    await Promise.all(texts.map((t) => syncText(t)));
     if (this.disposed) return;
     this.layout();
     this.ready = true;
     this.reveal();
+    texts.forEach((t) => {
+      t.visible = true;
+    });
   }
 
   private lineY(i: number) {

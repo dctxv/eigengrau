@@ -890,6 +890,172 @@ function train(offsets: readonly number[], gain: number, rate: number): () => vo
   return cancel;
 }
 
+// ---------------------------------------------------------------- the horizon's pluck
+
+/**
+ * An opened project's horizon, plucked as it comes taut: a soft string at the
+ * note Projects gives it. Drawn as a stack of decaying partials, each one
+ * weighted as a string plucked about a fifth of the way along and dying
+ * sooner the higher it is, as a real string's do. A rise of a few
+ * milliseconds keeps the first sample off a click, and a cosine fall brings
+ * the last one to silence.
+ * - ring: living work, 2.4s. The fundamental falls 40 dB over that.
+ * - thud: dead work, a muted pluck of a few low partials over a soft knock.
+ */
+export type PluckKind = "ring" | "thud";
+const PLUCK = {
+  ring: { dur: 2.4, partials: 8, tau: 0.52, spread: 0.9, tilt: 1.8, knock: 0, level: 0.2, rise: 0.004, fall: 0.25 },
+  thud: { dur: 0.42, partials: 4, tau: 0.06, spread: 1.6, tilt: 2.6, knock: 2, level: 0.26, rise: 0.003, fall: 0.12 },
+} as const;
+/** Where along the string it is plucked (a share of its length), and how far its upper partials stretch sharp. */
+const PLUCK_AT = 0.22;
+const PLUCK_STIFF = 0.0001;
+/** A partial is left once it has fallen 100 dB: the rest of its samples are silence to the ear. */
+const PLUCK_FLOOR = Math.log(1e5);
+/** Samples written between pauses while a pluck is built in idle time. */
+const PLUCK_SLICE = 1 << 14;
+/**
+ * A hand on the string, seconds: sound turned off stops it this fast, and a
+ * string plucked again stops ringing as the new pluck starts.
+ */
+const PLUCK_QUICK = 0.06;
+const PLUCK_AGAIN = 0.03;
+
+/** A pluck's samples, and while they are still being written, the rest of the work. */
+type PluckBuild = { buf: AudioBuffer; steps: Generator<void, void> | null };
+const plucks = new Map<string, PluckBuild>();
+/** The builds waiting for idle time, oldest first. */
+const pluckQueue: PluckBuild[] = [];
+let pluckIdle = false;
+/** The pluck ringing now, so the chip, a slack line or the next pluck can stop it. */
+let ringing: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+
+/**
+ * Writes the pluck at `hz` into `buf` a piece at a time, pausing every
+ * PLUCK_SLICE samples of each pass, so idle time can take it in slices of
+ * a millisecond or so rather than in one long stall.
+ */
+function* pluckSteps(buf: AudioBuffer, hz: number, kind: PluckKind): Generator<void, void> {
+  const p = PLUCK[kind];
+  const sr = buf.sampleRate;
+  const n = buf.length;
+  const data = buf.getChannelData(0);
+  for (let k = 1; k <= p.partials; k++) {
+    const f = k * hz * Math.sqrt(1 + PLUCK_STIFF * k * k);
+    if (f > sr * 0.45) break;
+    const a = Math.abs(Math.sin(k * Math.PI * PLUCK_AT)) / k ** p.tilt;
+    // A damped oscillator by recurrence: y[i] = a·r^i·sin(w·i), two multiplies a sample.
+    const tau = p.tau / (1 + p.spread * (k - 1));
+    const w = (2 * Math.PI * f) / sr;
+    const r = Math.exp(-1 / (tau * sr));
+    const c1 = 2 * r * Math.cos(w);
+    const c2 = -r * r;
+    const end = Math.min(n, Math.ceil(PLUCK_FLOOR * tau * sr));
+    let y2 = 0; // y[0]
+    let y1 = a * r * Math.sin(w); // y[1]
+    data[1] += y1;
+    for (let from = 2; from < end; from += PLUCK_SLICE) {
+      const to = Math.min(end, from + PLUCK_SLICE);
+      for (let i = from; i < to; i++) {
+        const y = c1 * y1 + c2 * y2;
+        data[i] += y;
+        y2 = y1;
+        y1 = y;
+      }
+      yield;
+    }
+  }
+  if (p.knock) {
+    // The thud's knock: soft low noise, gone in a few tens of milliseconds.
+    let lp = 0;
+    const g = 1 - Math.exp((-2 * Math.PI * 320) / sr);
+    for (let i = 0; i < n; i++) {
+      lp += (Math.random() * 2 - 1 - lp) * g;
+      data[i] += lp * p.knock * Math.exp(-i / (0.022 * sr));
+    }
+    yield;
+  }
+  const rise = Math.max(1, Math.round(p.rise * sr));
+  const fall = Math.round(p.fall * sr);
+  let peak = 0;
+  for (let from = 0; from < n; from += PLUCK_SLICE) {
+    const to = Math.min(n, from + PLUCK_SLICE);
+    for (let i = from; i < to; i++) {
+      let e = 1;
+      if (i < rise) e = 0.5 - 0.5 * Math.cos((Math.PI * i) / rise);
+      else if (i >= n - fall) e = 0.5 + 0.5 * Math.cos((Math.PI * (i - (n - fall))) / fall);
+      data[i] *= e;
+      peak = Math.max(peak, Math.abs(data[i]));
+    }
+    yield;
+  }
+  const scale = peak > 0 ? p.level / peak : 0;
+  for (let from = 0; from < n; from += PLUCK_SLICE) {
+    const to = Math.min(n, from + PLUCK_SLICE);
+    for (let i = from; i < to; i++) data[i] *= scale;
+    if (to < n) yield;
+  }
+  data[n - 1] = 0;
+}
+
+/** The pluck at `hz` for this context, begun if it was not: one per note and kind. */
+function pluckBuild(c: BaseAudioContext, hz: number, kind: PluckKind): PluckBuild {
+  const key = `${kind}:${hz}:${c.sampleRate}`;
+  let b = plucks.get(key);
+  if (!b) {
+    const buf = c.createBuffer(1, Math.ceil(c.sampleRate * PLUCK[kind].dur), c.sampleRate);
+    b = { buf, steps: pluckSteps(buf, hz, kind) };
+    plucks.set(key, b);
+  }
+  return b;
+}
+
+/** The pluck's samples, finishing now whatever idle time has not. */
+function pluckBuffer(c: BaseAudioContext, hz: number, kind: PluckKind): AudioBuffer {
+  const b = pluckBuild(c, hz, kind);
+  while (b.steps && !b.steps.next().done);
+  b.steps = null;
+  return b.buf;
+}
+
+/** Works through the waiting builds while the page is idle, a slice at a time, and asks for more idle time while any are left. */
+function pluckDrain(d?: IdleDeadline) {
+  pluckIdle = false;
+  const until = performance.now() + (d && !d.didTimeout ? Math.min(d.timeRemaining(), 8) : 4);
+  while (pluckQueue.length) {
+    const b = pluckQueue[0];
+    if (!b.steps || b.steps.next().done) {
+      b.steps = null;
+      pluckQueue.shift();
+    }
+    if (performance.now() >= until) break;
+  }
+  if (pluckQueue.length) pluckLater();
+}
+
+function pluckLater() {
+  if (pluckIdle) return;
+  pluckIdle = true;
+  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(pluckDrain, { timeout: 400 });
+  else window.setTimeout(pluckDrain, 16);
+}
+
+/** Stops the pluck ringing, if any, over `over` seconds. */
+function damp(over = PLUCK_QUICK) {
+  const p = ringing;
+  const c = ctx;
+  ringing = null;
+  if (!p || !c) return;
+  const t = c.currentTime;
+  hold(p.gain.gain, t);
+  p.gain.gain.linearRampToValueAtTime(0, t + over);
+  try {
+    p.src.stop(t + over + 0.01);
+  } catch {
+    /* already stopped */
+  }
+}
+
 // ---------------------------------------------------------------- context
 
 function ensure(): AudioContext | null {
@@ -966,6 +1132,7 @@ export const sfx = {
     if (on) ambientStart();
     else {
       hush(QUICK_CLOSE);
+      damp();
       ambientStop();
       [...trains].forEach((cancel) => cancel());
       patsDue.forEach((takeBack) => takeBack());
@@ -1055,6 +1222,47 @@ export const sfx = {
     src.connect(g).connect(master);
     src.start();
     duck();
+  },
+  /**
+   * An opened project's horizon, plucked at `hz`: it rings, or for dead work
+   * thuds. Returns how to stop it early (over `over` seconds, while it is
+   * still the one ringing), or null, having played nothing, with sound off or
+   * before a gesture has woken the context (a deep link on a cold load): a
+   * pluck is a moment, and held over it would sound on the first click.
+   */
+  pluck(hz: number, kind: PluckKind): ((over?: number) => void) | null {
+    if (!enabled || !ctx || ctx.state !== "running") return null;
+    const c = ensure();
+    if (!c || !master) return null;
+    damp(PLUCK_AGAIN);
+    const src = c.createBufferSource();
+    src.buffer = pluckBuffer(c, hz, kind);
+    const gain = c.createGain();
+    src.connect(gain).connect(master);
+    const p = { src, gain };
+    src.onended = () => {
+      src.disconnect();
+      gain.disconnect();
+      if (ringing === p) ringing = null;
+    };
+    src.start();
+    ringing = p;
+    duck();
+    return (over = PLUCK_QUICK) => {
+      if (ringing === p) damp(over);
+    };
+  },
+  /**
+   * Builds the pluck at `hz` in the page's idle moments, ahead of its taut
+   * frame, which then only has to start it. Only with sound on and a context
+   * already woken: nothing is made before that.
+   */
+  primePluck(hz: number, kind: PluckKind) {
+    if (!enabled || !ctx) return;
+    const b = pluckBuild(ctx, hz, kind);
+    if (!b.steps || pluckQueue.includes(b)) return;
+    pluckQueue.push(b);
+    pluckLater();
   },
 };
 

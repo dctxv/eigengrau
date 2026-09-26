@@ -51,6 +51,7 @@ export function ProjectsPanel() {
       reducedMotion: prefersReducedMotion(),
       onHover: (t, byPointer) => cursor.set(inside && byPointer && t?.kind === "project" ? "Open" : null),
       onOpen: setHash,
+      isCurrent,
     });
     Object.assign(stageEl, { __scene: scene }); // handy for debugging and headless QA
     const first = hashSlug();

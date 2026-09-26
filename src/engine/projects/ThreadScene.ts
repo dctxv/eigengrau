@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import gsap from "gsap";
-import type { Text } from "troika-three-text";
+import type { Text, TextRenderInfo } from "troika-three-text";
 import { sfx } from "@/audio/sfx";
 import { statusWord, type Media, type Project, type SpaceItem } from "@/content/site";
 import { GL } from "@/engine/common/color";
@@ -18,6 +18,11 @@ export type ThreadOptions = {
   onHover(target: ThreadTarget | null, byPointer: boolean): void;
   /** A project unspooled (its slug belongs in the URL), or the thread wound back in (null). */
   onOpen(project: Project | null): void;
+  /**
+   * Whether this page is the one on screen, at rest. A horizon that comes
+   * taut after the visitor has left for another tab is not plucked.
+   */
+  isCurrent?(): boolean;
 };
 
 /** A text and the box it rises out of: the site's masked entrance, done in troika. */
@@ -104,17 +109,23 @@ type Layout = {
   length: number;
 };
 
-/** The heading's line, where the horizon had it and where Notes and Music set theirs. */
+/** The heading's line on a phone, where the horizon had it and where Notes and Music set theirs. */
 const HEADING_Y = 206;
 /**
- * Below this height the heading climbs toward the tab bar, about half a
- * pixel for each pixel lost, so a phone held sideways still has room for the
- * ball and its caption under it.
+ * Below this height a phone's heading climbs toward the tab bar, about half
+ * a pixel for each pixel lost, so a short one still has room for the ball
+ * and its caption under it.
  */
 const SHORT = 600;
 const SHORT_CLIMB = 0.55;
 const HEADING_MIN = 80;
 const HEADING_CLEAR = 24;
+/**
+ * The tab pills' foot (the bar sits 8px down and its pills are 27px tall).
+ * On a wide screen the heading and the ball stand together between it and
+ * the page's foot, with as much room over the heading as under the ball.
+ */
+const NAV_FOOT = 35;
 /** The tab bar's foot, with a little air: nothing of an opened project rises past it. */
 const NAV_CLEAR = 56;
 /** What an opened project leaves free at the bottom edge. */
@@ -142,6 +153,8 @@ const R_REF = 210;
 /** A wide screen's ball wants this share of its short side, up to D_MAX, before the fit. */
 const D_SHARE = 0.62;
 const D_MAX = 720;
+/** A ball with room to spare stands centred this share of the way down the screen. */
+const SIT = 0.54;
 const PHONE = 640;
 const PHONE_D = 0.88;
 /**
@@ -206,6 +219,29 @@ const CLOSE_DUR = 0.9;
 /** A click this soon after opening is the rest of a double click, ms. */
 const DOUBLE_CLICK = 400;
 /**
+ * The horizon is plucked as it comes taut. Its note is how long the project
+ * ran, in whole years, on the bed's F G A C D, a longer run a lower note:
+ * under a year D4, one year C4, two A3, three G3, four or more F3. The data
+ * holds one year a project: living work has run from it to now; closed work
+ * (paused, shipped, dead) ran from its earliest dated piece to that year,
+ * which is one year unless its pieces are dated earlier.
+ */
+const PLUCK_HZ = [293.66, 261.63, 220, 196, 174.61];
+/**
+ * Living work (all but dead, which hangs inward) rings for PLUCK_RING
+ * seconds with a standing wave of PLUCK_WAVE px, its nodes at the mark and
+ * the far end. Its half wave is PLUCK_HALF px at D4, longer as the note
+ * falls, and it sways at the note's frequency over PLUCK_SLOW. Dead work
+ * thuds: one twitch toward its hanging frames, PLUCK_TWITCH seconds long.
+ */
+const PLUCK_RING = 2.4;
+const PLUCK_WAVE = 1;
+const PLUCK_HALF = 180;
+const PLUCK_SLOW = 32;
+const PLUCK_TWITCH = 0.14;
+/** Wound back in, the line goes slack and its ring stops over this long, seconds. */
+const PLUCK_SLACK = 0.2;
+/**
  * How much later the ends of the stretch leave the ball than its mark: at
  * 2.6 about a third of the stretch is in the air at once, so the peel has a
  * tip that travels, and what is behind it lies straight.
@@ -243,6 +279,26 @@ const CAP_LINE_FEATHER = 12;
 /** A caption steps down to clear its own pieces by this much, while it stays this far off the bottom edge. */
 const CAP_CLEAR = 12;
 const CAP_FOOT = 24;
+/**
+ * The way from a mark down to its caption crosses bare rings, where nothing
+ * is chosen, and on a crowded ball other marks. A pointer heading for the
+ * caption keeps the choice this long, ms, so the caption is still there to be
+ * clicked, and a click on the way is a click on it. Heading for it: it moved
+ * within CAPTION_AIM_MS, and the line from where it left the mark (once it is
+ * CAPTION_AIM_MIN px long) passes within CAPTION_CONE of the words, padded by
+ * CAPTION_AIM px. Over another mark it holds only while the pointer is still
+ * in flight, its moves over the last CAPTION_AIM_TAU ms or so (or its last
+ * move, while it gathers pace) faster than CAPTION_FLING px/ms, since one
+ * slowing there has chosen that mark; or while it has not yet gone
+ * CAPTION_AIM_MIN px from where it left.
+ */
+const CAPTION_GRACE = 350;
+const CAPTION_AIM = 24;
+const CAPTION_AIM_MIN = 6;
+const CAPTION_AIM_MS = 120;
+const CAPTION_AIM_TAU = 50;
+const CAPTION_CONE = Math.PI / 6;
+const CAPTION_FLING = 0.25;
 /** A piece on the ball fades out before it crosses this margin at the screen's sides: a phone's ball nearly fills the width. */
 const SIDE_MARGIN = 16;
 /** Past this many projects a mark hangs only its cover and two pieces. */
@@ -577,6 +633,8 @@ export class ThreadScene {
   private cx = 0;
   private cy = 0;
   private capY = 0;
+  /** The heading's line, as the last layout set it. */
+  private headY = HEADING_Y;
   /** The caption stands beside the ball (a wide, short screen) from this x, rather than under it. */
   private capSide = false;
   private capX = 0;
@@ -601,6 +659,16 @@ export class ThreadScene {
   private hovered: Bead | null = null;
   private dim = 0;
   private pointerAt: { x: number; y: number } | null = null;
+  /**
+   * The pointer's way, px/ms, averaged over its last moves (see
+   * CAPTION_AIM_TAU); the speed of its last move alone, which the average
+   * trails while it gathers pace; and when it last moved, ms.
+   */
+  private aim = { vx: 0, vy: 0, last: 0, t: -Infinity };
+  /** Where the pointer was last seen on the chosen mark: the way to the caption is measured from there. */
+  private leftFrom: { x: number; y: number } | null = null;
+  /** Off its mark and on its way to the caption, a choice holds until this time, ms (0: no grace running). */
+  private graceUntil = 0;
   /** The keys chose something: it holds until the pointer next moves. */
   private keyHold = false;
   private opened: Bead | null = null;
@@ -614,6 +682,10 @@ export class ThreadScene {
   private closing = false;
   /** When the open project began to unspool, ms. */
   private openedAt = -Infinity;
+  /** The opened horizon's pluck: when (on the scene's clock), its note, and whether it only thuds. */
+  private plucked: { at: number; hz: number; dead: boolean } | null = null;
+  /** Stops the pluck's sound while it still rings (null: none rings, or sound is off). */
+  private ring: ((over?: number) => void) | null = null;
   private scroll = { cur: 0, target: 0, max: 0 };
   private caseHot = false;
   private caseLift = { v: 0 };
@@ -1059,14 +1131,54 @@ export class ThreadScene {
 
   // ---------------------------------------------------------------- layout
 
-  /** The heading's line at this height: 206, as on the other tabs, higher on a short screen. */
+  /** The heading's line, as the last layout set it. */
   private get headingY() {
+    return this.headY;
+  }
+
+  /**
+   * The heading's old line at this height: 206, as on the other tabs, higher
+   * on a short screen. A phone keeps it; a wide screen balances from it.
+   */
+  private get lineHeadingY() {
     const H = this.height;
     return H >= SHORT ? HEADING_Y : Math.round(Math.max(HEADING_MIN, HEADING_Y - (SHORT - H) * SHORT_CLIMB));
   }
 
   private get headingHalf() {
     return this.headingTwoLines ? 22 : 11;
+  }
+
+  /** Where the heading's ink starts, px, as its words were last set. */
+  private headingInkTop() {
+    if (!this.heading) return this.headY - this.headingHalf;
+    return Math.min(
+      ...[this.heading.lead, this.heading.tail].map((m) => {
+        const info = m.t.textRenderInfo as (TextRenderInfo & { visibleBounds?: [number, number, number, number] }) | null;
+        const b = info?.visibleBounds ?? blockBounds(m.t);
+        return -m.base.y - b[3];
+      }),
+    );
+  }
+
+  /** Sets the heading's words on its line: one line centred, or two where the screen is too narrow. */
+  private placeHeading(hy: number) {
+    if (!this.heading) return;
+    const W = this.width;
+    const { lead, tail } = this.heading;
+    const lw = blockBounds(lead.t)[2] - blockBounds(lead.t)[0];
+    const tw = blockBounds(tail.t)[2] - blockBounds(tail.t)[0];
+    const space = 16 * 0.28;
+    const total = lw + space + tw;
+    this.headingTwoLines = total > W - 40;
+    if (!this.headingTwoLines) {
+      const x0 = (W - total) / 2;
+      this.setBase(lead, x0, hy);
+      this.setBase(tail, x0 + lw + space, hy);
+    } else {
+      this.setBase(lead, (W - lw) / 2, hy - 11);
+      this.setBase(tail, (W - tw) / 2, hy + 11);
+    }
   }
 
   /** The hover captions' set: centred under the ball, or left-aligned beside it. */
@@ -1098,25 +1210,11 @@ export class ThreadScene {
     await Promise.all(this.texts.map((t) => syncText(t)));
     if (this.disposed || gen !== this.layoutGen) return;
 
-    // The heading, where the horizon had it (higher on a short screen).
-    const hy = this.headingY;
-    if (this.heading) {
-      const { lead, tail } = this.heading;
-      const lw = blockBounds(lead.t)[2] - blockBounds(lead.t)[0];
-      const tw = blockBounds(tail.t)[2] - blockBounds(tail.t)[0];
-      const space = 16 * 0.28;
-      const total = lw + space + tw;
-      this.headingTwoLines = total > W - 40;
-      if (!this.headingTwoLines) {
-        const x0 = (W - total) / 2;
-        this.setBase(lead, x0, hy);
-        this.setBase(tail, x0 + lw + space, hy);
-      } else {
-        this.setBase(lead, (W - lw) / 2, hy - 11);
-        this.setBase(tail, (W - tw) / 2, hy + 11);
-      }
-    }
-    const headBottom = hy + this.headingHalf;
+    // The heading: on a phone where the horizon had it (higher on a short screen). A wide screen
+    // sets it once to measure its ink, then again where the balance below puts it.
+    let hy = v ? this.lineHeadingY : HEADING_Y;
+    this.placeHeading(hy);
+    const above = hy - this.headingInkTop();
 
     // The ball: on a wide screen 62% of the short side up to 720px, a little larger with more work,
     // then whatever fits between the heading and the caption. A phone's is 88% of its width.
@@ -1132,21 +1230,42 @@ export class ThreadScene {
     // The room over the ball grows with it, so each fit solves for both.
     const room = v ? PHONE_TOP_ROOM : TOP_ROOM;
     const lift = 1 + room / (2 * R_REF);
-    const avail = H - headBottom - HEADING_CLEAR;
-    const under = Math.min(want, (avail - gap - capFit - 16) / lift);
+    // What the ball may take: on a phone everything under the heading, less what must stay under
+    // the ball. A wide screen balances the pair, the room over the heading (from the tab pills'
+    // foot) matching the room under the ball, so whatever stays under the ball is kept twice.
+    const budget = H - NAV_FOOT - above - this.headingHalf - HEADING_CLEAR;
+    const fit = (keep: number) => (v ? H - (hy + this.headingHalf) - HEADING_CLEAR - keep : budget - 2 * keep) / lift;
+    const under = Math.min(want, fit(gap + capFit + 16));
     // A wide screen too short for a fair ball with the whole caption under it (a phone held
     // sideways) sets the caption beside the ball instead, and the ball takes the height, unless
-    // reaching into the caption's slot gives it more.
-    const clear = Math.min(want, (avail - gap - capH - 16) / lift);
-    const beside = Math.min(want, (avail - SIDE_BOTTOM) / lift, W - 2 * (CAP_GAP + SIDE_MIN_W + SIDE_EDGE));
-    const side = !v && clear < SIDE_FROM && beside > under;
+    // reaching into the caption's slot gives it more. Which screens those are is judged with the
+    // heading on its old line, so balancing the page moves the pair and not that threshold.
+    const sideW = W - 2 * (CAP_GAP + SIDE_MIN_W + SIDE_EDGE);
+    const fit0 = (keep: number) => Math.min(want, (H - (this.lineHeadingY + this.headingHalf) - HEADING_CLEAR - keep) / lift);
+    const side = !v && fit0(gap + capH + 16) < SIDE_FROM && Math.min(fit0(SIDE_BOTTOM), sideW) > fit0(gap + capFit + 16);
+    const beside = Math.min(want, fit(SIDE_BOTTOM), sideW);
     const D = Math.max(D_MIN, side ? beside : under);
     this.R = D / 2;
     this.fitStep();
-    const top = headBottom + HEADING_CLEAR + room * (D / (2 * R_REF)) + this.R;
-    const bottom = H - (side ? SIDE_BOTTOM : gap + capFit + 16) - this.R;
+    const keep = side ? SIDE_BOTTOM : gap + capFit + 16;
+    // Where the fit does not hold a wide screen's ball (a big one, where it stops at D_MAX), it
+    // stood lower than right under the heading, centred SIT of the way down under a heading at
+    // HEADING_Y: the heading keeps that gap to it, and the pair is balanced as one.
+    let slack = 0;
+    if (!v) {
+      const top0 = HEADING_Y + this.headingHalf + HEADING_CLEAR + room * (D / (2 * R_REF)) + this.R;
+      slack = Math.max(0, Math.min(H * SIT, H - keep - this.R) - top0);
+      // Equal room over the heading and under the ball.
+      const g = Math.max(HEADING_CLEAR, (budget - slack - D * lift) / 2);
+      hy = Math.round(NAV_FOOT + g + above);
+      this.placeHeading(hy);
+    }
+    this.headY = hy;
+    const headBottom = hy + this.headingHalf;
+    const top = headBottom + HEADING_CLEAR + slack + room * (D / (2 * R_REF)) + this.R;
+    const bottom = H - keep - this.R;
     this.cx = W / 2;
-    this.cy = Math.max(top, Math.min(H * 0.54, bottom));
+    this.cy = v ? Math.max(top, Math.min(H * SIT, bottom)) : top;
     // Under the ball, and never past the bottom edge: over the ball's foot, where it reaches that far.
     this.capY = Math.min(this.cy + this.R + gap, H - capH - 16);
     this.capSide = side;
@@ -1620,6 +1739,7 @@ export class ThreadScene {
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     if (this.pointerAt && Math.hypot(x - this.pointerAt.x, y - this.pointerAt.y) < 1 && this.keyHold) return;
+    if (this.pointerAt && Math.hypot(x - this.pointerAt.x, y - this.pointerAt.y) >= 1) this.steer(x - this.pointerAt.x, y - this.pointerAt.y);
     this.pointerAt = { x, y };
     this.keyHold = false;
     if (!this.ready || this.drag?.moved) return;
@@ -1646,9 +1766,90 @@ export class ThreadScene {
     }
     // Over the chosen project's caption the choice holds: where the ball reaches under the
     // words, its thinned rings are not there to be chosen.
-    if (this.onCaption(at.x, at.y)) return;
+    if (this.onCaption(at.x, at.y)) {
+      this.graceUntil = 0;
+      return;
+    }
     const b = this.beadAt(at.x, at.y);
-    if (b !== this.hovered) this.setHover(b, true);
+    if (b === this.hovered) {
+      this.graceUntil = 0;
+      this.leftFrom = { x: at.x, y: at.y };
+      return;
+    }
+    // Between a mark and its caption lie bare rings, and on a crowded ball other marks: a pointer
+    // on its way to the caption keeps the choice a moment, so it can still be clicked there. Only
+    // while it keeps heading that way, and only for the one grace.
+    if (this.onTheWay(at.x, at.y, b)) {
+      const now = performance.now();
+      if (!this.graceUntil) this.graceUntil = now + CAPTION_GRACE;
+      if (now < this.graceUntil) return;
+    }
+    this.graceUntil = 0;
+    this.setHover(b, true);
+  }
+
+  /** Folds a move of the pointer into its averaged way (see CAPTION_AIM_TAU). */
+  private steer(dx: number, dy: number) {
+    const now = performance.now();
+    const since = now - this.aim.t;
+    // The share the new move takes: all of it after a pause, a little of each when they come fast.
+    const k = 1 - Math.exp(-Math.max(1, since) / CAPTION_AIM_TAU);
+    const dt = THREE.MathUtils.clamp(since, 1, 50);
+    this.aim.vx += (dx / dt - this.aim.vx) * k;
+    this.aim.vy += (dy / dt - this.aim.vy) * k;
+    this.aim.last = Math.hypot(dx, dy) / dt;
+    this.aim.t = now;
+  }
+
+  /**
+   * The pointer, over `under` (a mark other than the chosen one, or nothing),
+   * is on its way to the chosen caption: see CAPTION_GRACE.
+   */
+  private onTheWay(x: number, y: number, under: Bead | null) {
+    if (!this.hovered || !this.towardCaption(x, y)) return false;
+    if (!under) return true;
+    // A crowded ball's next mark can lie a pixel or two off the chosen one: too near to tell yet.
+    const from = this.leftFrom;
+    const { vx, vy, last } = this.aim;
+    return (!!from && Math.hypot(x - from.x, y - from.y) < CAPTION_AIM_MIN) || Math.max(Math.hypot(vx, vy), last) >= CAPTION_FLING;
+  }
+
+  /**
+   * The pointer, still moving, points at the chosen caption, within
+   * CAPTION_CONE of its padded words. Its way is the line from where it left
+   * the mark, which neither a bowed path nor a pixel of jitter turns far, nor
+   * the way it came onto the mark; too short to tell yet, it is given the
+   * benefit of the doubt. Chosen by the keys, it has only its averaged moves.
+   */
+  private towardCaption(x: number, y: number) {
+    const b = this.hovered;
+    const { vx, vy, t } = this.aim;
+    if (!b || performance.now() - t > CAPTION_AIM_MS) return false;
+    const from = this.leftFrom;
+    const wx = from ? x - from.x : vx;
+    const wy = from ? y - from.y : vy;
+    const len = Math.hypot(wx, wy);
+    if (from && len < CAPTION_AIM_MIN) return true;
+    if (len < 1e-3) return false;
+    const [x0, y0, x1, y1] = this.captionBox(b).map((c, i) => c + (i < 2 ? -CAPTION_AIM : CAPTION_AIM));
+    if (x > x0 && x < x1 && y > y0 && y < y1) return true;
+    // The padded words as seen from the pointer: each corner's angle off its way. Seen from
+    // outside, a box spans less than half a turn, so corners on both sides of the way, not
+    // wrapping round behind, mean the way runs into it.
+    const way = Math.atan2(wy, wx);
+    const off = [
+      [x0, y0],
+      [x1, y0],
+      [x0, y1],
+      [x1, y1],
+    ].map(([cx, cy]) => {
+      const a = Math.atan2(cy - y, cx - x) - way;
+      return Math.atan2(Math.sin(a), Math.cos(a));
+    });
+    const lo = Math.min(...off);
+    const hi = Math.max(...off);
+    if (lo <= 0 && hi >= 0 && hi - lo < Math.PI) return true;
+    return Math.min(...off.map(Math.abs)) <= CAPTION_CONE;
   }
 
   /** Esc: an opened project winds back in and stays chosen; otherwise the choice is let go. */
@@ -1686,9 +1887,12 @@ export class ThreadScene {
       return "close";
     }
     // The chosen project's caption answers for it where the veil has thinned the ball under its
-    // words. Anywhere else a piece answers first, and a finger that finds none still finds the
-    // caption's slot.
-    const b = (this.onCaption(x, y) ? this.hovered : null) ?? this.beadAt(x, y) ?? (touch && this.onCaption(x, y, true) ? this.hovered : null);
+    // words, and so does a click on the way down to it, while the grace holds the choice (the
+    // label still says Open). Anywhere else a piece answers first, and a finger that finds none
+    // still finds the caption's slot.
+    const under = this.beadAt(x, y);
+    const held = !touch && performance.now() < this.graceUntil && this.onTheWay(x, y, under === this.hovered ? null : under);
+    const b = (this.onCaption(x, y) || held ? this.hovered : null) ?? under ?? (touch && this.onCaption(x, y, true) ? this.hovered : null);
     if (!b) {
       if (this.hovered) this.setHover(null);
       return "none";
@@ -1804,8 +2008,12 @@ export class ThreadScene {
   private setHover(b: Bead | null, byPointer = false) {
     const prev = this.hovered;
     this.hovered = b;
+    this.graceUntil = 0;
+    this.leftFrom = byPointer && b && this.pointerAt ? { ...this.pointerAt } : null;
     if (prev && prev !== this.opened) this.captionOff(prev);
     if (b && b !== this.opened) this.captionOn(b);
+    // A chosen project is a click from being opened: its pluck is built while the page is idle.
+    if (b?.project) this.primePluck(b);
     this.opts.onHover(b ? (b.project ? { kind: "project", project: b.project } : { kind: "study", piece: b.study! }) : null, byPointer);
   }
 
@@ -1848,7 +2056,8 @@ export class ThreadScene {
    * The unspool: the project's stretch of thread peels off the ball, its
    * mark first and its ends last, and straightens into a horizon across the
    * viewport while the ball recedes behind it; the pieces ride the thread out
-   * to their places and grow into frames; then the words rise.
+   * to their places and grow into frames; then the words rise. `immediate`:
+   * a deep link arriving, which nobody chose just now, so it has no focus cue.
    */
   openBead(b: Bead, o: { immediate?: boolean } = {}) {
     if (!b.project || !b.open) return;
@@ -1867,8 +2076,11 @@ export class ThreadScene {
     if (this.hovered && this.hovered !== b) this.captionOff(this.hovered);
     if (this.hovered === b) this.captionOff(b);
     this.hovered = b;
+    this.graceUntil = 0;
+    this.leftFrom = null;
     this.opened = b;
     this.openedAt = performance.now();
+    this.plucked = null;
     this.scroll.cur = this.scroll.target = 0;
     this.layoutO = null;
     this.layoutOpen(b);
@@ -1876,6 +2088,7 @@ export class ThreadScene {
     this.opts.onOpen(b.project);
     this.opts.onHover(null, false);
     if (!o.immediate) sfx.play("focus");
+    this.primePluck(b);
     b.pieces.forEach((pc) => {
       this.fetchMoving(pc);
       pc.landed = false;
@@ -1907,7 +2120,58 @@ export class ThreadScene {
       tl.to(m, { offset: 0, duration: rm ? 0 : 0.9, ease: "power4.out", onUpdate: () => this.applyMask(m) }, at + (rm ? 0 : k * 0.07));
     });
     tl.call(() => b.pieces.forEach((pc) => pc.index > 0 && this.showMoving(pc, true)), undefined, rm ? 0.3 : OPEN_DUR * (1 - this.unspool.p));
+    // Taut: the horizon is plucked, a deep link's too, since it unspools on screen like any other.
+    tl.call(() => this.pluck(b), undefined, rm ? 0.3 : OPEN_DUR * (1 - this.unspool.p));
     this.openTl = tl;
+  }
+
+  /** How long a project ran, in whole years, from what the data holds (see PLUCK_HZ). */
+  private runOf(p: Project) {
+    const end = p.status === "alive" ? Math.floor(fractionalYear(new Date())) : p.year;
+    const start = Math.min(p.year, ...this.items.filter((it) => it.project === p.slug).map((it) => it.year));
+    return Math.max(0, end - start);
+  }
+
+  /** A project's pluck: its note, from how long it ran, and whether it only thuds (dead work, which hangs inward). */
+  private noteOf(p: Project, b: Bead) {
+    return { hz: PLUCK_HZ[Math.min(PLUCK_HZ.length - 1, this.runOf(p))], dead: b.side < 0 };
+  }
+
+  /** Builds a project's pluck ahead of its taut frame (with sound on; nothing otherwise). */
+  private primePluck(b: Bead) {
+    if (!b.project) return;
+    const { hz, dead } = this.noteOf(b.project, b);
+    sfx.primePluck(hz, dead ? "thud" : "ring");
+  }
+
+  /**
+   * The horizon comes taut and is plucked: heard with sound on, seen either
+   * way, never moved under reduced motion. Not once the visitor has left for
+   * another tab, where it would ring on after them.
+   */
+  private pluck(b: Bead) {
+    if (!b.project || this.opened !== b || this.closing) return;
+    if (this.opts.isCurrent && !this.opts.isCurrent()) return;
+    const { hz, dead } = this.noteOf(b.project, b);
+    this.ring = sfx.pluck(hz, dead ? "thud" : "ring");
+    this.plucked = this.opts.reducedMotion ? null : { at: this.clock, hz, dead };
+  }
+
+  /** Stops the pluck's sound, if it still rings, over `over` seconds. */
+  private unpluck(over?: number) {
+    this.ring?.(over);
+    this.ring = null;
+    this.plucked = null;
+  }
+
+  /**
+   * How far the plucked horizon stands off its line at `along`, px, this
+   * frame: the standing wave's nodes at the mark and the stretch's far end.
+   */
+  private pluckAt(L: Layout, along: number, amp: number, n: number) {
+    const u = (along - L.mark) / Math.max(1, L.end - L.mark);
+    if (u <= 0 || u >= 1) return 0;
+    return amp * Math.sin(n * Math.PI * u);
   }
 
   /** Esc, or a click on empty space: the line winds back into the ball in 0.9s. */
@@ -1921,6 +2185,8 @@ export class ThreadScene {
     this.afterClose = then ?? null;
     this.closing = true;
     this.openTl?.kill();
+    // The line goes slack: its ring and its wave stop.
+    this.unpluck(PLUCK_SLACK);
     this.setCaseHot(false);
     this.setCoverHot(null);
     if (!then) sfx.play("close");
@@ -1932,6 +2198,7 @@ export class ThreadScene {
         this.opened = null;
         this.layoutO = null;
         this.openTl = null;
+        this.plucked = null;
         this.fadeIn.value = 0;
         this.unspool.p = 0;
         b.pieces.forEach((pc) => this.showMoving(pc, false));
@@ -2158,6 +2425,21 @@ export class ThreadScene {
     const L = this.layoutO;
     const rm = !!this.opts.reducedMotion;
     const P = this.P;
+    // The plucked horizon: how far its antinodes stand off the line this frame, and how many half
+    // waves it holds. It starts from the straight line, so its first frame does not jump.
+    let swing = 0;
+    let halves = 1;
+    const pl = this.plucked;
+    if (pl && open && L && !rm) {
+      const t = this.clock - pl.at;
+      if (pl.dead) {
+        if (t < PLUCK_TWITCH) swing = PLUCK_WAVE * Math.sin((Math.PI * t) / PLUCK_TWITCH);
+      } else if (t < PLUCK_RING) {
+        swing = PLUCK_WAVE * (1 - t / PLUCK_RING) ** 2 * Math.sin(2 * Math.PI * (pl.hz / PLUCK_SLOW) * t);
+        halves = Math.max(1, Math.round((L.end - L.mark) / (PLUCK_HALF * (PLUCK_HZ[0] / pl.hz))));
+      }
+      if (t >= (pl.dead ? PLUCK_TWITCH : PLUCK_RING)) this.plucked = null;
+    }
     for (let i = 0; i < M; i++) {
       this.rotate(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], q);
       this.toScreen(q, radius, s);
@@ -2169,7 +2451,14 @@ export class ThreadScene {
       let lift = 0;
       if (open && L && i >= open.i0 && i <= open.i1) {
         lift = this.liftOf(open, i);
-        this.lineAt(L, this.alongOf(open, L, i), l);
+        const along = this.alongOf(open, L, i);
+        this.lineAt(L, along, l);
+        if (swing) {
+          // Off the line, and for dead work toward where its frames hang: under it, or on a phone to its left.
+          const off = this.pluckAt(L, along, swing, halves);
+          if (L.vertical) l.x -= off;
+          else l.y += off;
+        }
         if (rm) {
           // Reduced motion draws the line on its own; the stretch fades out of the ball.
           ink *= 1 - this.fadeIn.value;
@@ -2601,6 +2890,7 @@ export class ThreadScene {
     gsap.ticker.remove(this.ticker);
     this.intro?.kill();
     this.openTl?.kill();
+    this.unpluck();
     this.stopTurn();
     this.ctx.kill();
     gsap.killTweensOf([this, this.unspool, this.fadeIn, this.draw, this.scroll, this.caseLift]);
