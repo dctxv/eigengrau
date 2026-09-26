@@ -151,8 +151,138 @@ const inOut = (k: number) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
 const linear = (k: number) => k;
 /** A timed move between two shades; `t0` (ms) may be ahead, so it can wait for a sleeve to rise. */
 type Move = { from: Shade; to: Shade; t0: number; over: number; ease: (k: number) => number };
-const moveAt = (m: Move, now: number) => between(m.from, m.to, m.ease(clamp01((now - m.t0) / (m.over * 1000))));
 const moved = (m: Move, now: number) => now >= m.t0 + m.over * 1000;
+
+/**
+ * The preview's colour, kept as the two shades it is moving between and how
+ * far across it is, rather than as the colour of the moment: the room paints
+ * each shade once and shows every step between them with an opacity. How far
+ * rides a critically damped spring (tau 0.7s, as the colour's own did), which
+ * keeps its speed when a new colour is chosen mid-flight; the move starts
+ * again from the colour showing, so it still goes straight across, through
+ * near-grey between hues. Reduced motion crosses linearly instead.
+ */
+class Blend {
+  from: Shade;
+  to: Shade;
+  private k = new Spring([1]);
+  private plainMove: number | null = null;
+
+  constructor(
+    s: Shade,
+    private plain: boolean,
+  ) {
+    this.from = [...s];
+    this.to = [...s];
+  }
+
+  /** How far across, 0 to 1. */
+  get at() {
+    return this.k.x[0];
+  }
+
+  /** The shade showing now. */
+  now(): Shade {
+    return between(this.from, this.to, this.at);
+  }
+
+  snap(s: Shade) {
+    this.from = [...s];
+    this.to = [...s];
+    this.k.snap([1]);
+    this.plainMove = null;
+  }
+
+  /** Heads for `s` from wherever the colour is. */
+  aim(s: Shade, now: number) {
+    const here = this.now();
+    const was = [0, 1, 2].map((i) => this.to[i] - this.from[i]);
+    const next = [0, 1, 2].map((i) => s[i] - here[i]);
+    const far = next.reduce((sum, d) => sum + d * d, 0);
+    // The speed it had, along the new way: a turn mid-flight keeps what it can of its momentum.
+    const speed = far > 1e-12 ? (this.k.v[0] * was.reduce((sum, d, i) => sum + d * next[i], 0)) / far : 0;
+    this.from = here;
+    this.to = [...s];
+    this.k.snap([0]);
+    this.k.to = [1];
+    this.k.v = [this.plain ? 0 : speed];
+    this.plainMove = this.plain ? now : null;
+  }
+
+  step(now: number, dt: number) {
+    if (this.plainMove !== null) {
+      const k = clamp01((now - this.plainMove) / (PLAIN.short * 1000));
+      this.k.x = [k];
+      if (k >= 1) this.plainMove = null;
+      return;
+    }
+    if (!this.moving) return;
+    this.k.step(dt);
+    if (!this.moving) this.k.snap([1]);
+  }
+
+  /** Still moving by more than a twentieth of an 8-bit step, as the spring it replaces counted it. */
+  get moving() {
+    if (this.plainMove !== null) return true;
+    const span = Math.max(...this.to.map((v, i) => Math.abs(v - this.from[i])));
+    return span * Math.max(Math.abs(1 - this.at), Math.abs(this.k.v[0])) > 2e-4;
+  }
+}
+
+/** A spill's radius as drawn (px). A transform sizes it to its reach; the falloff is smooth, so it scales cleanly. */
+const SPILL_R = 512;
+/**
+ * A colour's move is drawn in this many straight pieces of its way through
+ * OKLab. Crossed by an opacity, each piece runs straight in sRGB instead,
+ * which strays from the OKLab line by up to 7.6 levels in one piece at the
+ * live caps (a dark red to a teal); in six it strays 0.6 at most.
+ */
+const PIECES = 6;
+const cssOf = (s: Shade) => `rgb(${rgbOf(labOf(s))
+  .map((v) => v.toFixed(2))
+  .join(" ")})`;
+
+/**
+ * One spill of light, on its own layer: a circle masked (in the CSS) to the
+ * light's falloff, carried to the sleeve and sized to its reach by a
+ * transform, its strength an opacity. Its colour is two solid shades, its own
+ * and its child's laid over it, crossed by the child's opacity: the ends of
+ * the piece of a colour's move it is on. The shades repaint only as a move
+ * passes from one piece to the next (six times in a move); every frame
+ * between is a transform and two opacities, which the compositor does alone.
+ */
+class Spill {
+  private top: HTMLElement;
+  private written = new Map<string, string>();
+
+  constructor(private el: HTMLElement) {
+    this.top = el.firstElementChild as HTMLElement;
+  }
+
+  /** Paints the piece of the move from `from` to `to` that `k` has reached, and says how far across that piece it is. */
+  paint(from: Shade, to: Shade, k: number): number {
+    const along = clamp01(k) * PIECES;
+    const piece = Math.min(PIECES - 1, Math.floor(along));
+    this.set(this.el, "background-color", cssOf(between(from, to, piece / PIECES)));
+    this.set(this.top, "background-color", cssOf(between(from, to, (piece + 1) / PIECES)));
+    return along - piece;
+  }
+
+  draw(x: number, y: number, reach: number, alpha: number, across: number) {
+    // A spill with no light in it need not follow the sleeve until it has some.
+    if (alpha < 5e-5) return this.set(this.el, "opacity", "0");
+    this.set(this.el, "transform", `translate3d(${(x - SPILL_R).toFixed(1)}px, ${(y - SPILL_R).toFixed(1)}px, 0) scale(${(reach / SPILL_R).toFixed(4)})`);
+    this.set(this.el, "opacity", alpha.toFixed(4));
+    this.set(this.top, "opacity", across.toFixed(4));
+  }
+
+  private set(el: HTMLElement, name: string, value: string) {
+    const key = `${el === this.el ? "" : ">"}${name}`;
+    if (this.written.get(key) === value) return;
+    this.written.set(key, value);
+    el.style.setProperty(name, value);
+  }
+}
 
 /**
  * The door's envelope as colour: the share of the record's colour the room
@@ -202,15 +332,15 @@ type Pending = Chosen & { n: number; heard: number };
  * Two lights share the sleeve's centre. His song, playing now, is the resting
  * state. A preview rides over it: it commits only when its song is heard (or,
  * with sound off, after the same dwell), at most one new colour each 1.2s,
- * and leaving counts only after 250ms. Which colour moves on a critically
- * damped spring in OKLab; how much of it keeps the door's envelope. JS writes
- * the variables only while something moves, and the stage paints them as its
- * own background, so the light slides away with the panel.
+ * and leaving counts only after 250ms. Which
+ * colour moves on a critically damped spring in OKLab; how much of it keeps
+ * the door's envelope. Each light is its own layer in the stage (see Spill),
+ * written only while something moves, so it slides away with the panel and a
+ * move or a scroll costs no painting.
  */
 class RoomLight {
-  private tone = new Spring([...NONE]);
-  /** Reduced motion's plain crossfade, in place of the spring. */
-  private toneMove: Move | null = null;
+  /** The preview's colour on its way. */
+  private tone: Blend;
   private owner: Owner | null = null;
   private choice: Chosen | null = null;
   /**
@@ -242,17 +372,21 @@ class RoomLight {
   private later: number | null = null;
   private last = 0;
   private lit = false;
-  private written = new Map<string, string>();
+  private spills: { live: Spill; tone: Spill };
   private watched = new Set<Element>();
   private ro: ResizeObserver | null;
   private offTone: () => void;
 
   constructor(
     private stage: HTMLElement,
+    box: HTMLElement,
     private sleeve: () => HTMLElement | null,
     private plain: boolean,
   ) {
-    stage.style.setProperty("--dither", dither());
+    this.tone = new Blend(NONE, plain);
+    const [live, tone] = Array.from(box.querySelectorAll<HTMLElement>(".music-spill"), (el) => new Spill(el));
+    this.spills = { live, tone };
+    box.querySelector<HTMLElement>(".music-grain")?.style.setProperty("background-image", dither());
     this.ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => this.place()) : null;
     this.watch(stage);
     this.offTone = onTone((id) => {
@@ -305,12 +439,20 @@ class RoomLight {
     this.kick();
   }
 
-  private liveAt(now: number): Shade {
+  /** His song's light now: the two shades it is between and how far across (both the same at rest). */
+  private liveLook(now: number): { from: Shade; to: Shade; k: number } {
     const m = this.liveMove;
-    if (!m) return this.liveShade;
-    if (!moved(m, now)) return moveAt(m, now);
-    this.liveMove = null;
-    return (this.liveShade = m.to);
+    if (m && !moved(m, now)) return { from: m.from, to: m.to, k: m.ease(clamp01((now - m.t0) / (m.over * 1000))) };
+    if (m) {
+      this.liveMove = null;
+      this.liveShade = m.to;
+    }
+    return { from: this.liveShade, to: this.liveShade, k: 1 };
+  }
+
+  private liveAt(now: number): Shade {
+    const l = this.liveLook(now);
+    return between(l.from, l.to, l.k);
   }
 
   /** 1, easing to 60% over the song's last 30 seconds. */
@@ -402,11 +544,8 @@ class RoomLight {
     this.owner = { key: c.key, cover: c.cover, n, shade: to };
     // A grey record leaves the room grey.
     if (!to) return this.close();
-    if (amount <= 0.001) {
-      this.tone.snap(to);
-      this.toneMove = null;
-    } else if (this.plain) this.toneMove = { from: [...this.tone.x] as Shade, to, t0: now, over: PLAIN.short, ease: linear };
-    else this.tone.to = [...to];
+    if (amount <= 0.001) this.tone.snap(to);
+    else this.tone.aim(to, now);
     this.shut = null;
     // The door keeps its song's clock. A colour let in late catches up with it; one very late (its cover read long
     // after the song began) lags it by the rest, rather than leaping to where the door has got to.
@@ -436,21 +575,6 @@ class RoomLight {
       return k >= 1 ? 0 : this.shut.from * (1 - k);
     }
     return this.rise ? door((now - this.rise.t0) / 1000, this.rise.from, this.rise.late, this.plain) : 0;
-  }
-
-  private toneAt(now: number, dt: number): Shade {
-    if (!this.plain) {
-      this.tone.step(dt);
-      return this.tone.x as Shade;
-    }
-    const m = this.toneMove;
-    if (!m) return this.tone.x as Shade;
-    if (moved(m, now)) {
-      this.toneMove = null;
-      this.tone.snap(m.to);
-      return m.to;
-    }
-    return (this.tone.x = moveAt(m, now));
   }
 
   // ---- where the sleeve is
@@ -500,16 +624,18 @@ class RoomLight {
     const dt = Math.max(0, (now - this.last) / 1000);
     this.last = now;
     if (now < this.followUntil) this.measure();
-    const tone = this.toneAt(now, dt);
+    this.tone.step(now, dt);
     const amount = this.amountAt(now);
     if (this.shut && amount <= 0) {
       this.shut = null;
       this.owner = null;
     }
-    const live = this.liveAt(now);
-    const toneA = amount * tone[3];
-    const liveA = live[3] * this.runOut();
-    const lit = toneA > 0.0005 || liveA > 0.0005;
+    const tone = this.tone;
+    const toneA = amount * (tone.from[3] + (tone.to[3] - tone.from[3]) * tone.at);
+    const live = this.liveLook(now);
+    const liveA = between(live.from, live.to, live.k)[3] * this.runOut();
+    // Nothing to draw until the sleeve has been found: a light at the corner would be worse than a late one.
+    const lit = (toneA > 0.0005 || liveA > 0.0005) && this.geo.W > 0;
     if (lit !== this.lit) {
       this.lit = lit;
       this.stage.toggleAttribute("data-lit", lit);
@@ -519,19 +645,13 @@ class RoomLight {
       const far = Math.max(Math.hypot(x, y), Math.hypot(W - x, y), Math.hypot(x, H - y), Math.hypot(W - x, H - y));
       const wall = w * (0.5 + WALL_REACH);
       const open = Math.max(wall, far * OPEN_REACH);
-      this.set("--sx", `${x.toFixed(1)}px`);
-      this.set("--sy", `${y.toFixed(1)}px`);
-      this.set("--reach", `${(wall + (open - wall) * clamp01((amount - WALL_SHARE) / (1 - WALL_SHARE))).toFixed(1)}px`);
-      this.set("--live-reach", `${open.toFixed(1)}px`);
-      this.set("--tone", rgbOf(labOf(tone)).map((v) => v.toFixed(2)).join(" "));
-      this.set("--tone-a", toneA.toFixed(4));
-      this.set("--live", rgbOf(labOf(live)).map((v) => v.toFixed(2)).join(" "));
-      this.set("--live-a", liveA.toFixed(4));
+      const toneAcross = this.spills.tone.paint(tone.from, tone.to, tone.at);
+      this.spills.tone.draw(x, y, wall + (open - wall) * clamp01((amount - WALL_SHARE) / (1 - WALL_SHARE)), toneA, toneAcross);
+      this.spills.live.draw(x, y, open, liveA, this.spills.live.paint(live.from, live.to, live.k));
     }
     const moving =
       now < this.followUntil ||
-      this.tone.moving ||
-      !!this.toneMove ||
+      tone.moving ||
       !!this.shut ||
       (!!this.rise && now < this.rise.t0 + doorLength(this.plain) * 1000) ||
       !!this.liveMove;
@@ -545,12 +665,6 @@ class RoomLight {
     if (left <= 0) return;
     this.later = window.setTimeout(() => this.kick(), left > RUN_OUT ? (left - RUN_OUT) * 1000 : 250);
   };
-
-  private set(name: string, value: string) {
-    if (this.written.get(name) === value) return;
-    this.written.set(name, value);
-    this.stage.style.setProperty(name, value);
-  }
 }
 
 type Latest = { data: NowResponse; at: number; timing: Timing | null };
@@ -619,6 +733,7 @@ export function MusicPanel() {
   const pinned = useRef(false);
   /** The room's colour; none under prefers-contrast: more, which keeps the room eigengrau. */
   const light = useRef<RoomLight | null>(null);
+  const lightBox = useRef<HTMLDivElement>(null);
 
   /** The cover's place in the scrolled content, which does not move when the page scrolls. */
   const measure = useCallback((): Place | null => {
@@ -727,7 +842,7 @@ export function MusicPanel() {
   useEffect(() => {
     setFlag("pageReady", true);
     cursor.current = new CursorLabel(label.current!, stage.current!);
-    if (!window.matchMedia("(prefers-contrast: more)").matches) light.current = new RoomLight(stage.current!, () => sleeve.current, reduced);
+    if (!window.matchMedia("(prefers-contrast: more)").matches) light.current = new RoomLight(stage.current!, lightBox.current!, () => sleeve.current, reduced);
     // A key pressed means the next focus is a keyboard's, even on a touch screen: it chooses as a pointer's rest does.
     const onKey = () => {
       touch.current = false;
@@ -995,6 +1110,18 @@ export function MusicPanel() {
 
   return (
     <section ref={stage} className="stage stage-music" onPointerDown={down} onClick={tapAway}>
+      {/* The room's light (see RoomLight and Spill): his song's spill, a preview's over it, the grain, and the fades. */}
+      <div ref={lightBox} className="music-light" aria-hidden="true">
+        <i className="music-spill">
+          <i />
+        </i>
+        <i className="music-spill">
+          <i />
+        </i>
+        <i className="music-grain" />
+        <i className="music-fade music-fade-top" />
+        <i className="music-fade music-fade-bottom" />
+      </div>
       <div ref={scroll} className="music-scroll" onScroll={() => light.current?.place()}>
         {data && (
           <div className="music" data-room={room ? "" : undefined} data-folding={folding ? "" : undefined} style={{ "--after": glided ? `${AFTER_GLIDE}s` : "0s" } as CSSProperties}>
