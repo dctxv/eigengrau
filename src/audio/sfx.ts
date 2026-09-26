@@ -1,9 +1,10 @@
 /**
  * Sound (spec 11). Two sampled files in public/audio: a click for opening a
  * project and an ambient bed that loops with a crossfade at the seam. The
- * other cues are synthesised. Music adds a third voice: a song's preview heard
- * through the wall, with the bed ducking under it. Off by default, remembered
- * in localStorage; nothing is fetched until sound is turned on.
+ * other cues are synthesised, and ticks can come as a train placed on the
+ * audio clock. Music adds a third voice: a song's preview heard through the
+ * wall, with the bed ducking under it. Off by default, remembered in
+ * localStorage; nothing is fetched until sound is turned on.
  */
 type Name = "click" | "tab" | "slide" | "focus" | "close" | "tick" | "done";
 type Synth = Exclude<Name, "click">;
@@ -375,6 +376,71 @@ async function listen(url: string, signal?: AbortSignal): Promise<Preview | null
   return { duration: buffer.duration, link, heardAt: heardAt(c, t), ended, stop };
 }
 
+// ---------------------------------------------------------------- tick trains
+
+/** A tick still sounding when its train is cancelled fades this fast, rather than clicking off. */
+const TRAIN_FADE = 0.004;
+const QUIET = () => undefined;
+/** Every train not yet finished, so turning sound off stops what is queued. */
+const trains = new Set<() => void>();
+
+/**
+ * The Projects tick, once at each offset (seconds from now), on the audio clock. play() drops a
+ * tick within TICK_THROTTLE_MS of the last so a flung ball cannot clatter, and a setTimeout would
+ * smear 14ms into whatever the main thread allows. A train is placed on purpose, so every tick in
+ * it is scheduled on ctx.currentTime and none is dropped. Notes' riffle uses it; the supernova's
+ * whirr will, with `rate` lifting the pitch.
+ */
+function train(offsets: readonly number[], gain: number, rate: number): () => void {
+  if (!enabled || !offsets.length) return QUIET;
+  const c = ensure();
+  const buf = buffers.get("tick");
+  if (!c || !master || !buf) return QUIET;
+  // One level for the whole train, so a cancel can fade it in one move.
+  const bus = c.createGain();
+  bus.gain.value = gain;
+  bus.connect(master);
+  const t0 = c.currentTime;
+  const srcs = offsets.map((o) => {
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    src.connect(bus);
+    src.start(t0 + Math.max(0, o));
+    return src;
+  });
+  let end = 0;
+  offsets.forEach((o, i) => {
+    if (o >= offsets[end]) end = i;
+  });
+  let over = false;
+  const cancel = () => {
+    if (over) return;
+    over = true;
+    trains.delete(cancel);
+    const t = c.currentTime;
+    hold(bus.gain, t);
+    bus.gain.linearRampToValueAtTime(0, t + TRAIN_FADE);
+    // A source stopped before its start never sounds.
+    srcs.forEach((s) => {
+      try {
+        s.stop(t + TRAIN_FADE);
+      } catch {
+        /* already stopped */
+      }
+    });
+  };
+  // Every tick is the same length, so the last to start is the last to end, cancelled or not.
+  srcs[end].onended = () => {
+    over = true;
+    trains.delete(cancel);
+    bus.disconnect();
+  };
+  trains.add(cancel);
+  duck();
+  return cancel;
+}
+
 // ---------------------------------------------------------------- context
 
 function ensure(): AudioContext | null {
@@ -448,6 +514,7 @@ export const sfx = {
     else {
       hush(QUICK_CLOSE);
       ambientStop();
+      [...trains].forEach((cancel) => cancel());
     }
     setFlag("soundEnabled", on);
     listeners.forEach((l) => l(on));
@@ -466,6 +533,15 @@ export const sfx = {
    */
   preview(url: string, signal?: AbortSignal): Promise<Preview | null> {
     return listen(url, signal);
+  },
+  /**
+   * A train of ticks, one at each of `offsets` (seconds from now), scheduled on the audio clock so
+   * none is dropped however close they sit: the tick is the Projects one, at `gain` and at `rate`
+   * (playbackRate, so pitch and speed rise together). Returns a cancel: ticks still queued never
+   * sound, and one sounding fades out in 4ms. With sound off it does nothing and makes nothing.
+   */
+  train(offsets: readonly number[], { gain = 1, rate = 1 }: { gain?: number; rate?: number } = {}): () => void {
+    return train(offsets, gain, rate);
   },
   onChange(l: (on: boolean) => void) {
     listeners.add(l);
