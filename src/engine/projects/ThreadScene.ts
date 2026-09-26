@@ -249,6 +249,15 @@ const CAP_LINE_FEATHER = 12;
 /** A caption steps down to clear its own pieces by this much, while it stays this far off the bottom edge. */
 const CAP_CLEAR = 12;
 const CAP_FOOT = 24;
+/**
+ * The way from a mark down to its caption crosses bare rings, where nothing
+ * is chosen. A pointer heading for the caption (its last move, made within
+ * CAPTION_AIM_MS, points at the words with CAPTION_AIM px to spare) keeps the
+ * choice this long, ms, so the caption is still there to be clicked.
+ */
+const CAPTION_GRACE = 350;
+const CAPTION_AIM = 24;
+const CAPTION_AIM_MS = 120;
 /** A piece on the ball fades out before it crosses this margin at the screen's sides: a phone's ball nearly fills the width. */
 const SIDE_MARGIN = 16;
 /** Past this many projects a mark hangs only its cover and two pieces. */
@@ -609,6 +618,10 @@ export class ThreadScene {
   private hovered: Bead | null = null;
   private dim = 0;
   private pointerAt: { x: number; y: number } | null = null;
+  /** The pointer's last move (px) and when it was made, ms: where it is heading. */
+  private pointerDir = { dx: 0, dy: 0, t: -Infinity };
+  /** Off its mark and on its way to the caption, a choice holds until this time, ms (0: no grace running). */
+  private graceUntil = 0;
   /** The keys chose something: it holds until the pointer next moves. */
   private keyHold = false;
   private opened: Bead | null = null;
@@ -1663,6 +1676,9 @@ export class ThreadScene {
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     if (this.pointerAt && Math.hypot(x - this.pointerAt.x, y - this.pointerAt.y) < 1 && this.keyHold) return;
+    if (this.pointerAt && Math.hypot(x - this.pointerAt.x, y - this.pointerAt.y) >= 1) {
+      this.pointerDir = { dx: x - this.pointerAt.x, dy: y - this.pointerAt.y, t: performance.now() };
+    }
     this.pointerAt = { x, y };
     this.keyHold = false;
     if (!this.ready || this.drag?.moved) return;
@@ -1689,9 +1705,46 @@ export class ThreadScene {
     }
     // Over the chosen project's caption the choice holds: where the ball reaches under the
     // words, its thinned rings are not there to be chosen.
-    if (this.onCaption(at.x, at.y)) return;
+    if (this.onCaption(at.x, at.y)) {
+      this.graceUntil = 0;
+      return;
+    }
     const b = this.beadAt(at.x, at.y);
-    if (b !== this.hovered) this.setHover(b, true);
+    if (b === this.hovered) {
+      this.graceUntil = 0;
+      return;
+    }
+    // Between a mark and its caption lie bare rings: a pointer crossing them toward the caption
+    // keeps the choice a moment, so it can still be clicked there. Only while it keeps heading
+    // that way, and only for the one grace.
+    if (!b && this.hovered && this.towardCaption(at.x, at.y)) {
+      const now = performance.now();
+      if (!this.graceUntil) this.graceUntil = now + CAPTION_GRACE;
+      if (now < this.graceUntil) return;
+    }
+    this.graceUntil = 0;
+    this.setHover(b, true);
+  }
+
+  /** The pointer's last move, made just now, points at the chosen caption (with CAPTION_AIM to spare). */
+  private towardCaption(x: number, y: number) {
+    const b = this.hovered;
+    const d = this.pointerDir;
+    if (!b || performance.now() - d.t > CAPTION_AIM_MS) return false;
+    const [x0, y0, x1, y1] = this.captionBox(b);
+    // Where the ray from the pointer along its move enters and leaves the padded box (slabs).
+    let near = 0;
+    let far = Infinity;
+    const slab = (p: number, v: number, lo: number, hi: number) => {
+      if (Math.abs(v) < 1e-6) return p >= lo && p <= hi;
+      let a = (lo - p) / v;
+      let c = (hi - p) / v;
+      if (a > c) [a, c] = [c, a];
+      near = Math.max(near, a);
+      far = Math.min(far, c);
+      return near <= far;
+    };
+    return slab(x, d.dx, x0 - CAPTION_AIM, x1 + CAPTION_AIM) && slab(y, d.dy, y0 - CAPTION_AIM, y1 + CAPTION_AIM);
   }
 
   /** Esc: an opened project winds back in and stays chosen; otherwise the choice is let go. */
@@ -1847,6 +1900,7 @@ export class ThreadScene {
   private setHover(b: Bead | null, byPointer = false) {
     const prev = this.hovered;
     this.hovered = b;
+    this.graceUntil = 0;
     if (prev && prev !== this.opened) this.captionOff(prev);
     if (b && b !== this.opened) this.captionOn(b);
     this.opts.onHover(b ? (b.project ? { kind: "project", project: b.project } : { kind: "study", piece: b.study! }) : null, byPointer);
@@ -1910,6 +1964,7 @@ export class ThreadScene {
     if (this.hovered && this.hovered !== b) this.captionOff(this.hovered);
     if (this.hovered === b) this.captionOff(b);
     this.hovered = b;
+    this.graceUntil = 0;
     this.opened = b;
     this.openedAt = performance.now();
     this.scroll.cur = this.scroll.target = 0;
