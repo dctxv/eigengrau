@@ -7,6 +7,7 @@ import { CursorLabel } from "@/components/CursorLabel";
 import { setFlag } from "@/lib/flags";
 import { EASE, prefersReducedMotion } from "@/lib/motion";
 import { countWord, plainFact, pollNow, type NowResponse, type Playing, type Track, type WeekTrack } from "@/lib/now";
+import { onWhere } from "@/lib/where";
 import { EIGENGRAU, Spring, bend, deltaE, dither, learnTone, missTone, onTone, rgbOf, toneNow, toneOf, type Tone } from "@/lib/tone";
 
 /** The quietest song's opacity: the less it was played, the closer it sits to eigengrau. */
@@ -35,6 +36,13 @@ const GRACE = 60;
 const UNKNOWN_CAP = 15 * 60;
 /** A song missing from the answers this long (seconds) is a new play when it comes back. */
 const FORGET = 180;
+
+/**
+ * The last song heard through the wall, and whose it is. The song lives in
+ * sfx and outlasts this page: leave Music with its door open and it plays on
+ * in the room, so the page that mounts on the way back picks it up where it is.
+ */
+let carried: { preview: Preview; key: string; cover: string | null } | null = null;
 
 /** Once per visit, the first hover with sound off says so instead of naming Last.fm. */
 let toldSoundOff = false;
@@ -332,7 +340,8 @@ type Pending = Chosen & { n: number; heard: number };
  * Two lights share the sleeve's centre. His song, playing now, is the resting
  * state. A preview rides over it: it commits only when its song is heard (or,
  * with sound off, after the same dwell), at most one new colour each 1.2s,
- * and leaving counts only after 250ms. Which
+ * and leaving counts only after 250ms. A song left playing in the room while
+ * the visitor was away opens again with its door as they come back. Which
  * colour moves on a critically damped spring in OKLab; how much of it keeps
  * the door's envelope. Each light is its own layer in the stage (see Spill),
  * written only while something moves, so it slides away with the panel and a
@@ -349,6 +358,8 @@ class RoomLight {
    */
   private rise: { t0: number; from: number; late: number } | null = null;
   private shut: { t0: number; from: number } | null = null;
+  /** The door reopening on a song that played on while the visitor was away: from `from` at `t0` (ms), all of it `over` seconds later. */
+  private back: { t0: number; from: number; over: number } | null = null;
   private lastNew = -Infinity;
   private queued: Pending | null = null;
   private queueTimer: number | null = null;
@@ -509,6 +520,31 @@ class RoomLight {
     }, this.lastNew + COLOUR_EVERY - now);
   }
 
+  /**
+   * A song that played on in the room while the visitor was away (preview
+   * `n`): its door reopens over `over` seconds from `at` (performance.now()
+   * ms, perhaps a little ahead), and the colour opens with it, from wherever
+   * the room is.
+   */
+  reopen(key: string, cover: string | null, n: number, at: number, over: number) {
+    const t = toneNow(cover);
+    const now = performance.now();
+    const amount = this.amountAt(now);
+    this.clearGrace();
+    this.rise = null;
+    this.shut = null;
+    this.back = null;
+    this.owner = { key, cover, n, shade: t ? shade(t, false) : null };
+    // A grey record, or a cover never read: the room stays as it is.
+    if (!t) return this.close();
+    const to = shade(t, false);
+    if (amount <= 0.001) this.tone.snap(to);
+    else this.tone.aim(to, now);
+    this.lastNew = now;
+    this.back = { t0: at, from: amount, over: this.plain ? Math.min(over, PLAIN.long) : over };
+    this.kick();
+  }
+
   /** The preview `n` has ended (its thirty seconds, or its door closed): the colour goes with it. */
   ended(n: number) {
     if (n && this.owner?.n === n && !this.shut) this.close();
@@ -536,6 +572,7 @@ class RoomLight {
       if (this.shut) {
         // It was leaving: the door picks up again from where the colour is, instead of from the wall.
         this.shut = null;
+        this.back = null;
         this.rise = { t0: now - doorTime(amount, this.plain) * 1000, from: 0, late: 0 };
       }
       return this.kick();
@@ -547,6 +584,7 @@ class RoomLight {
     if (amount <= 0.001) this.tone.snap(to);
     else this.tone.aim(to, now);
     this.shut = null;
+    this.back = null;
     // The door keeps its song's clock. A colour let in late catches up with it; one very late (its cover read long
     // after the song began) lags it by the rest, rather than leaping to where the door has got to.
     const late = Math.min(Math.max(0, now - heard), COLOUR_EVERY) / 1000;
@@ -559,6 +597,7 @@ class RoomLight {
     const now = performance.now();
     const amount = this.amountAt(now);
     this.rise = null;
+    this.back = null;
     this.shut = amount > 0 ? { t0: now, from: amount } : null;
     if (!this.shut) this.owner = null;
     this.kick();
@@ -573,6 +612,10 @@ class RoomLight {
     if (this.shut) {
       const k = (now - this.shut.t0) / ((this.plain ? PLAIN.long : DOOR_CLOSE) * 1000);
       return k >= 1 ? 0 : this.shut.from * (1 - k);
+    }
+    if (this.back) {
+      const b = this.back;
+      return b.over > 0 ? b.from + (1 - b.from) * clamp01((now - b.t0) / (b.over * 1000)) : 1;
     }
     return this.rise ? door((now - this.rise.t0) / 1000, this.rise.from, this.rise.late, this.plain) : 0;
   }
@@ -653,6 +696,7 @@ class RoomLight {
       now < this.followUntil ||
       tone.moving ||
       !!this.shut ||
+      (!!this.back && now < this.back.t0 + this.back.over * 1000) ||
       (!!this.rise && now < this.rise.t0 + doorLength(this.plain) * 1000) ||
       !!this.liveMove;
     if (moving) {
@@ -669,8 +713,12 @@ class RoomLight {
 
 type Latest = { data: NowResponse; at: number; timing: Timing | null };
 type Shown = { mode: "now" | "last" | "song" | "quiet"; track: Track | null; state: string };
-/** A song coming through the wall: which one, where Apple keeps it, how long it runs, and whether the door is closing. */
-type Hearing = { key: string; link: string | null; duration: number; n: number; closing: boolean };
+/**
+ * A song coming through the wall: which one, where Apple keeps it, how long
+ * it runs, when it was first heard (performance.now() ms), and whether the
+ * door is closing.
+ */
+type Hearing = { key: string; link: string | null; duration: number; at: number; n: number; closing: boolean };
 /** A new song while he is live: the old sleeve drops out and the new one rises. */
 type Swap = { from: string | null; to: string | null; n: number };
 type Place = { x: number; y: number; w: number };
@@ -808,6 +856,16 @@ export function MusicPanel() {
     [measure, leave],
   );
 
+  /** When a song heard (or picked up again) ends: the colour goes with it, and the attribution unless it is rested on. */
+  const onEnd = useCallback((v: Preview, n: number) => {
+    void v.ended.then(() => {
+      light.current?.ended(n);
+      if (voice.current === v) voice.current = null;
+      // Resting on the attribution keeps it until the pointer leaves it.
+      if (!pinned.current) setHearing((h) => (h?.n === n ? null : h));
+    });
+  }, []);
+
   const listen = useCallback((t: WeekTrack) => {
     const controller = new AbortController();
     asking.current?.abort();
@@ -826,28 +884,45 @@ export function MusicPanel() {
       }
       asking.current = null;
       voice.current = v;
+      carried = { preview: v, key: keyOf(t), cover: t.coverId };
       const n = ++heardN.current;
-      setHearing({ key: keyOf(t), link: v.link, duration: v.duration, n, closing: false });
+      setHearing({ key: keyOf(t), link: v.link, duration: v.duration, at: v.heardAt, n, closing: false });
       // The colour keys to the song being heard, not to the dwell: fetch and decode can take a second.
       light.current?.commit(keyOf(t), t.coverId, v.heardAt, n);
-      void v.ended.then(() => {
-        light.current?.ended(n);
-        if (voice.current === v) voice.current = null;
-        // Resting on the attribution keeps it until the pointer leaves it.
-        if (!pinned.current) setHearing((h) => (h?.n === n ? null : h));
-      });
+      onEnd(v, n);
     });
-  }, []);
+  }, [onEnd]);
 
   useEffect(() => {
     setFlag("pageReady", true);
     cursor.current = new CursorLabel(label.current!, stage.current!);
     if (!window.matchMedia("(prefers-contrast: more)").matches) light.current = new RoomLight(stage.current!, lightBox.current!, () => sleeve.current, reduced);
+    // Back in the room with its song still playing: the door is reopening, and the page picks the song up where it
+    // is. The week stays out, with the song on it, even while he is live: it is what the visitor left playing.
+    const back = carried?.preview.sounding ? carried : null;
+    if (back) {
+      const v = back.preview;
+      const n = ++heardN.current;
+      const door = v.back ?? { at: performance.now(), over: 0 };
+      voice.current = v;
+      openRef.current = true;
+      setHearing({ key: back.key, link: v.link, duration: v.duration, at: v.heardAt, n, closing: false });
+      light.current?.reopen(back.key, back.cover, n, door.at, door.over);
+      onEnd(v, n);
+    }
     // A key pressed means the next focus is a keyboard's, even on a touch screen: it chooses as a pointer's rest does.
     const onKey = () => {
       touch.current = false;
     };
     window.addEventListener("keydown", onKey);
+    // Leaving Music, the page stops asking for songs as the slide begins; the song already playing is sfx's to keep or close.
+    const offWhere = onWhere((w) => {
+      if (w.path === "/music") return;
+      if (dwell.current !== null) window.clearTimeout(dwell.current);
+      dwell.current = null;
+      asking.current?.abort();
+      asking.current = null;
+    });
     let first = true;
     const stop = pollNow(
       (answer) => {
@@ -877,16 +952,17 @@ export function MusicPanel() {
     return () => {
       stop();
       window.removeEventListener("keydown", onKey);
+      offWhere();
       if (foldTimer.current !== null) window.clearTimeout(foldTimer.current);
       if (dwell.current !== null) window.clearTimeout(dwell.current);
       asking.current?.abort();
-      voice.current?.stop();
+      // The song is not the page's to stop: it lives in sfx, which closes it or keeps it in the room as the visitor goes.
       cursor.current?.destroy();
       cursor.current = null;
       light.current?.destroy();
       light.current = null;
     };
-  }, [go, reduced]);
+  }, [go, reduced, onEnd]);
 
   const data = latest?.data ?? null;
   const live = !!data?.now;
@@ -1031,6 +1107,8 @@ export function MusicPanel() {
   // A line runs along the sleeve's bottom edge for the preview's length.
   const hearN = hearing && !hearing.closing ? hearing.n : 0;
   const hearFor = hearing?.duration ?? 0;
+  const hearAt = hearing?.at ?? 0;
+  const drawn = !!data;
   useEffect(() => {
     const el = listenLine.current;
     if (!el || !hearN) return;
@@ -1038,11 +1116,13 @@ export function MusicPanel() {
       gsap.set(el, { scaleX: 1 });
       return;
     }
-    const tween = gsap.fromTo(el, { scaleX: 0 }, { scaleX: 1, duration: hearFor, ease: "none" });
+    // A song come back to is partway through already: the line starts from there.
+    const done = clamp01((performance.now() - hearAt) / 1000 / hearFor);
+    const tween = gsap.fromTo(el, { scaleX: done }, { scaleX: 1, duration: hearFor * (1 - done), ease: "none" });
     return () => {
       tween.kill();
     };
-  }, [hearN, hearFor, reduced]);
+  }, [hearN, hearFor, hearAt, drawn, reduced]);
 
   const enter = (t: WeekTrack, viaTouch: boolean) => {
     // The stack is on its way out to the room.
@@ -1052,14 +1132,15 @@ export function MusicPanel() {
     // still means Last.fm.
     if (viaTouch) return;
     const key = keyOf(t);
-    if (key !== active) hush();
+    // A song still sounding on this title (one come back to, not yet touched) is already its own: resting on it keeps it.
+    const sounding = !!hearing && !hearing.closing && hearing.key === key;
+    if (key !== active && !sounding) hush();
     if (key !== armed.current) armed.current = null;
     setActive(key);
     setGlided(false);
     cursor.current?.set(!sfx.enabled && firstSoundOffHover() ? "Sound is off" : "Last.fm");
     light.current?.choose(key, t.coverId);
     // A song whose door is still closing (back on it within the second) plays again after the dwell.
-    const sounding = !!hearing && !hearing.closing && hearing.key === key;
     if (sfx.enabled && !sounding) {
       if (dwell.current !== null) window.clearTimeout(dwell.current);
       dwell.current = window.setTimeout(() => {
@@ -1085,10 +1166,13 @@ export function MusicPanel() {
     const key = keyOf(t);
     if (armed.current === key) return;
     e.preventDefault();
-    hush();
+    // A song come back to, still sounding, is chosen already: this tap only readies the second.
+    const sounding = !!hearing && !hearing.closing && hearing.key === key;
+    if (!sounding) hush();
     armed.current = key;
     setActive(key);
     light.current?.choose(key, t.coverId);
+    if (sounding) return;
     if (sfx.enabled) listen(t);
     else light.current?.commit(key, t.coverId);
   };

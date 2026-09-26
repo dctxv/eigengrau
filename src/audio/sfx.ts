@@ -2,13 +2,19 @@
  * Sound (spec 11). Two sampled files in public/audio: a click for opening a
  * project and an ambient bed that loops with a crossfade at the seam. The
  * other cues are synthesised. Music adds a third voice: a song's preview heard
- * through the wall, with the bed ducking under it. Off by default, remembered
- * in localStorage; nothing is fetched until sound is turned on.
+ * through the wall, with the bed ducking under it. Once its door has opened
+ * the song stays in Music's room when the visitor leaves, and plays on to its
+ * end, heard through the other tabs' walls. Off by default, remembered in
+ * localStorage; nothing is fetched until sound is turned on.
  */
 type Name = "click" | "tab" | "slide" | "focus" | "close" | "tick" | "done";
 type Synth = Exclude<Name, "click">;
 
+import gsap from "gsap";
 import { setFlag } from "@/lib/flags";
+import { EASE } from "@/lib/motion";
+import { TAB_ORDER, tabIndex } from "@/lib/routes";
+import { onWhere, whereNow, type Where } from "@/lib/where";
 
 const STORAGE_KEY = "eigengrau:sound";
 const TICK_THROTTLE_MS = 40;
@@ -235,17 +241,73 @@ export const WALL_IN = 0.6; // the song fades up behind the wall
 export const DOOR_WAIT = 1.2; // then waits there this long before the door starts to open
 export const DOOR_OPEN = 3;
 export const DOOR_CLOSE = 1.2;
+/** Come back to Music while its song plays on and the door reopens over this long; the page hears of it through `Preview.back`. */
+const REOPEN = 1.5;
 const QUICK_CLOSE = 0.3; // sound turned off, or the tab hidden
 const WAKE_WAIT_MS = 300;
+
+/** The room the song lives in. */
+const HOME = "/music";
+/**
+ * The song heard from the other rooms, by how many lie between (Notes and
+ * About are next door, Projects two along, Space three): its lowpass, its
+ * level, how far it leans toward Music's side, and how far the bed ducks
+ * under it. Next door is the wall itself.
+ */
+const AWAY = [
+  { hz: WALL_HZ, level: WALL_LEVEL, pan: 0.3, bed: BED_DUCK.wall }, // -16 dB, the bed -6 dB
+  { hz: 420, level: 0.079, pan: 0.45, bed: 0.63 }, // -22 dB, the bed -4 dB
+  { hz: 260, level: 0.04, pan: 0.6, bed: 0.79 }, // -28 dB, the bed -2 dB
+] as const;
+/** A jump between rooms (reduced motion, a slide cut short): quick, but not a click. */
+const JUMP = 0.3;
+/** Too close to its stop to call it back (s): the audio thread may already have it. */
+const UNSTOP = 0.03;
 
 /**
  * What the Music page gets back: how long the song runs, where it lives on
  * Apple Music, when its first sample reaches the speakers (performance.now()
  * ms, a little after the promise resolves), and how to leave.
  */
-export type Preview = { duration: number; link: string | null; heardAt: number; ended: Promise<void>; stop: () => void };
+export type Preview = {
+  duration: number;
+  link: string | null;
+  heardAt: number;
+  ended: Promise<void>;
+  /**
+   * Closes the door over 1.2s. Once the visitor has left Music's room the
+   * song is no longer the page's to stop: only its end, sound turned off or
+   * a hidden tab ends it.
+   */
+  stop: () => void;
+  /** Whether it still plays on: not closing, not ended. */
+  readonly sounding: boolean;
+  /**
+   * The door's last reopening as the visitor came back to Music: when it
+   * starts (performance.now() ms, perhaps a little ahead) and how long it
+   * takes (s). Null until then.
+   */
+  readonly back: { at: number; over: number } | null;
+};
 
-type Voice = { src: AudioBufferSourceNode; lp: BiquadFilterNode; level: GainNode; wet: GainNode };
+type Voice = {
+  src: AudioBufferSourceNode;
+  lp: BiquadFilterNode;
+  level: GainNode;
+  wet: GainNode;
+  pan: StereoPannerNode | null;
+  /** Context times: when the door starts to open, and when the song ends. */
+  doorAt: number;
+  end: number;
+  /** When hush began to close the door and when the song is due to stop (context time); null while it plays on. */
+  hushedAt: number | null;
+  stopAt: number | null;
+  /** The tab the visitor is in, and how many rooms lie between it and Music: 0 in the room. */
+  tab: string;
+  away: number;
+  back: Preview["back"];
+};
+/** The song sounding, open or closing; a newer one takes its place. */
 let voice: Voice | null = null;
 let roomIr: AudioBuffer | null = null;
 
@@ -290,34 +352,154 @@ function hold(p: AudioParam, t: number) {
   p.setValueAtTime(v, t);
 }
 
-/** Closes the door on the song playing, if any, over `over` seconds; the bed comes back as it goes. */
+/** Straight steps a glide is drawn in: a value curve would be shorter, but not every browser can cut one short. */
+const STEPS = 16;
+const linear = (k: number) => k;
+/** The slide's own ease, so the song moves as the page does. */
+let slideEase: ((k: number) => number) | null = null;
+
+/**
+ * Moves a param from wherever it is at context time `now` to `to`: still until
+ * `at`, then over `over` seconds along `ease`. `log` moves it on a log scale,
+ * as the ear hears a filter's frequency.
+ */
+function glide(p: AudioParam, to: number, now: number, at: number, over: number, ease: (k: number) => number, log = false) {
+  hold(p, now);
+  const from = log ? Math.max(1, p.value) : p.value;
+  if (at > now) p.setValueAtTime(from, at);
+  if (over <= 0) {
+    p.setValueAtTime(to, at);
+    return;
+  }
+  for (let i = 1; i <= STEPS; i++) {
+    const k = ease(i / STEPS);
+    p.linearRampToValueAtTime(log ? from * (to / from) ** k : from + (to - from) * k, at + (over * i) / STEPS);
+  }
+}
+
+/** The tab a route belongs to: a case page is in Projects; anything else outside the tabs (Threshold) is off Space. */
+function tabOf(path: string): string {
+  return TAB_ORDER.find((t) => t !== "/" && (path === t || path.startsWith(`${t}/`))) ?? "/";
+}
+
+/** How many rooms lie between `path` and Music's. */
+const roomsAway = (path: string) => Math.abs(tabIndex(tabOf(path)) - tabIndex(HOME));
+
+/** Whether the visitor is in Music's room (or Shell has not yet said where they are). */
+function atHome() {
+  const w = whereNow();
+  return !w || roomsAway(w.path) === 0;
+}
+
+/**
+ * Moves the bed's duck to `level` along with the song, and brings it back to
+ * full as the song ends; a move that would outlast the song just lets the bed
+ * back up by the end.
+ */
+function bedTo(v: Voice, level: number, now: number, at: number, over: number, ease: (k: number) => number) {
+  if (!bed) return;
+  if (at + over >= v.end - 1) {
+    hold(bed.gain, now);
+    bed.gain.linearRampToValueAtTime(1, Math.max(v.end, now + 0.05));
+    return;
+  }
+  glide(bed.gain, level, now, at, over, ease);
+  bed.gain.setValueAtTime(level, v.end - 1);
+  bed.gain.linearRampToValueAtTime(1, v.end);
+}
+
+/** Closes the door on the song playing, if any, over `over` seconds; the bed comes back as it goes. A close already sooner stands. */
 function hush(over = DOOR_CLOSE) {
   const v = voice;
   const c = ctx;
-  voice = null;
   if (!v || !c) return;
   const t = c.currentTime;
+  const stopAt = t + over + 0.05;
+  if (v.stopAt !== null && v.stopAt <= stopAt) return;
+  v.hushedAt ??= t;
+  v.stopAt = stopAt;
   [v.lp.frequency, v.level.gain, v.wet.gain].forEach((p) => hold(p, t));
-  v.lp.frequency.exponentialRampToValueAtTime(WALL_HZ, t + over);
+  v.lp.frequency.exponentialRampToValueAtTime(Math.min(WALL_HZ, Math.max(1, v.lp.frequency.value)), t + over);
   v.level.gain.linearRampToValueAtTime(0, t + over);
   if (bed) {
     hold(bed.gain, t);
     bed.gain.linearRampToValueAtTime(1, t + over);
   }
   try {
-    v.src.stop(t + over + 0.05);
+    v.src.stop(stopAt);
   } catch {
     /* already stopped */
   }
 }
 
 /**
+ * The visitor moved between rooms. A song whose door has opened stays in
+ * Music's room and plays on to its end, heard from wherever they are: through
+ * more walls the further they go, from Music's side, and moving over the
+ * slide's second along the slide's own ease, so walking away sounds like
+ * walking away. A door still closing (the pointer left the title for the tab
+ * bar) turns into the distance instead, if the song has not stopped yet. Come
+ * back while it plays and the door reopens over 1.5s. A song still behind the
+ * wall when the visitor leaves closes as it always has.
+ */
+function walk(w: Where) {
+  const v = voice;
+  const c = ctx;
+  if (!v || !c) return;
+  // Notes and About are both next door, but on either side: a walk between them still moves the song across.
+  const tab = tabOf(w.path);
+  if (tab === v.tab) return;
+  const away = roomsAway(tab);
+  const now = c.currentTime;
+  if (v.away === 0) {
+    if ((v.hushedAt ?? now) < v.doorAt) {
+      hush();
+      return;
+    }
+    if (v.stopAt !== null) {
+      if (now > v.stopAt - UNSTOP) return;
+      try {
+        v.src.stop(v.end); // the last stop called is the one that counts
+      } catch {
+        return;
+      }
+      v.stopAt = null;
+      v.hushedAt = null;
+    }
+  } else if (v.stopAt !== null) return; // closing for good: sound off, or the tab hidden
+  v.tab = tab;
+  v.away = away;
+  const at = now + Math.max(0, (w.at - performance.now()) / 1000);
+  if (!away) {
+    glide(v.lp.frequency, OPEN_HZ, now, at, REOPEN, linear, true);
+    glide(v.level.gain, OPEN_LEVEL, now, at, REOPEN, linear);
+    glide(v.wet.gain, ROOM_WET.open, now, at, REOPEN, linear);
+    if (v.pan) glide(v.pan.pan, 0, now, at, REOPEN, linear);
+    bedTo(v, BED_DUCK.open, now, at, REOPEN, linear);
+    v.back = { at: heardAt(c, at), over: REOPEN };
+    return;
+  }
+  const room = AWAY[Math.min(away, AWAY.length) - 1];
+  const side = tabIndex(tab) > tabIndex(HOME) ? -1 : 1; // About is to Music's right, so the song comes from the left
+  const over = w.over > 0 ? w.over / 1000 : JUMP;
+  const ease = w.over > 0 ? (slideEase ??= gsap.parseEase(EASE.slide)) : linear;
+  glide(v.lp.frequency, room.hz, now, at, over, ease, true);
+  glide(v.level.gain, room.level, now, at, over, ease);
+  glide(v.wet.gain, ROOM_WET.wall, now, at, over, ease);
+  if (v.pan) glide(v.pan.pan, side * room.pan, now, at, over, ease);
+  bedTo(v, room.bed, now, at, over, ease);
+}
+onWhere(walk);
+
+/**
  * Fetches, decodes and plays a preview behind the wall, scheduling the door
  * to open while nobody calls stop. Hover is not a gesture, so a context that
  * has never been woken stays silent: better silence than a line pretending.
+ * Only in Music's room: a preview that arrives after the visitor has left
+ * plays nothing.
  */
 async function listen(url: string, signal?: AbortSignal): Promise<Preview | null> {
-  if (!enabled) return null;
+  if (!enabled || !atHome()) return null;
   const c = ensure();
   if (!c || !master || !bed) return null;
   const running = () => c.state === "running";
@@ -335,7 +517,7 @@ async function listen(url: string, signal?: AbortSignal): Promise<Preview | null
   } catch {
     return null;
   }
-  if (signal?.aborted || !enabled) return null;
+  if (signal?.aborted || !enabled || !atHome()) return null;
   hush();
 
   const src = c.createBufferSource();
@@ -347,8 +529,13 @@ async function listen(url: string, signal?: AbortSignal): Promise<Preview | null
   const wet = c.createGain();
   const walls = c.createConvolver();
   walls.buffer = roomTone(c);
-  src.connect(lp).connect(level).connect(master);
+  // The song's own end, apart from the door and the distance, so neither has to redraw it.
+  const fade = c.createGain();
+  const pan = typeof c.createStereoPanner === "function" ? c.createStereoPanner() : null;
+  src.connect(lp).connect(level);
   lp.connect(walls).connect(wet).connect(level);
+  const out = level.connect(fade);
+  (pan ? out.connect(pan) : out).connect(master);
 
   // Behind the wall, then the door, then the song's own end; a short file just ends sooner.
   const t = c.currentTime;
@@ -363,8 +550,8 @@ async function listen(url: string, signal?: AbortSignal): Promise<Preview | null
   level.gain.linearRampToValueAtTime(WALL_LEVEL, Math.min(t + WALL_IN, end));
   level.gain.setValueAtTime(WALL_LEVEL, doorAt);
   level.gain.linearRampToValueAtTime(OPEN_LEVEL, openAt);
-  level.gain.setValueAtTime(OPEN_LEVEL, tail);
-  level.gain.linearRampToValueAtTime(0, end);
+  fade.gain.setValueAtTime(1, tail);
+  fade.gain.linearRampToValueAtTime(0, end);
   wet.gain.setValueAtTime(ROOM_WET.wall, t);
   wet.gain.setValueAtTime(ROOM_WET.wall, doorAt);
   wet.gain.linearRampToValueAtTime(ROOM_WET.open, openAt);
@@ -375,20 +562,31 @@ async function listen(url: string, signal?: AbortSignal): Promise<Preview | null
   bed.gain.setValueAtTime(BED_DUCK.open, tail);
   bed.gain.linearRampToValueAtTime(1, end);
 
-  const v: Voice = { src, lp, level, wet };
+  const v: Voice = { src, lp, level, wet, pan, doorAt, end, hushedAt: null, stopAt: null, tab: HOME, away: 0, back: null };
   const ended = new Promise<void>((resolve) => {
     src.onended = () => {
-      [src, lp, level, wet, walls].forEach((n) => n.disconnect());
+      [src, lp, level, wet, walls, fade, pan].forEach((n) => n?.disconnect());
       if (voice === v) voice = null;
       resolve();
     };
   });
   src.start(t);
   voice = v;
-  const stop = () => {
-    if (voice === v) hush();
+  return {
+    duration: buffer.duration,
+    link,
+    heardAt: heardAt(c, t),
+    ended,
+    stop: () => {
+      if (voice === v && v.away === 0) hush();
+    },
+    get sounding() {
+      return voice === v && v.stopAt === null;
+    },
+    get back() {
+      return v.back;
+    },
   };
-  return { duration: buffer.duration, link, heardAt: heardAt(c, t), ended, stop };
 }
 
 // ---------------------------------------------------------------- context
@@ -537,3 +735,4 @@ export const sfx = {
     duck();
   },
 };
+
