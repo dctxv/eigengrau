@@ -28,9 +28,15 @@ void main() {
   gl_FragColor = c * uFade;
 }`;
 
-/** A smooth canvas is resized in steps of this many pixels, so a zoom does not rebuild it every frame. */
+/**
+ * A smooth canvas is resized in steps of this many pixels, so a zoom does not rebuild it every
+ * frame, and never paints the box more than RES_MAX across: past that a large retina screen would
+ * upload several times the texture for a sharpness nobody sees at that size.
+ */
 const RES_STEP = 16;
-const RES_MAX = 2048;
+const RES_MAX = 1400;
+/** One art pixel in mesh units: the width a rim is when nobody holds it (see UrchiHostOptions.rim). */
+const ART_PIXEL = 7.5;
 
 /** Where the head's centre (mesh y 0) sits in the canvas's frame, as a fraction of its height from the middle. */
 const CENTRE_UP = -(URCHI_FRAME.y + URCHI_FRAME.h / 2) / URCHI_FRAME.h;
@@ -47,12 +53,19 @@ export type UrchiHostOptions = {
    * smooth edges. false keeps the standalone page's hard pixels at `cell`.
    */
   smooth?: boolean;
+  /**
+   * Smooth only: the rim is one art pixel of the head as shown (the head is about 116 of them tall),
+   * held between these many host units, [min, max]. A big head's full art pixel would read as a
+   * sticker's outline. Unset, it is one art pixel at any size (About's mark).
+   */
+  rim?: readonly [number, number];
 };
 
 /**
- * Urchi in a three.js scene: the character paints its canvas each frame and
- * a plane shows it. Smooth (the default), the canvas is kept at the size it
- * is shown at, in device pixels, and sampled linearly; otherwise it is the
+ * Urchi in a three.js scene: the character paints its canvas each frame
+ * something in it moves, and a plane shows it (uploaded only then). Smooth
+ * (the default), the canvas is kept at the size it is shown at, in device
+ * pixels up to RES_MAX, and sampled linearly; otherwise it is the
  * standalone page's small canvas with nearest-neighbour sampling and hard
  * pixel edges. The host places `mesh` at the head's centre and sets `width`,
  * the mascot's box width in its own units (and, smooth, `pixelRatio`, device
@@ -66,17 +79,19 @@ export class Urchi {
   width = 1;
   /** 0 hidden .. 1 full size. */
   appear = 0;
-  /** A size for a moment, on top of `appear`: the game's stack shrinks it to fit above the board. */
+  /** A size for a moment, on top of `appear`: the game's stack shrinks it to fit above the board, and sleep settles it. */
   zoom = 1;
   /** Device pixels per host unit, which a smooth Urchi paints its canvas to match. */
   pixelRatio = 1;
   private texture: THREE.CanvasTexture;
   private readonly smooth: boolean;
+  private readonly rim: readonly [number, number] | null;
   /** The box's width in canvas pixels, as last set (smooth only). */
   private resolution = 0;
 
   constructor(o: UrchiHostOptions = {}) {
     this.smooth = o.smooth !== false;
+    this.rim = this.smooth && o.rim ? o.rim : null;
     this.character = createUrchi({ reducedMotion: o.reducedMotion, cell: o.cell, smooth: this.smooth });
     this.texture = this.makeTexture();
     this.uniforms = { uMap: { value: this.texture }, uFade: { value: 1 } };
@@ -117,6 +132,15 @@ export class Urchi {
     old.dispose();
   }
 
+  /** A held rim follows the head's size as shown: one art pixel, within its bounds. */
+  private fitRim() {
+    if (!this.rim) return;
+    const shown = this.unit * this.zoom;
+    if (shown <= 0) return;
+    const [min, max] = this.rim;
+    this.character.setRim(Math.min(max / shown, Math.max(min / shown, ART_PIXEL)));
+  }
+
   /** Host units per mesh unit. */
   private get unit() {
     return this.width / URCHI_BOX.w;
@@ -127,11 +151,13 @@ export class Urchi {
     return (URCHI_HEAD.bottom - URCHI_HEAD.top) * this.unit;
   }
 
-  /** Called from the host's frame, dt in seconds. */
+  /** Called from the host's frame, dt in seconds. Uploads the canvas only on a frame that painted it. */
   update(dt: number) {
-    if (this.smooth) this.fitResolution();
-    this.character.update(dt);
-    this.texture.needsUpdate = true;
+    if (this.smooth) {
+      this.fitResolution();
+      this.fitRim();
+    }
+    if (this.character.update(dt)) this.texture.needsUpdate = true;
     const s = Math.max(this.appear * this.zoom, 1e-4);
     this.mesh.scale.set(URCHI_FRAME.w * this.unit * s, URCHI_FRAME.h * this.unit * s, 1);
   }
