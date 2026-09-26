@@ -125,5 +125,5 @@ src/engine/about/        the statement, with Urchi as its mark
 src/engine/urchi/        Urchi in the site: character.ts ports urchi/index.html and adds the site's hooks, Urchi.ts shows its canvas in a scene, attention.ts is what it looks at, acts.ts its small scripted acts, hours.ts his hours, mesh.json is its head
 src/engine/common/       colour, loader and text helpers
 src/lib/                 colour tokens, flags, motion, routes, viewport, the Last.fm poller (now.ts), the game's rules (threshold.ts), the last-visit memory and what's new (visits.ts), the Notes column's data, sentence and sediment (notes.ts), and a record's colour read from its cover in OKLab (tone.ts)
-src/audio/sfx.ts         sound: the click and ambient bed from public/audio, synthesised cues (the counter's D/A chime among them), and Music's preview voice with the bed ducking under it, whose door the room's colour keeps time with (off by default, remembered in localStorage)
+src/audio/sfx.ts         sound: the click and ambient bed from public/audio (the bed has its own lowpass, sfx.air, open at rest), synthesised cues (the counter's D/A chime among them), and Music's preview voice with the bed ducking under it, whose door the room's colour keeps time with (off by default, remembered in localStorage)
 ```

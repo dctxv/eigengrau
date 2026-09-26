@@ -23,6 +23,19 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 /** The bed's own level under the master, so a preview can duck it without touching its fades. */
 let bed: GainNode | null = null;
+/**
+ * The bed's air: a lowpass after the bed's level, so the bed can go through a
+ * wall without touching its fades or its ducking (see `sfx.air`). At rest it
+ * sits at half the sample rate, where the filter passes everything untouched.
+ */
+let air: BiquadFilterNode | null = null;
+/** Any frequency at or above half the sample rate opens the bed's air fully: `sfx.air(AIR_OPEN, over)`. */
+export const AIR_OPEN = Number.POSITIVE_INFINITY;
+/** What the air was last asked for, so a context made later starts there. */
+let airHz = AIR_OPEN;
+/** A Butterworth lowpass (a lowpass's Q is in dB): no bump at the cutoff, only the wall. */
+const AIR_Q = -3.0103;
+const airAt = (c: BaseAudioContext, hz: number) => Math.min(c.sampleRate / 2, Math.max(20, hz));
 const buffers = new Map<Name, AudioBuffer>();
 let clickBytes: Promise<ArrayBuffer> | null = null;
 let clickDecoding = false;
@@ -263,14 +276,17 @@ function heardAt(c: AudioContext, t: number): number {
   return performance.now() + ((c.outputLatency || 0) + (c.baseLatency || 0)) * 1000;
 }
 
-/** Holds a param where it is at `t`, dropping whatever was scheduled after, so a new move starts from there. */
+/**
+ * Holds a param where it is at `t` (now), dropping whatever was scheduled
+ * after, so a new move starts from there. The value is set again at `t`
+ * even where the browser can hold it: with nothing in flight at `t` there is
+ * nothing to hold, and a ramp would start from the last event, however long
+ * ago, and leap.
+ */
 function hold(p: AudioParam, t: number) {
-  if (typeof p.cancelAndHoldAtTime === "function") {
-    p.cancelAndHoldAtTime(t);
-    return;
-  }
   const v = p.value;
-  p.cancelScheduledValues(t);
+  if (typeof p.cancelAndHoldAtTime === "function") p.cancelAndHoldAtTime(t);
+  else p.cancelScheduledValues(t);
   p.setValueAtTime(v, t);
 }
 
@@ -387,7 +403,11 @@ function ensure(): AudioContext | null {
     master.gain.value = 0.6;
     master.connect(ctx.destination);
     bed = ctx.createGain();
-    bed.connect(master);
+    air = ctx.createBiquadFilter();
+    air.type = "lowpass";
+    air.Q.value = AIR_Q;
+    air.frequency.value = airAt(ctx, airHz);
+    bed.connect(air).connect(master);
     (["tab", "slide", "focus", "close", "tick", "done"] as Synth[]).forEach((n) => buffers.set(n, synth(ctx!, n)));
   }
   if (ctx.state === "suspended") void ctx.resume();
@@ -466,6 +486,27 @@ export const sfx = {
    */
   preview(url: string, signal?: AbortSignal): Promise<Preview | null> {
     return listen(url, signal);
+  },
+  /**
+   * Puts the bed through a wall, or takes the wall away: the bed's lowpass
+   * moves to `hz` over `overSeconds`, on a log scale as the ear hears it.
+   * `sfx.air(700, 0.6)` is the next room's wall; `sfx.air(AIR_OPEN, 4)` opens
+   * it again, to where the filter is not there at all (its resting state).
+   * Only the bed goes through it: the cues, the ticks and a preview do not.
+   * Made for the supernova's float, which sends the bed through the wall as
+   * the pieces drift and opens it as the ball winds back. It wakes nothing
+   * and fetches nothing: with sound off it only moves the dial.
+   */
+  air(hz: number, overSeconds = 0) {
+    airHz = hz;
+    const c = ctx;
+    const f = air;
+    if (!c || !f) return;
+    const to = airAt(c, hz);
+    const t = c.currentTime;
+    hold(f.frequency, t);
+    if (overSeconds > 0) f.frequency.exponentialRampToValueAtTime(to, t + overSeconds);
+    else f.frequency.setValueAtTime(to, t);
   },
   onChange(l: (on: boolean) => void) {
     listeners.add(l);
