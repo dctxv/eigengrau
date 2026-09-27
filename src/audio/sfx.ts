@@ -1,11 +1,11 @@
 /**
  * Sound (spec 11). Two sampled files in public/audio: a click for opening a
  * project and an ambient bed that loops with a crossfade at the seam. The
- * other cues are synthesised (Urchi's pats, the Projects horizon's pluck and
- * the supernova's bloom among them), and ticks can come as a train placed on
- * the audio clock (Notes' riffle, and the Projects ball's whirr as it
- * charges). The bed has its own air, a lowpass that can put it through a wall
- * (the supernova's float does). Music adds a
+ * other cues are synthesised (Urchi's pats, its helmet's seal, the Projects
+ * horizon's pluck and the supernova's bloom among them), and ticks can come
+ * as a train placed on the audio clock (Notes' riffle, and the Projects ball's
+ * whirr as it charges). The bed has its own air, a lowpass that can put it
+ * through a wall (the supernova's float does). Music adds a
  * third voice: a song's preview heard through the wall, with the bed ducking
  * under it. Once its door has opened the song stays in Music's room when the
  * visitor leaves, and plays on to its end, heard through the other tabs'
@@ -897,6 +897,66 @@ function pat(at: number, own: boolean): () => void {
   return takeBack;
 }
 
+// ---------------------------------------------------------------- the helmet's seal
+
+/**
+ * Urchi's helmet sealing on Space (panel 2, the spacesuit): a glass tick, the Projects tick at
+ * `rate` times its speed (higher and shorter: glass rather than card), and a hiss of air `hiss`
+ * seconds long, white noise through a bandpass that sweeps from `from` down to `to` Hz, at -24dB
+ * (a gain of `level`), in over `attack` and away to nothing by its end. Unsealing is the hiss
+ * alone, the sweep rising, `unseal` as loud.
+ */
+const SEAL = { rate: 1.4, hiss: 0.18, from: 3000, to: 1200, q: 1.8, level: 0.063, attack: 0.012, hold: 0.6, unseal: 0.7 };
+/** A quarter second of white noise for the hiss, made once per context. */
+let hissNoise: AudioBuffer | null = null;
+
+function seal(on: boolean) {
+  if (!enabled) return;
+  const c = ensure();
+  // a moment: held over a context not yet woken it would sound on the first click, so it is dropped
+  if (!c || !master || c.state !== "running") return;
+  const t = c.currentTime;
+  const tick = buffers.get("tick");
+  if (on && tick) {
+    const src = c.createBufferSource();
+    src.buffer = tick;
+    src.playbackRate.value = SEAL.rate;
+    src.connect(master);
+    src.onended = () => src.disconnect();
+    src.start(t);
+  }
+  if (!hissNoise || hissNoise.sampleRate !== c.sampleRate) {
+    const n = Math.ceil(c.sampleRate * 0.25);
+    hissNoise = c.createBuffer(1, n, c.sampleRate);
+    const d = hissNoise.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const noise = c.createBufferSource();
+  noise.buffer = hissNoise;
+  const band = c.createBiquadFilter();
+  band.type = "bandpass";
+  band.Q.value = SEAL.q;
+  const [a, b] = on ? [SEAL.from, SEAL.to] : [SEAL.to, SEAL.from];
+  band.frequency.setValueAtTime(a, t);
+  band.frequency.exponentialRampToValueAtTime(b, t + SEAL.hiss);
+  // in over `attack`, easing to `hold` of itself by two thirds of the way, and out to nothing at the end: a hiss all through its sweep, not a puff at the start
+  const g = c.createGain();
+  const peak = SEAL.level * (on ? 1 : SEAL.unseal);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(peak, t + SEAL.attack);
+  g.gain.linearRampToValueAtTime(peak * SEAL.hold, t + (SEAL.hiss * 2) / 3);
+  g.gain.linearRampToValueAtTime(0, t + SEAL.hiss);
+  noise.connect(band).connect(g).connect(master);
+  noise.onended = () => {
+    noise.disconnect();
+    band.disconnect();
+    g.disconnect();
+  };
+  noise.start(t);
+  noise.stop(t + SEAL.hiss + 0.02);
+  duck();
+}
+
 // ---------------------------------------------------------------- the supernova's bloom
 
 /**
@@ -1298,6 +1358,13 @@ export const sfx = {
    */
   pat(at: number, own = false): () => void {
     return pat(at, own);
+  },
+  /**
+   * Urchi's helmet sealing on Space (true: a glass tick and a falling hiss of air) or unsealing
+   * (false: the hiss alone, rising). Nothing plays, and no context is made, while sound is off.
+   */
+  seal(on: boolean) {
+    seal(on);
   },
   /**
    * The supernova's bloom (see BLOOM), `delay` seconds from now on the audio

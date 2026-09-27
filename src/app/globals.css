@@ -400,6 +400,49 @@ button {
   margin: 8px 0 0;
 }
 
+/*
+ * The peg (panel 2, the spacesuit): a 10px ring on the left wall, 24px in and 62% down (placed by
+ * Suit.ts), with Urchi's helmet hanging from it, painted by its own painter into the canvas, which
+ * also flies it to the head. Hidden until it appears. The button is the ring and the helmet's 44px.
+ */
+.space-peg {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  visibility: hidden;
+}
+.space-peg-button {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+/* The site's ring, on the box's own edge: 2px further out it would run off the wall. */
+.space-peg-button:focus-visible {
+  outline-offset: 0;
+}
+.space-peg-ring {
+  position: absolute;
+  left: 17px;
+  top: 3px;
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgb(233 233 226 / 0.45);
+  border-radius: 50%;
+}
+.space-peg-helmet {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
 /* ------------------------------------------------------------------ */
 /* Case pages: plain DOM in the same language.                         */
 /* ------------------------------------------------------------------ */

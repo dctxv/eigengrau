@@ -6,20 +6,23 @@ import { sfx } from "@/audio/sfx";
 import { MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
 import { Call } from "@/engine/space/Call";
 import { Motes } from "@/engine/space/Motes";
-import { RoomScene, URCHI_TURN } from "@/engine/space/RoomScene";
+import { RoomScene } from "@/engine/space/RoomScene";
+import { Suit } from "@/engine/space/Suit";
 import { runIntro } from "@/engine/space/intro";
 import { caught, comeBack, glanceAt, glanceDown, read, tug, type Caught } from "@/engine/urchi/acts";
 import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
+import { warmSuitIdle } from "@/engine/urchi/character";
 import { clock } from "@/engine/urchi/hours";
 import { CursorLabel } from "@/components/CursorLabel";
 import { MaskedChars, MaskedWords } from "@/components/Mask";
 import { Threshold } from "@/components/pages/Threshold";
+import { alongOn } from "@/lib/along";
 import { getFlags, setFlag } from "@/lib/flags";
 import { DUR, prefersReducedMotion } from "@/lib/motion";
 import { pollNow, type Track } from "@/lib/now";
 import { isTab } from "@/lib/routes";
 import { readResult, resultCaption, todayUTC, writeResult } from "@/lib/threshold";
-import { leftRoute, markNewsTold, newsTold, whatsNew } from "@/lib/visits";
+import { lastVisit, leftRoute, markNewsTold, newsTold, whatsNew } from "@/lib/visits";
 
 /** The game's door and its stack: Urchi, a gap, the plate. */
 const GAME_HASH = "#threshold";
@@ -98,6 +101,23 @@ const NIGHT_WAIT = 800;
 const CAUGHT = { away: 45 * 1000, every: 10 * 60 * 1000 };
 /** When it was last caught (Date.now() ms, in memory): wall time, since a phone put away may stop the page's own clock. */
 let caughtAt = -Infinity;
+/**
+ * The peg (panel 2, the spacesuit): it appears `after` seconds into Urchi's life in the room (after
+ * the intro, or after arriving), so the first impression is still one creature alone; at once on a
+ * return visit, or once it has been seen in this session, or while Urchi is along. It is a
+ * low-weight target (0.25, see Suit.ts), looked at when little else pulls; and now and then (every
+ * `every` seconds, the first `first` after it appears) Urchi glances at it on purpose, as it looks up
+ * at the "4" while he listens, and its glass glints while it looks: you find the button by
+ * following its eyes. Not while the pointer is on the move: the glance waits until it has rested
+ * `still` seconds (or nobody is there), asking again every `retry`.
+ */
+const PEG = { after: 10, first: [3, 6] as [number, number], every: [24, 48] as [number, number], still: 1.5, retry: 1.5, glint: 0.15 };
+/** The peg has been on the wall in this session (in memory). */
+let pegSeen = false;
+/** Along, a reload waits this long (ms, at most) for the suit's model before Urchi appears, so it arrives suited. */
+const SUIT_WAIT = 2500;
+/** The peg's word (the cursor label, and the button's name): what pressing it does. */
+const pegWord = (along: boolean) => (along ? "Leave it home" : "Take it along");
 
 /** The scene's side of the game, reachable from the board's React handlers. */
 type Game = {
@@ -149,6 +169,10 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   const caption = useRef<HTMLDivElement>(null);
   const label = useRef<HTMLDivElement>(null);
   const live = useRef<HTMLParagraphElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const wall = useRef<HTMLDivElement>(null);
+  const peg = useRef<HTMLButtonElement>(null);
+  const pegHelmet = useRef<HTMLCanvasElement>(null);
   const reducedMotion = prefersReducedMotion();
   const game = useRef<Game | null>(null);
   /** The board is up: the day it plays and how far the plate sits below the centre. */
@@ -157,7 +181,10 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   useEffect(() => {
     const stageEl = stage.current!;
     const hashGame = window.location.hash === GAME_HASH;
-    const playIntro = intro && !reducedMotion && !hashGame;
+    // Along within the visit (panel 2, the spacesuit): a reload finds it suited and tethered, so the
+    // intro, which builds the bare head from its eyes, gives way to the room as a return shows it.
+    let along = alongOn();
+    const playIntro = intro && !reducedMotion && !hashGame && !along;
     const phone = matchMedia("(hover: none)").matches;
     const room = new RoomScene(canvas.current!, { reducedMotion });
     const cursor = new CursorLabel(label.current!, stageEl);
@@ -170,12 +197,41 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let moodChanged = () => {};
     /** It is being found asleep (a night arrival): the head is on its pillow already, not settling onto it. */
     let arriving = false;
-    const att = new Attention(room.urchi.character, { head: eyesClient, reach: () => room.urchiSize.w / 2, reducedMotion, onMood: () => moodChanged() });
+    // (its reach is its head's, as it is drawn once the suit has stepped it back)
+    const att = new Attention(room.urchi.character, { head: eyesClient, reach: () => (room.urchiSize.w / 2) * room.fit, reducedMotion, onMood: () => moodChanged() });
+    room.attention = att;
     const motes = new Motes(room, att, { reducedMotion });
     const call = new Call(room, att, motes, { reducedMotion });
-    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call }); // handy for debugging and headless QA
+    // ---- the peg and the suit: its word follows along (the button's name, and the cursor's word
+    // under the pointer), saying where it will end up, a press made mid-way included (see Suit.press)
+    const pegEl = peg.current!;
+    let overPeg = false;
+    /** The pointer is on Urchi (the cursor label follows at once)... */
+    let overUrchi = false;
+    /**
+     * What a click on Urchi does, as the cursor says it: wakes it, opens the game, or nothing while
+     * the suit goes on or comes off (the game's stack is laid out for one or the other), so the
+     * word never promises what the click will not do.
+     */
+    const urchiWord = () => (att.asleep ? "Wake" : suit.busy ? null : "Threshold");
+    const pegLabel = (on: boolean) => {
+      pegEl.setAttribute("aria-pressed", String(on));
+      pegEl.setAttribute("aria-label", pegWord(on));
+      if (overPeg) cursor.set(pegWord(on));
+    };
+    const suit = new Suit({
+      room, att, panel: panel.current!, wall: wall.current!, peg: pegEl, helmet: pegHelmet.current!, reducedMotion,
+      onChange: pegLabel,
+      onBusy: () => {
+        if (overUrchi) cursor.set(urchiWord());
+      },
+    });
+    pegLabel(along);
+    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __suit: suit }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
     let stopArrive: (() => void) | null = null;
+    /** Until the panel unmounts: anything that lands later (the suit's model) finds nothing to act on. */
+    let alive = true;
     let openTimer: gsap.core.Tween | null = null;
 
     // ---- the caption: Urchi's name over one of his lines, a state, what's new, or the game's result
@@ -198,9 +254,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     // dwell; then it goes back to the hover caption if the pointer rests on Urchi, or sinks.
     let slot: Slot | null = null;
     let slotTimer: gsap.core.Tween | null = null;
-    /** The pointer is on Urchi (the cursor label follows at once)... */
-    let overUrchi = false;
-    /** ...and has rested there HOVER_REST: the hover caption is up, or waits for a timed one. */
+    /** The pointer on Urchi (overUrchi, above) has rested there HOVER_REST: the hover caption is up, or waits for a timed one. */
     let hovering = false;
     let restTimer: gsap.core.Tween | null = null;
     const release = () => {
@@ -270,7 +324,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       // Dozing, the pointer arriving stirs it first, so its caption is decided awake.
       if (on) att.rouse();
       overUrchi = on;
-      cursor.set(on ? (att.asleep ? "Wake" : "Threshold") : null);
+      cursor.set(on ? urchiWord() : null);
       restTimer?.kill();
       restTimer = on ? gsap.delayedCall(HOVER_REST, settleHover) : null;
       if (on || !hovering) return;
@@ -286,7 +340,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       // Asleep for the night, the head settles onto its pillow as the lids close (already there
       // when it is found asleep), and rises as it wakes.
       room.settleUrchi(att.mood === "asleep", arriving);
-      if (overUrchi) cursor.set(att.asleep ? "Wake" : "Threshold");
+      if (overUrchi) cursor.set(urchiWord());
       // The phone's one caption follows too: a tap that wakes it at night must not leave it
       // saying "asleep" with its eyes open. Awake, the line is his, and it reads it.
       if (slot === "auto") {
@@ -308,6 +362,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
 
     // ---- Threshold: the door, the stack, the result
     let gameOpen = false;
+    /** Along, its model came while the game was up: it suits up once the game closes (see arrive). */
+    let resumeSuit = false;
     /** The day the open run belongs to, so a run across UTC midnight still scores that day. */
     let gameDate = todayUTC();
     /** The run's result, shown once the board has left. */
@@ -322,16 +378,19 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const stack = (duration: number) => {
       const H = window.innerHeight;
       const plate = plateSize();
-      const fit = H - 2 * STACK_CLEAR - STACK_GAP - plate; // the head's room at rest
-      const turned = (fit + STACK_EARS) / (1 + URCHI_TURN.rise); // and with its ears' rise
-      const head = Math.min(room.urchiSize.h, Math.max(Math.min(fit, turned), room.minHead));
-      const fits = fit >= room.minHead;
+      // What stacks: the head, ear tips to chin, or suited the whole astronaut, crown to soles (the
+      // suit stays on for the game; it looks down at the board from above it, all of it in view).
+      const shape = room.stackShape();
+      const fit = H - 2 * STACK_CLEAR - STACK_GAP - plate; // its room at rest
+      const turned = (fit + STACK_EARS) / (1 + shape.rise); // and with its ears' (or helmet's) rise
+      const head = Math.min(shape.h, Math.max(Math.min(fit, turned), shape.min));
+      const fits = fit >= shape.min;
       // Centred, unless the ears' rise needs the stack lower (never off the bottom's clear).
-      const ears = Math.max(0, URCHI_TURN.rise * head - STACK_EARS);
+      const ears = Math.max(0, shape.rise * head - STACK_EARS);
       const tall = head + STACK_GAP + plate;
       const top = Math.min(Math.max((H - tall) / 2, STACK_CLEAR + ears), H - STACK_CLEAR - tall);
-      room.liftUrchi(fits ? H / 2 - top - head / 2 : null, duration, head / room.urchiSize.h);
-      room.dimUrchi(!fits);
+      room.liftUrchi(fits ? H / 2 - top - head * shape.centre : null, duration, head / shape.h);
+      room.dimUrchi(!fits, shape.dim);
       return fits ? top + head + STACK_GAP + plate / 2 - H / 2 : 0;
     };
     const showResult = (date: string, result: number) => {
@@ -343,7 +402,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (window.location.hash === GAME_HASH) window.history.replaceState(null, "", window.location.pathname);
     };
     const openGame = () => {
-      if (gameOpen || !room.interactive) return;
+      // not in the middle of the suit going on or off: the stack is laid out for one or the other
+      if (gameOpen || !room.interactive || suit.busy) return;
       const date = todayUTC();
       const played = readResult(date);
       // A second knock the same day shows the result instead of a new run.
@@ -365,6 +425,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       call.abort();
       att.pause(true);
       motes.hide(true);
+      suit.away(true);
       setBoard({ date, drop: stack(reducedMotion ? 0 : 0.9) });
     };
     const closeGame = (abandoned: boolean) => {
@@ -376,6 +437,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       dropHash();
       att.pause(false);
       motes.hide(false);
+      suit.away(false);
+      if (resumeSuit) suit.resume();
+      resumeSuit = false;
       if (!abandoned && pending !== null) showResult(gameDate, pending);
       pending = null;
     };
@@ -405,6 +469,15 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let listenGlance = Infinity;
     /** When a rhythm or its answer last had its attention (attention seconds). */
     let callHeard = -Infinity;
+    /** When Urchi next glances at the peg (attention seconds), and the peg's timer to appear. */
+    let pegGlance = Infinity;
+    let pegTimer: gsap.core.Tween | null = null;
+    Object.assign(stageEl, { __glancePeg: () => (pegGlance = att.t) }); // headless QA: the next glance now
+    const showPeg = (now: boolean) => {
+      pegSeen = true;
+      suit.show(now);
+      pegGlance = att.t + rand(...PEG.first);
+    };
     const begin = (afterIntro: boolean) => {
       if (begun >= 0) return;
       arriving = !afterIntro;
@@ -413,6 +486,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       motes.start();
       begun = att.t;
       newsAt = att.t + (afterIntro ? NEWS.afterIntro : NEWS.after);
+      // the peg: at once on a return, else after a while alone in the room
+      if (along || pegSeen || lastVisit() !== null) showPeg(true);
+      else pegTimer = gsap.delayedCall(PEG.after, () => showPeg(false));
       // Back from another tab: it is still watching the pill of the tab you left.
       const left = leftRoute();
       if (!afterIntro && left && left !== "/" && isTab(left)) {
@@ -445,6 +521,14 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (att.listening && t >= listenGlance) {
         listenGlance = t + rand(...LISTEN_GLANCE.every);
         att.play("listenGlance", 1, () => glanceAt(att, () => pillAt("/music")));
+      }
+      // Now and then, left home, the peg catches its eye (and its glass glints as it looks).
+      if (t >= pegGlance && suit.pegShown && !suit.along && !suit.busy && !att.asleep && !att.acting && !call.busy && slot === null) {
+        if (att.you() && att.stillFor < PEG.still) pegGlance = t + PEG.retry;
+        else {
+          pegGlance = t + rand(...PEG.every);
+          if (att.play("pegGlance", 1, () => glanceAt(att, () => suit.helmetAt()))) gsap.delayedCall(PEG.glint, () => suit.glint());
+        }
       }
     });
 
@@ -495,19 +579,63 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       // arrives asleep or listening rather than waking the moment the answer lands.
       gsap.set([side.current, monogram.current, counter.current], { display: "none" });
       let arrived = false;
-      // A real timer, not gsap's: its clock can jump ahead after a long first frame.
+      // Real timers, not gsap's: its clock can jump ahead after a long first frame.
       let arriveTimer = 0;
+      let suitTimer = 0;
+      let suitReady = false;
       const arrive = () => {
         if (arrived) return;
         arrived = true;
         window.clearTimeout(arriveTimer);
+        window.clearTimeout(suitTimer);
+        // Along: already suited and tethered, as it was left (no animation). Its model late (past
+        // SUIT_WAIT), it arrives bare, as nothing of a suit can be drawn yet, and suits up once
+        // the model is here (after the game, if that is up by then).
+        if (along && suitReady) suit.restore();
+        else if (along) pegLabel(false);
         room.showUrchi(0.6);
         begin(false);
       };
-      if (!known && clock().hours === "night") {
-        onHeard = arrive;
-        arriveTimer = window.setTimeout(arrive, NIGHT_WAIT);
-      } else arrive();
+      // At night it waits for the poll; along, for the suit's model, so it arrives as it will stay.
+      let heard = known !== null || clock().hours !== "night";
+      let dressed = !along;
+      const ready = () => {
+        if (heard && dressed) arrive();
+      };
+      if (!heard) {
+        onHeard = () => {
+          heard = true;
+          ready();
+        };
+        arriveTimer = window.setTimeout(() => {
+          heard = true;
+          ready();
+        }, NIGHT_WAIT);
+      }
+      if (!dressed) {
+        const dress = () => {
+          dressed = true;
+          ready();
+        };
+        // (its rig built too, in idle moments, so the frame that first shows it suited does not pay
+        // for it; left before it lands, the room, the suit and the attention are gone: it does nothing)
+        warmSuitIdle().then(
+          () => {
+            if (!alive) return;
+            suitReady = true;
+            if (!arrived) dress();
+            else if (gameOpen) resumeSuit = true;
+            else suit.resume();
+          },
+          () => {
+            if (!alive) return;
+            along = false; // no model to wear: it stays home
+            dress();
+          },
+        );
+        suitTimer = window.setTimeout(dress, SUIT_WAIT);
+      }
+      ready();
       setFlag("loadingComplete", true);
       setFlag("exploded", true);
       setFlag("pageReady", true);
@@ -517,7 +645,10 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
           arrive();
           openGame();
         });
-      stopArrive = () => window.clearTimeout(arriveTimer);
+      stopArrive = () => {
+        window.clearTimeout(arriveTimer);
+        window.clearTimeout(suitTimer);
+      };
     }
 
     // ---- caught in the act: back on the tab after a while away, it was doing something else
@@ -576,8 +707,28 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         else motes.release(e.clientX, e.clientY);
       }
     };
+    // The peg: a real button beside the stage, so a tap on it is not a tap on the room (no mote,
+    // no beat of a rhythm) and the keyboard reaches it; clicking Urchi still opens Threshold.
+    const onPeg = () => {
+      if (gameOpen) return;
+      call.abort();
+      suit.press();
+    };
+    const onPegOver = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      overPeg = true;
+      cursor.set(pegWord(suit.target));
+    };
+    const onPegOut = () => {
+      overPeg = false;
+      cursor.set(overUrchi ? urchiWord() : null);
+    };
+    pegEl.addEventListener("click", onPeg);
+    pegEl.addEventListener("pointerenter", onPegOver);
+    pegEl.addEventListener("pointerleave", onPegOut);
     const onResize = () => {
       room.resize();
+      suit.layout();
       if (gameOpen) {
         const drop = stack(0);
         setBoard((b) => b && { ...b, drop });
@@ -591,9 +742,15 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     window.addEventListener("resize", onResize);
 
     return () => {
+      alive = false;
       stopIntro?.();
       stopArrive?.();
       openTimer?.kill();
+      pegTimer?.kill();
+      pegEl.removeEventListener("click", onPeg);
+      pegEl.removeEventListener("pointerenter", onPegOver);
+      pegEl.removeEventListener("pointerleave", onPegOut);
+      suit.dispose();
       slotTimer?.kill();
       restTimer?.kill();
       stopPoll();
@@ -615,7 +772,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   }, []);
 
   return (
-    <div className="space-panel">
+    <div ref={panel} className="space-panel">
       <section ref={stage} className="stage stage-space" aria-hidden="true">
         <canvas ref={canvas} />
 
@@ -646,6 +803,14 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         </div>
         <div ref={label} className="cursor-label" />
       </section>
+
+      {/* The peg on the left wall, with Urchi's helmet hanging from it: a real button beside the stage, hidden until it appears. */}
+      <div ref={wall} className="space-peg">
+        <button ref={peg} type="button" className="space-peg-button" aria-pressed="false" aria-label={pegWord(false)}>
+          <span className="space-peg-ring" />
+        </button>
+        <canvas ref={pegHelmet} className="space-peg-helmet" aria-hidden="true" />
+      </div>
 
       {/* The game, beside the stage rather than inside it, so it is not aria-hidden; its result (and what's new) is read out here. */}
       <p ref={live} className="sr-only" aria-live="polite" />

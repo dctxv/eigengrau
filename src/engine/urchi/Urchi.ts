@@ -165,11 +165,15 @@ export class Urchi {
 
   /** A held rim follows the head's size as shown: one art pixel, within its bounds. */
   private fitRim() {
-    if (!this.rim) return;
-    const shown = this.unit * this.zoom;
-    if (shown <= 0) return;
+    const r = this.rimFor(this.unit * this.zoom);
+    if (r !== null) this.character.setRim(r);
+  }
+
+  /** The rim it holds (mesh units) for the head shown at `shown` host units per mesh unit; null if it holds none. Space's peg helmet wears the same over the head. */
+  rimFor(shown: number): number | null {
+    if (!this.rim || shown <= 0) return null;
     const [min, max] = this.rim;
-    this.character.setRim(Math.min(max / shown, Math.max(min / shown, ART_PIXEL)));
+    return Math.min(max / shown, Math.max(min / shown, ART_PIXEL));
   }
 
   /** Host units per mesh unit. */
@@ -194,12 +198,15 @@ export class Urchi {
     this.mesh.scale.set(this.frame.w * this.unit * s, this.frame.h * this.unit * s, 1);
   }
 
-  /** Whether a point in the mesh's parent space falls on the head or its rim. */
+  /** Whether a point in the mesh's parent space falls on the head or its rim (or the suited figure), turned with the plane (a suited drift rolls it). */
   hit(x: number, y: number) {
     const w = this.mesh.scale.x, h = this.mesh.scale.y;
     if (w < 1e-3 || h < 1e-3) return false;
-    const u = (x - this.mesh.position.x) / w + 0.5;
-    const v = (y - this.mesh.position.y) / h - centreUp(this.frame) + 0.5;
+    let dx = x - this.mesh.position.x, dy = y - this.mesh.position.y;
+    const r = this.mesh.rotation.z;
+    if (r) [dx, dy] = [dx * Math.cos(r) + dy * Math.sin(r), dy * Math.cos(r) - dx * Math.sin(r)];
+    const u = dx / w + 0.5;
+    const v = dy / h - centreUp(this.frame) + 0.5;
     return this.character.alphaAt(u, v);
   }
 
