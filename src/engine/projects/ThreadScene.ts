@@ -410,15 +410,21 @@ const WHEEL_MAX = 4;
  * A wheel's run: steps of one sign, each within NOVA_RUN_GAP ms of the last.
  * Trackpad momentum only ever falls or holds (whole pixels come in pairs),
  * where a finger's steps, steady or gathering pace, grow on the one before
- * now and then. A step grows when it is bigger than the last and quicker
- * (px/ms, so a few steps a busy page sums into one, a frame late, keep
- * their pace), and the step after it keeps NOVA_RUN_HOLD of it or more
- * (after a sum that came early the steps fall straight back).
- * NOVA_RUN_PROOF of those make the run the hand, and every step of it counts
+ * now and then. Two ways a step is the hand. A push: it plainly grows past
+ * the lowest since the last push, by NOVA_RISE_BY and NOVA_RISE_PX, in size
+ * and in pace (px/ms, so a few steps a busy page sums into one, a frame
+ * late, keep their pace) alike; each swipe's first steps count so, straight
+ * out of the last one's momentum. And a stream: a step grows when it is
+ * bigger than the last and quicker, and the step after it keeps
+ * NOVA_RUN_HOLD of it or more (after a sum that came early the steps fall
+ * straight back); NOVA_RUN_PROOF of those make the run the hand, and every
+ * step of it counts, so a finger held steady keeps counting. Either lasts
  * until NOVA_RUN_FALLS have fallen with none grown between: momentum, the
  * ball coasting.
  */
 const NOVA_RUN_GAP = 120;
+const NOVA_RISE_BY = 1.1;
+const NOVA_RISE_PX = 2;
 const NOVA_RUN_HOLD = 0.75;
 const NOVA_RUN_PROOF = 2;
 const NOVA_RUN_FALLS = 4;
@@ -428,7 +434,11 @@ const NOVA_RUN_FALLS = 4;
  * come NOVA_STREAM_MS apart or closer, on average.
  */
 const NOVA_STREAM_MS = 22;
-/** A wheel step this big (px) that comes the same size as the last, or a whole multiple of it, is a notch. */
+/**
+ * A wheel step this big (px) that comes the same size as the last, or a
+ * whole multiple of it, is a notch; so is one that shares a notch this big
+ * with the last (see notched).
+ */
 const NOVA_NOTCH = 40;
 /**
  * The charge c (0..1) rises at NOVA_RISE + NOVA_RISE_MORE·min(1, (S − S0)/S0)
@@ -693,6 +703,25 @@ function fractionalYear(d: Date) {
   const start = new Date(y, 0, 1).getTime();
   const end = new Date(y + 1, 0, 1).getTime();
   return y + (d.getTime() - start) / (end - start);
+}
+
+/**
+ * Whether two wheel steps in a row are a notched wheel's: one a whole
+ * multiple of the other, or both whole multiples of one step NOVA_NOTCH px
+ * or bigger. A page busy drawing sums the steps of a wheel spun free into
+ * one a frame, two notches and then three, and the two need not divide.
+ */
+function notched(m: number, last: number) {
+  if (Math.abs(m / last - Math.round(m / last)) < 1e-3) return true;
+  let x = Math.max(m, last);
+  let y = Math.min(m, last);
+  while (y >= NOVA_NOTCH) {
+    const rest = x % y;
+    if (Math.min(rest, y - rest) < y * 1e-3) return true;
+    x = y;
+    y = rest;
+  }
+  return false;
 }
 
 /** Smooth value noise on a line, 0..1. */
@@ -1172,9 +1201,10 @@ export class ThreadScene {
    * over the ball (ms); the way it last turned. The held arrow: which, since
    * when (ms), its free spin's speed and whether it has begun. The wheel's run
    * (see byHand): its last step, when, and at what pace (px/ms), falls since
-   * one grew, whether it is the hand (not yet, or coasting), its steps'
-   * spacing (ms, eased), the last step if it grew, and how many growths
-   * have held. The sigh's swell: its size now, how far
+   * one grew, whether it is a proven stream (not yet, or coasting), its
+   * steps' spacing (ms, eased), the last step if it grew, how many growths
+   * have held, and the lowest step since the last push, with its pace. The
+   * sigh's swell: its size now, how far
    * into it (s, -1: none), how big and how long it takes to go out. The
    * whirr: whether it has the marks' ticks, the angle its ticks are placed
    * up to and the way, the ball's drawn spin (rad/s, eased), the trains still
@@ -1208,7 +1238,7 @@ export class ThreadScene {
     wheelAt: -Infinity,
     sign: 1,
     key: { dir: 0, at: 0, spin: 0, free: false },
-    run: { t: -Infinity, d: 0, pace: 0, falls: 0, hand: false, gap: 0, grew: 0, proved: 0 },
+    run: { t: -Infinity, d: 0, pace: 0, falls: 0, hand: false, gap: 0, grew: 0, proved: 0, floor: 0, floorPace: 0 },
     swell: { v: 0, t: -1, amount: 0, out: 0 },
     whirring: false,
     placed: null as number | null,
@@ -2275,14 +2305,17 @@ export class ThreadScene {
 
   /**
    * Whether this wheel step is the hand driving the ball: a trackpad under a
-   * moving finger, steady or gathering pace. Not its momentum, which only
-   * falls or holds: a run is the hand once it has grown, and held it, twice
-   * (see NOVA_RUN_GAP), and every step counts from there until NOVA_RUN_FALLS
-   * falls with none grown between: the ball coasting, which unmarks the
-   * steps before it until a finger pushes again. Nor a notched wheel, which
-   * steps rather than streams (NOVA_STREAM_MS), and whose steps come the same
-   * size again (or a few at once, a whole multiple of it) and big: it turns
-   * the ball as it always did, and never charges it however fast it is spun.
+   * moving finger, pushing or held steady. Not its momentum, which only
+   * falls or holds: a step counts when it plainly grows past the lowest
+   * since the last push (NOVA_RISE_BY and NOVA_RISE_PX), in pace as well as
+   * size, so a few steps summed into one by a busy page are not a push; and
+   * so does every step of a run that has grown, and held it, twice (see
+   * NOVA_RUN_GAP), until NOVA_RUN_FALLS falls with none grown between: the
+   * ball coasting, which unmarks the steps before it until a finger pushes
+   * again. Nor a notched wheel, which steps rather than streams
+   * (NOVA_STREAM_MS), and whose steps come the same size again (or a few at
+   * once, whole multiples of it) and big (see notched): it turns the ball as
+   * it always did, and never charges it however fast it is spun.
    */
   private byHand(d: number) {
     const r = this.nova.run;
@@ -2293,7 +2326,8 @@ export class ThreadScene {
     const fresh = gap > NOVA_RUN_GAP || Math.sign(d) !== Math.sign(r.d) || !last;
     // px per ms, so that two steps summed into one, a frame late, keep their pace.
     const pace = m / THREE.MathUtils.clamp(fresh ? 16 : gap, 4, 50);
-    const notch = !fresh && m >= NOVA_NOTCH && Math.abs(m / last - Math.round(m / last)) < 1e-3;
+    const notch = !fresh && m >= NOVA_NOTCH && notched(m, last);
+    let push = false;
     if (fresh) {
       // A run starts unproven: sparse until its steps come as a stream, and not the hand until it grows.
       r.gap = NOVA_STREAM_MS * 2;
@@ -2301,8 +2335,19 @@ export class ThreadScene {
       r.hand = false;
       r.grew = 0;
       r.proved = 0;
+      r.floor = m;
+      r.floorPace = pace;
     } else {
       r.gap += (gap - r.gap) * 0.35;
+      if (m > r.floor * NOVA_RISE_BY + NOVA_RISE_PX && pace > r.floorPace * NOVA_RISE_BY) {
+        push = true;
+        r.falls = 0;
+        r.floor = m;
+        r.floorPace = pace;
+      } else if (m <= r.floor) {
+        r.floor = m;
+        r.floorPace = pace;
+      }
       // The last step grew and this one held it: a push, not a sum that came early.
       if (r.grew && m >= r.grew * NOVA_RUN_HOLD) {
         r.falls = 0;
@@ -2310,8 +2355,8 @@ export class ThreadScene {
       }
       r.grew = m > last && pace > r.pace && !notch ? m : 0;
       // A step the same size as the last is neither: momentum's whole pixels come in pairs.
-      if (m < last && ++r.falls >= NOVA_RUN_FALLS) {
-        if (r.hand) this.nova.wheelAt = -Infinity;
+      if (!push && m < last && ++r.falls === NOVA_RUN_FALLS) {
+        this.nova.wheelAt = -Infinity;
         r.hand = false;
         r.proved = 0;
       }
@@ -2319,7 +2364,7 @@ export class ThreadScene {
     r.t = now;
     r.d = d;
     r.pace = pace;
-    return r.hand && !notch && r.gap <= NOVA_STREAM_MS;
+    return (push || r.hand) && !notch && r.gap <= NOVA_STREAM_MS;
   }
 
   /** A press on the stage: a drag spins the ball (or scrolls the opened line); a still press is a tap. `touch`: a finger. */
