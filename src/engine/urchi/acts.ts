@@ -522,8 +522,8 @@ export function* lost(a: Attention): Act {
 /**
  * Suiting up, the eyes' side of it (the room builds the suit and flies the helmet, Suit.ts): it
  * looks at the peg and dips (anticipation, 0.2s), follows the helmet on its arc, and as it comes
- * down over its head the eyes lock on it, the pupils up at the glass, the breath held; `sealed`,
- * the visor clears onto them, wide. Then it looks out at you, and a deep, satisfied breath: on the
+ * down over its head the eyes lock on it, the pupils up at the glass (seen through it all the way
+ * down), the breath held; `sealed`, they widen. Then it looks out at you, and a deep, satisfied breath: on the
  * way out it fogs the lower visor (`fog`) and it blinks, slowly. Under reduced motion (the suit
  * simply fades on) only the look and the blink.
  */
