@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import gsap from "gsap";
 import type { Text, TextRenderInfo } from "troika-three-text";
-import { sfx } from "@/audio/sfx";
+import { AIR_OPEN, sfx } from "@/audio/sfx";
 import { statusWord, type Media, type Project, type SpaceItem } from "@/content/site";
 import { GL } from "@/engine/common/color";
 import { loadImage, loadMedia, makeRenderer, upload, type Loaded } from "@/engine/common/loader";
@@ -63,6 +63,10 @@ type Piece = {
   sh: number;
   sz: number;
   ink: number;
+  /** Its longitude on the ball, radians, while the whirr needs it: it crosses the front where angle + lon is a whole turn. */
+  lon: number;
+  /** In the supernova's field: its centre from its cover's (unturned) and its size, px. Null: it stays in the knot. */
+  field: { x: number; y: number; w: number; h: number } | null;
 };
 
 type Bead = {
@@ -92,7 +96,54 @@ type Bead = {
   my: number;
   mz: number;
   crossed: number;
+  /** In a supernova's return: when the winder reached its mark (on the supernova's clock, s; -1 before), how long it takes to fly home, and whether it has docked. */
+  home: number;
+  homeFor: number;
+  docked: boolean;
 };
+
+/**
+ * A project's place in the supernova's field: its cover's slot (centre, px),
+ * the seeded way it lies there and drifts, the way its pieces fly out of the
+ * knot, its knot's bounds round the cover's centre (px, unturned), and where
+ * its hover caption stands.
+ */
+type Slot = {
+  x: number;
+  y: number;
+  jx: number;
+  jy: number;
+  rot: number;
+  amp: number;
+  w1: number;
+  w2: number;
+  p1: number;
+  p2: number;
+  dirX: number;
+  dirY: number;
+  reach: number;
+  tumble: number;
+  box: [number, number, number, number];
+  /**
+   * Its hover caption: set after its knot (read from the left), before it
+   * (from the right), or centred under or over it; where it stands (its
+   * block's top, and its left, right or middle), px from the cover's centre as
+   * it drifts, or on the screen where it is `fixed` (in the room kept for it
+   * under the sheet); and how wide its line may run.
+   */
+  cap: "after" | "before" | "under" | "over";
+  capX: number;
+  capY: number;
+  fixed: boolean;
+  capW: number;
+  /** Its year's numeral, if it is that year's first project. */
+  year: Masked | null;
+  /** Its place in date order: later work lies on top. */
+  rank: number;
+};
+
+/** A piece's place in the supernova's field this frame: centre, size and turn (px, radians), ink, and its project's rank. */
+type Pose = { x: number; y: number; w: number; h: number; rot: number; ink: number; rank: number };
 
 /** Where an opened project lies: along is x on a wide screen, y on a phone. */
 type Layout = {
@@ -308,13 +359,297 @@ const CROWD = 40;
 /** Past this many projects the hung pieces start to shrink. */
 const CROWD_FROM = 12;
 
+// The supernova's charge (milestone A): spin the ball hard enough, for long enough, and it pulls in.
+/**
+ * The threshold is a surface speed, |ω|·R, px/s, so a bigger ball is no
+ * harder: 3.33 rad/s at R_REF, within 5% of 33⅓ rpm.
+ */
+const NOVA_S0 = 700;
+/**
+ * Only the hand counts, never the ball coasting: a drag that moved within
+ * NOVA_DRAG_MS, a wheel over the ball within NOVA_WHEEL_MS (not trackpad
+ * momentum), or an arrow held past NOVA_KEY_MS, which then spins the ball
+ * freely, NOVA_KEY_ACCEL rad/s² up to NOVA_KEY_MAX rad/s.
+ */
+const NOVA_DRAG_MS = 120;
+/**
+ * A finger's flick is over in a tenth of a second, where a mouse's drag
+ * lasts: on touch the drag counts for this long after it last moved, so
+ * three or four hard flicks set it off on a phone, and one is a near miss.
+ */
+const NOVA_FLICK_MS = 220;
+const NOVA_WHEEL_MS = 150;
+const NOVA_KEY_MS = 800;
+const NOVA_KEY_ACCEL = 2.5;
+const NOVA_KEY_MAX = 6.5;
+/**
+ * Each px of wheel turns the ball WHEEL_TURN rad/s faster, to WHEEL_MAX, as
+ * ever; over the ball the most is lifted to NOVA_WHEEL_MAX·S0 (never below
+ * WHEEL_MAX, so a big ball's wheel is the one it always was). A notched
+ * mouse wheel can still spin it past S0, so it is known by its steps rather
+ * than held back by its speed: see byHand.
+ */
+const NOVA_WHEEL_MAX = 1.6;
+const WHEEL_TURN = 0.0025;
+const WHEEL_MAX = 4;
+/**
+ * A wheel's run: steps of one sign, each within NOVA_RUN_GAP ms of the last.
+ * Trackpad momentum only ever falls or holds (whole pixels come in pairs, and
+ * a busy page sums a few into one), so a step counts as the hand only when it
+ * plainly grows past the lowest since the last that did, by NOVA_RISE_BY and
+ * NOVA_RISE_PX, in size and in pace alike; and NOVA_RUN_FALLS falls with none
+ * that grew is the ball coasting.
+ */
+const NOVA_RUN_GAP = 120;
+const NOVA_RUN_FALLS = 4;
+const NOVA_RISE_BY = 1.1;
+const NOVA_RISE_PX = 2;
+/**
+ * A trackpad sends its steps as a stream, one a frame; a notched wheel, a
+ * step a notch, however hard it is spun: a run counts only while its steps
+ * come NOVA_STREAM_MS apart or closer, on average.
+ */
+const NOVA_STREAM_MS = 22;
+/** A wheel step this big (px) that comes the same size as the last, or a whole multiple of it, is a notch. */
+const NOVA_NOTCH = 40;
+/**
+ * The charge c (0..1) rises at NOVA_RISE + NOVA_RISE_MORE·min(1, (S − S0)/S0)
+ * a second while driven at S0 or more, and drains at NOVA_DRAIN otherwise.
+ * Between strokes, the ball still turning at S0 or more within
+ * NOVA_BETWEEN_MS of the hand leaving it, it neither rises nor drains, so
+ * flicks in a row add up (three or four hard ones on a phone) while one
+ * flick, or a trackpad's momentum, only ever lets go.
+ */
+const NOVA_RISE = 0.35;
+const NOVA_RISE_MORE = 0.65;
+const NOVA_DRAIN = 0.6;
+const NOVA_BETWEEN_MS = 400;
+/** The point of no return: from here it finishes by itself, spinning at S0 at least. */
+const NOVA_COMMIT = 0.8;
+/**
+ * A skater pulling her arms in: R_eff = R·(1 − NOVA_PULL·c), and the spin
+ * drawn is ω·(R/R_eff)², to NOVA_SPIN_MAX times.
+ */
+const NOVA_PULL = 0.45;
+const NOVA_SPIN_MAX = 3.3;
+/** At full charge: the far side's ink, the pieces' size and ink, and the heading's ink. */
+const NOVA_BACK_INK = 0.5;
+const NOVA_PIECE_SCALE = 0.6;
+const NOVA_PIECE_INK = 0.6;
+const NOVA_HEADING = 0.5;
+/** The tick's playbackRate at full charge: faster and higher, never louder. */
+const NOVA_RATE = 1.25;
+/** The tick as a project's mark crosses the front, at rest and in the whirr alike. */
+const MARK_TICK = 0.6;
+/**
+ * From NOVA_WHIRR_FROM the marks' own ticks move onto the audio clock, and a
+ * train adds a tick as each piece, and each turn of the thread, crosses the
+ * front. Marks and all, it is thinned to about NOVA_WHIRR_MAX a second at
+ * full charge whatever the ball holds, no two ticks nearer than
+ * NOVA_WHIRR_APART s (the tick has died away by then; nearer, two would sum
+ * to a louder one), and placed NOVA_WHIRR_AHEAD s ahead of the ball at a time.
+ */
+const NOVA_WHIRR_FROM = 0.5;
+const NOVA_WHIRR_MAX = 40;
+const NOVA_WHIRR_APART = 0.01;
+const NOVA_WHIRR_AHEAD = 0.06;
+const NOVA_WHIRR_GAIN = [0.2, 0.35] as const;
+/** After the ball is back (or a charge is cut off past the point of no return) the charge is capped at NOVA_COOL_CAP for NOVA_COOL ms: it tightens a little and lets go. */
+const NOVA_COOL = 25000;
+const NOVA_COOL_CAP = 0.35;
+/**
+ * When the cooldown ends (performance.now() ms). It outlives the scene: the
+ * panel is built afresh after every slide, and a trip to About and back is
+ * not 25 seconds.
+ */
+let novaCoolUntil = 0;
+/**
+ * Let go short of the point of no return, the ball opens again and over,
+ * to 1 + NOVA_SIGH of its size, and settles: a sigh. A near miss
+ * (NOVA_SIGH_FULL, one hard flick) sighs in full; a smaller charge less.
+ */
+const NOVA_SIGH = 0.03;
+const NOVA_SIGH_FULL = 0.15;
+const NOVA_SIGH_BACK = 0.7;
+/**
+ * Pulled in this far (the most the cooldown allows), or past the point of no
+ * return, the ball chooses nothing: it is the one thing happening. Below it,
+ * a tap just after a flick chooses as ever.
+ */
+const NOVA_QUIET = 0.35;
+
+// The supernova's collapse, burst, float and return (milestone B).
+/**
+ * The supernova tells the page where it has got to: a window CustomEvent
+ * named NOVA_EVENT, its detail `{ phase }`, once as each phase begins.
+ * "charge": the ball starts to pull in. "collapse": full charge, the ball
+ * drops to a knot. "burst": the ring, the bloom, the pieces flying out.
+ * "float": the covers have settled into their field. "return": the winder
+ * sets off (or a cover was chosen and everything gathers). "idle": at rest
+ * again, after a sigh or a return. Made for the spacesuit companion, which
+ * squints as the ball charges, holds its breath at the collapse and watches
+ * the covers.
+ */
+export const NOVA_EVENT = "eigengrau:nova";
+export type NovaPhase = "idle" | "charge" | "collapse" | "burst" | "float" | "return";
+/** At full charge the ball drops to a knot NOVA_KNOT px across over NOVA_DROP s (power4.in), and the ticks stop dead. */
+const NOVA_KNOT = 8;
+const NOVA_DROP = 0.3;
+/** Then NOVA_STILL s of stillness and silence, the knot trembling by NOVA_TREMBLE px: a moving hold, not a freeze. */
+const NOVA_STILL = 0.25;
+const NOVA_TREMBLE = 1;
+/** The burst comes this long after the collapse, s. */
+const NOVA_BURST = NOVA_DROP + NOVA_STILL;
+/** From the collapse nothing the visitor does counts for this long, s. */
+const NOVA_DEAF = 1.2;
+/**
+ * One 1px ink ring out of the knot, past 0.75 of the screen's diagonal (to
+ * NOVA_RING_REACH of it) over NOVA_RING_DUR s, outCubic, its ink falling from
+ * NOVA_RING_INK to nothing. No flash, particles, glow or shake: it rhymes
+ * with the ring that opens the site.
+ */
+const NOVA_RING_REACH = 0.8;
+const NOVA_RING_DUR = 1.2;
+const NOVA_RING_INK = 0.5;
+const NOVA_RING_POINTS = 256;
+/**
+ * The thread survives as one ribbon. Each sample flies out along the way it
+ * faced at the collapse plus NOVA_SWIRL of its spin's tangent, scaled by low
+ * frequency noise along the thread (fbm of i·NOVA_GRAIN), so neighbours move
+ * together and the turns crumple into filaments, each also bent up to
+ * NOVA_CRUMPLE radians off its way. How far: the blast wave's r ∝ t^0.4
+ * (eased to a stop over NOVA_BLAST_T), out to NOVA_BLAST of the screen's
+ * long side.
+ */
+const NOVA_SWIRL = 0.6;
+const NOVA_GRAIN = 0.004;
+const NOVA_CRUMPLE = 1;
+const NOVA_BLAST = 0.55;
+const NOVA_BLAST_T = 0.5;
+/** As they settle the filaments fade to NOVA_FILAMENT of the ink and keep on expanding, by NOVA_CREEP over NOVA_CREEP_T s or so, turning a few degrees. */
+const NOVA_FILAMENT = 0.3;
+const NOVA_CREEP = 0.03;
+const NOVA_CREEP_T = 6;
+const NOVA_DRIFT_TURN = 0.05;
+/** Under the hovered cover's own stretch of thread, the filament comes up to this. */
+const NOVA_FILAMENT_HL = 0.6;
+/**
+ * The filaments and the ring reach past the top edge, and the tab bar must
+ * not change: their ink is gone at the pills' foot (NAV_FOOT) and back in
+ * full NAV_FADE px under it, so no line runs between the pills.
+ */
+const NAV_FADE = 44;
+/** The pieces fly out along their beads' ways and settle into the field over NOVA_SETTLE s, grown to size by NOVA_GROW s. */
+const NOVA_SETTLE = 1.5;
+const NOVA_GROW = 0.45;
+/**
+ * The field: a loose contact sheet in reading order by date, oldest top
+ * left. Below the heading (FIELD_TOP under its foot: y = 240 under a
+ * one-line heading at 206, wherever the page's balance puts it), FIELD_EDGE
+ * inside the viewport's edges (FIELD_PHONE_EDGE on a phone, its gutters),
+ * and no more than FIELD_AREA of the viewport.
+ */
+const FIELD_TOP = 23;
+const FIELD_EDGE = 48;
+const FIELD_PHONE_EDGE = 16;
+const FIELD_AREA = 0.45;
+/**
+ * Covers show at FIELD_SCALE of their size on the ball, each with its pieces
+ * as they hung beside it. Past MANY projects only the covers fly (the rest
+ * go into the knot and wait for the return); past FIELD_ROWS_FROM, and on a
+ * phone, covers show at 1.0x, and past FIELD_ROWS_FROM they lie in year
+ * rows: each year starts a row of its own while the room holds that many,
+ * and past it the years run on in reading order, a new one starting on the
+ * row the last ended in when all of it fits there, FIELD_YEAR_GAP gaps along.
+ * Either way a year longer than a row runs on to the next.
+ */
+const FIELD_SCALE = 1.3;
+const FIELD_ROWS_FROM = 30;
+const FIELD_YEAR_GAP = 2;
+/** The sheet's shape: the room's, this much wider, since it is read across in rows. */
+const FIELD_WIDE = 1.25;
+/** Between slots: FIELD_GAP of the cover's height plus FIELD_GAP_PX, and never less than FIELD_GAP_MIN. */
+const FIELD_GAP = 0.6;
+const FIELD_GAP_PX = 24;
+const FIELD_GAP_MIN = 12;
+/**
+ * A contact sheet left on a table, not a grid: each cover lies within
+ * FIELD_JITTER px and FIELD_TURN of its slot (seeded by its slug, so it lies
+ * the same way every time) and drifts FIELD_DRIFT_SPEED px/s within
+ * FIELD_DRIFT px of there. On a tight sheet all three come down with the gap.
+ */
+const FIELD_JITTER = 16;
+const FIELD_TURN = THREE.MathUtils.degToRad(5);
+const FIELD_DRIFT = 8;
+const FIELD_DRIFT_SPEED = [3, 6] as const;
+/** The tumble a piece has left as it leaves the knot, radians, gone by the time it settles. */
+const FIELD_TUMBLE = 0.5;
+/** A faint grotesk year numeral at each year's first project, YEAR_GAP px over its cover. */
+const YEAR_SIZE = 11;
+const YEAR_INK = 0.4;
+const YEAR_GAP = 6;
+/**
+ * The hover caption stands CAP_BESIDE px clear of its cover's knot, and of
+ * every other knot and numeral: beside it where it has CAP_BESIDE_MIN px
+ * (its line wrapping to fit), else under or over it (see fieldCaptions).
+ */
+const CAP_BESIDE = 16;
+const CAP_BESIDE_MIN = 200;
+/** The heading's tail while the covers are out. */
+const NOVA_WAIT = "Give them a minute.";
+/**
+ * The float ends by itself after NOVA_STILLNESS s with nothing moving on the
+ * stage (NOVA_PHONE_FLOAT on a phone), and after NOVA_FLOAT_MAX s at most,
+ * unless the pointer or the keys have chosen a cover: then it waits, and goes
+ * NOVA_FLOAT_GRACE s after the choice is let go. A finger's choice is never
+ * let go, so it waits for nothing: the phone's float is NOVA_PHONE_FLOAT s
+ * from the last touch.
+ */
+const NOVA_STILLNESS = 6;
+const NOVA_PHONE_FLOAT = 5;
+const NOVA_FLOAT_MAX = 12;
+const NOVA_FLOAT_GRACE = 1.5;
+/** While the covers are out the bed goes through the wall: a NOVA_AIR Hz lowpass, closing over NOVA_AIR_IN s. */
+const NOVA_AIR = 700;
+const NOVA_AIR_IN = 1.2;
+/**
+ * The slow return. A winder travels the thread from its oldest end, easing
+ * each sample back onto the sphere across ±NOVA_WIND_SPAN samples (of the
+ * usual step), over NOVA_WIND s. As it reaches each mark that project flies
+ * home in NOVA_HOME s and docks with its tick at NOVA_DOCK_TICK. Then the
+ * ball swells to 1 + NOVA_OVER of its size and settles over NOVA_OVER_BACK.
+ */
+const NOVA_WIND_SPAN = 60;
+const NOVA_WIND = 3.2;
+const NOVA_HOME = 0.7;
+const NOVA_DOCK_TICK = 0.35;
+/**
+ * Two projects of one year can dock within a frame of each other, and
+ * play() drops a tick within 40ms of the last: so each dock tick is placed
+ * on the audio clock at least NOVA_DOCK_APART s after the one before, and
+ * every project is heard.
+ */
+const NOVA_DOCK_APART = 0.05;
+const NOVA_OVER = 0.04;
+const NOVA_OVER_BACK = 0.8;
+/** A cover chosen in the field gathers everything in NOVA_GATHER s (wound in GATHER_WIND, each home in GATHER_HOME), then opens. */
+const NOVA_GATHER = 1.2;
+const GATHER_WIND = 0.8;
+const GATHER_HOME = 0.4;
+/** A new drag during the return hurries what is left of it into NOVA_HURRY s. */
+const NOVA_HURRY = 0.6;
+/** A wheel counts in the field only after a pause this long, ms: the stream that spun the ball, and its momentum, never ends the float. */
+const NOVA_WHEEL_FRESH = 250;
+
 const smooth = (t: number) => t * t * (3 - 2 * t);
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
 const inOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 const outCubic = (t: number) => 1 - (1 - t) ** 3;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-/** The far side of the thread falls to a quarter of the ink: a wire ball, not a disc. */
-const depthInk = (z: number) => BACK_INK + (1 - BACK_INK) * smooth(clamp01((z + 0.85) / 1.7));
+/** The share of the supernova's ink kept at a height, px: none under the tab bar (see NAV_FADE). */
+const navFade = (y: number) => smooth(clamp01((y - NAV_FOOT) / NAV_FADE));
+/** The far side of the thread falls to a quarter of the ink: a wire ball, not a disc. A charging ball's far side brightens. */
+const depthInk = (z: number, back = BACK_INK) => back + (1 - back) * smooth(clamp01((z + 0.85) / 1.7));
 const blockBounds = (t: Text): [number, number, number, number] => t.textRenderInfo?.blockBounds ?? [0, 0, 0, 0];
 /**
  * Which scene last took each canvas, by number (a canvas has only the one
@@ -330,6 +665,43 @@ function fractionalYear(d: Date) {
   const start = new Date(y, 0, 1).getTime();
   const end = new Date(y + 1, 0, 1).getTime();
   return y + (d.getTime() - start) / (end - start);
+}
+
+/** Smooth value noise on a line, 0..1. */
+function noise1(x: number) {
+  const hash = (n: number) => {
+    const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  const i = Math.floor(x);
+  const f = x - i;
+  return lerp(hash(i), hash(i + 1), f * f * (3 - 2 * f));
+}
+
+/** Four octaves of it, 0..1: low frequency noise with some grain, so neighbours along the thread move together. */
+function fbm(x: number) {
+  let sum = 0;
+  let amp = 0.5;
+  let norm = 0;
+  for (let o = 0; o < 4; o++) {
+    sum += amp * noise1(x);
+    norm += amp;
+    x *= 2.03;
+    amp *= 0.5;
+  }
+  return sum / norm;
+}
+
+/** A repeatable random sequence, 0..1, seeded by a string: a project lies the same way in the field every time. */
+function seeded(key: string) {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  return () => {
+    h = Math.imul(h ^ (h >>> 15), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  };
 }
 
 // ---------------------------------------------------------------- the thread's ink
@@ -458,17 +830,24 @@ class Ribbons {
 
 /** Small polylines (ticks, rings, the loose end, connectors): their own scratch arrays and normals. */
 class Scratch {
-  x = new Float32Array(64);
-  y = new Float32Array(64);
-  a = new Float32Array(64);
-  nx = new Float32Array(64);
-  ny = new Float32Array(64);
+  x: Float32Array;
+  y: Float32Array;
+  a: Float32Array;
+  nx: Float32Array;
+  ny: Float32Array;
   n = 0;
+  constructor(readonly capacity = 64) {
+    this.x = new Float32Array(capacity);
+    this.y = new Float32Array(capacity);
+    this.a = new Float32Array(capacity);
+    this.nx = new Float32Array(capacity);
+    this.ny = new Float32Array(capacity);
+  }
   reset() {
     this.n = 0;
   }
   push(x: number, y: number, a: number) {
-    if (this.n >= 64) return;
+    if (this.n >= this.capacity) return;
     this.x[this.n] = x;
     this.y[this.n] = y;
     this.a[this.n] = a;
@@ -595,18 +974,26 @@ export class ThreadScene {
   private beads: Bead[] = [];
   private order: Bead[] = [];
   private pieces: Piece[] = [];
-  private heading: { lead: Masked; tail: Masked } | null = null;
+  /** The heading: its lead, its tail, and the tail that stands in while the supernova's covers are out. */
+  private heading: { lead: Masked; tail: Masked; wait: Masked } | null = null;
+  /** The stand-in tail is showing, or rising. */
+  private waitShown = false;
   private headingTwoLines = false;
   private headingDimmed = false;
   private lineMat: THREE.ShaderMaterial;
   private back: Ribbons | null = null;
   private front: Ribbons | null = null;
   private scratch = new Scratch();
+  /** The supernova's ring: round at any size. */
+  private ringScratch = new Scratch(NOVA_RING_POINTS + 1);
   /** The glass rims: the standing line on a phone scrolls through them, as the old horizon did. */
   private glass: EdgeGlass;
   private lastScroll = 0;
   private dotGeo = new THREE.CircleGeometry(1, 20);
   private planeGeo = new THREE.PlaneGeometry(1, 1);
+  /** Scratch for blending a sample toward the unleaning thread, and for the whirr's marks. */
+  private tmp = new THREE.Vector3();
+  private tmp2 = new THREE.Vector3();
 
   // The thread: M samples on the unit sphere, evenly spaced along it, and their tangents.
   /** The arc between samples: STEP, or half of it on a big ball. */
@@ -614,6 +1001,16 @@ export class ThreadScene {
   private M = 0;
   private P = new Float32Array(0);
   private TG = new Float32Array(0);
+  /**
+   * The same thread wound with no lean (WOBBLE 0), sample for sample, and its
+   * tangents: a charging ball's thread blends toward it by `bend`, so its
+   * rings come true and parallel.
+   */
+  private P0 = new Float32Array(0);
+  private TG0 = new Float32Array(0);
+  private bend = 0;
+  /** How many turns the thread makes, pole to pole: each one ticks in the whirr. */
+  private turns = 1;
   private T0 = 0;
   private T1 = 1;
   // This frame, per sample: screen position, depth, ink, normal; and which bead's stretch it is.
@@ -625,6 +1022,22 @@ export class ThreadScene {
   private NY = new Float32Array(0);
   private lifted = new Float32Array(0);
   private owner = new Int16Array(0);
+  /** Each sample's way out of the supernova's knot, px per px of blast radius (see novaWays). */
+  private BX = new Float32Array(0);
+  private BY = new Float32Array(0);
+  /** Its share of the blast and the bend off its way, from noise along the thread: fixed for a thread, so worked out as it is wound. */
+  private BS = new Float32Array(0);
+  private BB = new Float32Array(0);
+  /** The supernova's field: each project's slot, and the year numerals that head each year's first. */
+  private field = new Map<Bead, Slot>();
+  private fieldGen = 0;
+  /** The field's bounds, px: no knot lies or drifts past them. */
+  private fieldBox = { x0: 0, y0: 0, x1: 1, y1: 1 };
+  private years: { year: number; m: Masked }[] = [];
+  /** A piece's place in the field this frame (see fieldPose): scratch. */
+  private pose: Pose = { x: 0, y: 0, w: 0, h: 0, rot: 0, ink: 0, rank: 0 };
+  /** The knot's tremble, px, added to every point projected off the ball. */
+  private shake = { x: 0, y: 0 };
 
   // Layout, CSS px.
   private width = 1;
@@ -648,7 +1061,8 @@ export class ThreadScene {
   private vel = 0;
   /** The idle spin's share: 1 turns at IDLE. Reduced motion starts (and stays) at 0. */
   private idleK: number;
-  private drag: { x: number; y: number; t: number; moved: boolean } | null = null;
+  /** A press: where and when it last moved, whether it has become a drag, when it began (ms), and whether it set the supernova's return going. */
+  private drag: { x: number; y: number; t: number; moved: boolean; at: number; own: boolean } | null = null;
   private turning: gsap.core.Tween | null = null;
   private clock = 0;
   private draw = { value: 0 };
@@ -694,6 +1108,10 @@ export class ThreadScene {
   private veil = { x0: 0, y0: 0, x1: 0, y1: 0, k: 0 };
   /** The same for the hover caption's words (not padded), eased so that a caption giving way to another never jumps. */
   private capVeil = { x0: 0, y0: 0, x1: 0, y1: 0, k: 0 };
+  /** And the heading's, while the supernova's filaments reach across it. */
+  private headVeil = { x0: 0, y0: 0, x1: 0, y1: 0, k: 0 };
+  /** How far the filaments have gone from under the tab bar (0..1): see NAV_FADE. */
+  private navVeil = { k: 0 };
   /** The caption veil as the pieces' shader reads it: the uniforms every piece shares, the lines eased as the box is. */
   private pieceVeil = {
     uVeil: { value: new THREE.Vector4() },
@@ -707,6 +1125,88 @@ export class ThreadScene {
     uDpr: { value: 1 },
     uViewH: { value: 1 },
   };
+
+  /**
+   * The supernova: its charge (see NOVA_S0 on), then its collapse, burst,
+   * float and return (see NOVA_EVENT on). `c` is the charge; `peak` the most
+   * it reached since it last sighed; `committed` past the point of no
+   * return; `coolUntil` when the cooldown ends. When the hand last drove it at S0 or
+   * more, last dragged it (and whether with a finger) and last wheeled it
+   * over the ball (ms); the way it last turned. The held arrow: which, since
+   * when (ms), its free spin's speed and whether it has begun. The wheel's run
+   * (see byHand): its last step and when, falls since one grew, whether it
+   * is coasting, its steps' spacing (ms, eased), and the lowest step since
+   * one grew, with its pace (px/ms). The sigh's swell: its size now, how far
+   * into it (s, -1: none), how big and how long it takes to go out. The
+   * whirr: whether it has the marks' ticks, the angle its ticks are placed
+   * up to and the way, the ball's drawn spin (rad/s, eased), the trains still
+   * to sound with when they end, when every tick lately placed or played
+   * sounds (s, on the audio clock), and until when (ms) the marks' ticks
+   * are its own. Then the phase, and the seconds since the collapse on the
+   * supernova's own clock; the ball's angle and lean at the collapse, which
+   * it comes back to, and the way it was spinning; the ball's size beyond
+   * the charge (the knot, the return's swell); how far the charge has the
+   * heading dimmed; whether the burst has happened, and the numerals risen;
+   * when the stage was last touched, the float began and a cover was last
+   * chosen (s); the winder; a project chosen too early to gather to yet; the
+   * bloom still to sound; whether the bed is through the wall; when the last
+   * dock tick sounds (s, on the audio clock); when the wheel last turned (ms, so a new stream is known) and when the ball
+   * collapsed (ms: a press from before it is the hand that spun it).
+   */
+  private nova = {
+    c: 0,
+    peak: 0,
+    committed: false,
+    /** When the cooldown ends (ms): novaCoolUntil, which outlives the scene. */
+    get coolUntil() {
+      return novaCoolUntil;
+    },
+    set coolUntil(t: number) {
+      novaCoolUntil = t;
+    },
+    drove: -Infinity,
+    dragAt: -Infinity,
+    finger: false,
+    wheelAt: -Infinity,
+    sign: 1,
+    key: { dir: 0, at: 0, spin: 0, free: false },
+    run: { t: -Infinity, d: 0, falls: 0, coasting: false, gap: 0, floor: 0, pace: 0 },
+    swell: { v: 0, t: -1, amount: 0, out: 0 },
+    whirring: false,
+    placed: null as number | null,
+    placedDir: 0,
+    lastA: 0,
+    whirl: 0,
+    trains: [] as { cancel: () => void; until: number }[],
+    heard: [] as number[],
+    marksUntil: 0,
+    phase: "idle" as NovaPhase,
+    t: 0,
+    a0: 0,
+    y0: 0,
+    spin: 1,
+    shape: 1,
+    head: 0,
+    burst: false,
+    yearsUp: false,
+    touched: 0,
+    floatAt: 0,
+    chosenAt: -Infinity,
+    wind: { at: 0, span: NOVA_WIND, home: NOVA_HOME, over: true, pos: -Infinity, to: null as Bead | null, hurried: false },
+    pendingTo: null as Bead | null,
+    bloom: null as (() => void) | null,
+    airShut: false,
+    dockAt: 0,
+    lastWheel: -Infinity,
+    collapsedAt: Infinity,
+    /** The thread's lean at the collapse (see bend): a thread sampled afresh mid-supernova finds its ways out from it. */
+    bend0: 1,
+    /** Until when the bed's wall is still opening, on the supernova's clock (s): a hurried return opens it sooner. */
+    airUntil: -Infinity,
+  };
+  /** The heading's ink as an opened project leaves it (see dimHeading); a charge takes it down further. */
+  private headInk = { v: 1 };
+  private headInkSet = 1;
 
   private ready = false;
   private disposed = false;
@@ -797,12 +1297,23 @@ export class ThreadScene {
 
     const lead = makeText(this.opts.heading.lead, { font: FONT.grotesk, size: 16, anchorY: "middle", letterSpacing: -0.02 });
     const tail = makeText(this.opts.heading.tail, { font: FONT.serif, size: 16, anchorY: "middle" });
-    [lead, tail].forEach((t) => {
+    const wait = makeText(NOVA_WAIT, { font: FONT.serif, size: 16, anchorY: "middle" });
+    [lead, tail, wait].forEach((t) => {
       t.material.transparent = true;
       t.renderOrder = 900;
       this.scene.add(t);
     });
-    this.heading = { lead: this.masked(lead), tail: this.masked(tail) };
+    this.heading = { lead: this.masked(lead), tail: this.masked(tail), wait: this.masked(wait) };
+    // The field's year numerals, one for each year he has a project in; out of sight until then.
+    this.years = [...new Set(this.projects.map((p) => p.year))].map((year) => {
+      const t = makeText(String(year), { font: FONT.grotesk, size: YEAR_SIZE });
+      t.material.transparent = true;
+      t.material.opacity = YEAR_INK;
+      t.renderOrder = 900;
+      t.visible = false;
+      this.scene.add(t);
+      return { year, m: this.masked(t) };
+    });
 
     const many = this.projects.length > MANY;
     this.projects.forEach((project, k) => {
@@ -890,6 +1401,9 @@ export class ThreadScene {
       my: 0,
       mz: -1,
       crossed: 0,
+      home: -1,
+      homeFor: NOVA_HOME,
+      docked: true,
     };
     this.beads.push(bead);
     return bead;
@@ -939,6 +1453,8 @@ export class ThreadScene {
       sh: 0,
       sz: -1,
       ink: 0,
+      lon: 0,
+      field: null,
     };
     bead.pieces.push(piece);
     this.pieces.push(piece);
@@ -964,7 +1480,11 @@ export class ThreadScene {
     if (this.M && step === this.arcStep) return;
     this.arcStep = step;
     this.wind();
-    const need = this.M + 256 + this.beads.length * 64;
+    // Out of the knot, or winding back into it (a window maximised, a tablet turned): the thread is
+    // sampled afresh, so each sample's way out is worked out again, from the ball as it collapsed.
+    if (this.novaActive) this.novaWays(this.nova.bend0);
+    // The thread, the marks, the loose end and the joins; and the supernova's ring.
+    const need = this.M + 256 + this.beads.length * 64 + NOVA_RING_POINTS + 8;
     if (this.back && this.front && this.back.capacity >= need) return;
     [this.back, this.front].forEach((r) => {
       if (!r) return;
@@ -997,10 +1517,10 @@ export class ThreadScene {
     // walks round from turn to turn, so neighbouring turns cross the way wound thread does instead
     // of stacking like a spring. The lean fades out at the poles.
     const K = Math.ceil(turns * 1440);
-    const at = (s: number, out: THREE.Vector3) => {
+    const at = (s: number, out: THREE.Vector3, wobble = WOBBLE) => {
       const lat0 = -Math.PI / 2 + Math.PI * s;
       const lon = Math.PI * 2 * turns * s;
-      const lat = lat0 + WOBBLE * Math.cos(lat0) * Math.sin(lon * WOBBLE_RATE);
+      const lat = lat0 + wobble * Math.cos(lat0) * Math.sin(lon * WOBBLE_RATE);
       return out.set(Math.cos(lat) * Math.sin(lon), Math.sin(lat), Math.cos(lat) * Math.cos(lon));
     };
     const arc = new Float64Array(K + 1);
@@ -1015,6 +1535,8 @@ export class ThreadScene {
     const total = arc[K];
     const M = Math.max(2, Math.ceil(total / this.arcStep) + 1);
     const P = new Float32Array(M * 3);
+    // The same places along the spiral wound with no lean: same longitudes, true latitudes.
+    const P0 = new Float32Array(M * 3);
     let k = 0;
     for (let i = 0; i < M; i++) {
       const target = (total * i) / (M - 1);
@@ -1022,17 +1544,25 @@ export class ThreadScene {
       const f = (target - arc[k]) / Math.max(1e-9, arc[k + 1] - arc[k]);
       at((k + clamp01(f)) / K, a);
       P.set([a.x, a.y, a.z], i * 3);
+      at((k + clamp01(f)) / K, b, 0);
+      P0.set([b.x, b.y, b.z], i * 3);
     }
-    const TG = new Float32Array(M * 3);
-    for (let i = 0; i < M; i++) {
-      const p = Math.max(0, i - 1) * 3;
-      const q = Math.min(M - 1, i + 1) * 3;
-      a.set(P[q] - P[p], P[q + 1] - P[p + 1], P[q + 2] - P[p + 2]).normalize();
-      TG.set([a.x, a.y, a.z], i * 3);
-    }
+    const tangents = (src: Float32Array) => {
+      const out = new Float32Array(M * 3);
+      for (let i = 0; i < M; i++) {
+        const p = Math.max(0, i - 1) * 3;
+        const q = Math.min(M - 1, i + 1) * 3;
+        a.set(src[q] - src[p], src[q + 1] - src[p + 1], src[q + 2] - src[p + 2]).normalize();
+        out.set([a.x, a.y, a.z], i * 3);
+      }
+      return out;
+    };
     this.M = M;
     this.P = P;
-    this.TG = TG;
+    this.TG = tangents(P);
+    this.P0 = P0;
+    this.TG0 = tangents(P0);
+    this.turns = turns;
     this.SX = new Float32Array(M);
     this.SY = new Float32Array(M);
     this.SZ = new Float32Array(M);
@@ -1041,6 +1571,14 @@ export class ThreadScene {
     this.NY = new Float32Array(M);
     this.lifted = new Float32Array(M);
     this.owner = new Int16Array(M).fill(-1);
+    // The supernova's grain along the thread (see NOVA_GRAIN): here, so the collapse has nothing to work out.
+    this.BS = new Float32Array(M);
+    this.BB = new Float32Array(M);
+    const grain = NOVA_GRAIN * (this.arcStep / STEP);
+    for (let i = 0; i < M; i++) {
+      this.BS[i] = 0.3 + 0.75 * fbm(i * grain);
+      this.BB[i] = (fbm(i * grain + 17.31) - 0.5) * 2 * NOVA_CRUMPLE;
+    }
 
     // Tie the beads on, a year at a time.
     const pxToIdx = 1 / (this.arcStep * R_REF);
@@ -1168,16 +1706,26 @@ export class ThreadScene {
     const { lead, tail } = this.heading;
     const lw = blockBounds(lead.t)[2] - blockBounds(lead.t)[0];
     const tw = blockBounds(tail.t)[2] - blockBounds(tail.t)[0];
+    const ww = blockBounds(this.heading.wait.t)[2] - blockBounds(this.heading.wait.t)[0];
     const space = 16 * 0.28;
     const total = lw + space + tw;
     this.headingTwoLines = total > W - 40;
+    // The supernova's stand-in tail takes the tail's place: where it starts, or centred on its line.
+    const { wait } = this.heading;
     if (!this.headingTwoLines) {
       const x0 = (W - total) / 2;
       this.setBase(lead, x0, hy);
       this.setBase(tail, x0 + lw + space, hy);
+      this.setBase(wait, x0 + lw + space, hy);
     } else {
       this.setBase(lead, (W - lw) / 2, hy - 11);
       this.setBase(tail, (W - tw) / 2, hy + 11);
+      this.setBase(wait, (W - ww) / 2, hy + 11);
+    }
+    if (!this.waitShown) {
+      gsap.killTweensOf(wait);
+      wait.offset = wait.span;
+      this.applyMask(wait);
     }
   }
 
@@ -1294,6 +1842,8 @@ export class ThreadScene {
       }
     });
     if (this.opened) this.layoutOpen(this.opened);
+    // The supernova's covers, out on the table, find their places again on the new screen.
+    if (this.fieldOn || this.nova.phase === "collapse") void this.layoutField();
   }
 
   private captionHeight() {
@@ -1361,9 +1911,10 @@ export class ThreadScene {
   }
 
   private get texts(): Text[] {
-    const h = this.heading ? [this.heading.lead.t, this.heading.tail.t] : [];
+    const h = this.heading ? [this.heading.lead.t, this.heading.tail.t, this.heading.wait.t] : [];
     return [
       ...h,
+      ...this.years.map((y) => y.m.t),
       ...this.beads.flatMap((b) => [b.cap.name.t, b.cap.status.t, b.cap.why.t, ...(b.open ? [b.open.name.t, b.open.status.t, b.open.why.t, b.open.summary.t, b.open.link.t] : [])]),
     ];
   }
@@ -1536,12 +2087,19 @@ export class ThreadScene {
     const b = Math.min(M - 1, a + 1);
     const f = c - a;
     const P = this.P;
-    return out.set(lerp(P[a * 3], P[b * 3], f), lerp(P[a * 3 + 1], P[b * 3 + 1], f), lerp(P[a * 3 + 2], P[b * 3 + 2], f));
+    out.set(lerp(P[a * 3], P[b * 3], f), lerp(P[a * 3 + 1], P[b * 3 + 1], f), lerp(P[a * 3 + 2], P[b * 3 + 2], f));
+    const w = this.bend;
+    if (w <= 0) return out;
+    const Q = this.P0;
+    return out.lerp(this.tmp.set(lerp(Q[a * 3], Q[b * 3], f), lerp(Q[a * 3 + 1], Q[b * 3 + 1], f), lerp(Q[a * 3 + 2], Q[b * 3 + 2], f)), w).normalize();
   }
 
   private sampleTan(i: number, out: THREE.Vector3) {
     const k = Math.max(0, Math.min(this.M - 1, Math.round(i))) * 3;
-    return out.set(this.TG[k], this.TG[k + 1], this.TG[k + 2]);
+    out.set(this.TG[k], this.TG[k + 1], this.TG[k + 2]);
+    const w = this.bend;
+    if (w <= 0) return out;
+    return out.lerp(this.tmp.set(this.TG0[k], this.TG0[k + 1], this.TG0[k + 2]), w).normalize();
   }
 
   /** Spin about the ball's own axis, then the tilt toward you. */
@@ -1555,8 +2113,8 @@ export class ThreadScene {
   /** A rotated unit point to screen px; returns the perspective scale. */
   private toScreen(q: THREE.Vector3, radius: number, out: { x: number; y: number }) {
     const k = (FOCAL / (FOCAL - q.z)) * NORM;
-    out.x = this.cx + q.x * radius * k;
-    out.y = this.cy - q.y * radius * k;
+    out.x = this.cx + this.shake.x + q.x * radius * k;
+    out.y = this.cy + this.shake.y - q.y * radius * k;
     return k;
   }
 
@@ -1632,21 +2190,100 @@ export class ThreadScene {
 
   // ---------------------------------------------------------------- travel
 
-  wheel(deltaX: number, deltaY: number) {
+  /** The wheel, in px (the panel normalises its deltaMode), and where the pointer is: over the ball it may drive the charge. */
+  wheel(deltaX: number, deltaY: number, clientX?: number, clientY?: number) {
     if (!this.ready) return;
+    const now = performance.now();
+    const fresh = now - this.nova.lastWheel > NOVA_WHEEL_FRESH;
+    this.nova.lastWheel = now;
+    // The covers out: a new turn of the wheel sends them home (see novaInput).
+    if (this.novaActive) {
+      if (fresh) this.novaInput("wheel");
+      return;
+    }
     const d = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
     if (this.opened) {
       this.scroll.target = THREE.MathUtils.clamp(this.scroll.target + d, 0, this.scroll.max);
       return;
     }
     this.stopTurn();
-    if (this.opts.reducedMotion) this.angle += d * 0.002;
-    else this.vel = THREE.MathUtils.clamp(this.vel + d * 0.0025, -4, 4);
+    if (this.opts.reducedMotion) {
+      this.angle += d * 0.002;
+      return;
+    }
+    const over = clientX !== undefined && clientY !== undefined && this.overBall(clientX, clientY);
+    const most = over ? Math.max(WHEEL_MAX, (NOVA_WHEEL_MAX * NOVA_S0) / this.R) : WHEEL_MAX;
+    this.vel = THREE.MathUtils.clamp(this.vel + d * WHEEL_TURN, -most, most);
+    if (this.byHand(d) && over) this.nova.wheelAt = performance.now();
   }
 
-  /** A press on the stage: a drag spins the ball (or scrolls the opened line); a still press is a tap. */
-  press(x: number, y: number) {
-    this.drag = { x, y, t: performance.now(), moved: false };
+  /** Over the ball as it stands at rest, and the room its pieces hang in: a tightening ball does not slip out from under a still pointer. */
+  private overBall(clientX: number, clientY: number) {
+    const rect = this.canvas.getBoundingClientRect();
+    return Math.hypot(clientX - rect.left - this.cx, clientY - rect.top - this.cy) <= this.R + 24;
+  }
+
+  /**
+   * Whether this wheel step is the hand driving the ball: a trackpad under a
+   * moving finger. Not its momentum, which only falls or holds: a step counts
+   * only when it plainly grows past the lowest since the last one that did
+   * (NOVA_RISE_BY and NOVA_RISE_PX), in pace as well as size, so a few steps
+   * summed into one by a busy page are not a push; and NOVA_RUN_FALLS falls
+   * with none that grew is the ball coasting, which unmarks the steps before
+   * it until a finger pushes again. Nor a notched wheel, which steps rather
+   * than streams (NOVA_STREAM_MS), and whose steps come the same size again
+   * (or a few at once, a whole multiple of it) and big: it turns the ball as
+   * it always did, and never charges it however fast it is spun.
+   */
+  private byHand(d: number) {
+    const r = this.nova.run;
+    const now = performance.now();
+    const m = Math.abs(d);
+    const last = Math.abs(r.d);
+    const gap = now - r.t;
+    const fresh = gap > NOVA_RUN_GAP || Math.sign(d) !== Math.sign(r.d) || !last;
+    // px per ms, so that two steps summed into one, a frame late, keep their pace.
+    const pace = m / THREE.MathUtils.clamp(fresh ? 16 : gap, 4, 50);
+    let grew = false;
+    if (fresh) {
+      // A run starts unproven: sparse until its steps come as a stream, and nothing yet has grown.
+      r.gap = NOVA_STREAM_MS * 2;
+      r.falls = 0;
+      r.coasting = false;
+      r.floor = m;
+      r.pace = pace;
+    } else {
+      r.gap += (gap - r.gap) * 0.35;
+      if (m > r.floor * NOVA_RISE_BY + NOVA_RISE_PX && pace > r.pace * NOVA_RISE_BY) {
+        grew = true;
+        r.falls = 0;
+        r.coasting = false;
+        r.floor = m;
+        r.pace = pace;
+      } else {
+        // A step the same size as the last is neither: momentum's whole pixels come in pairs.
+        if (m < last && ++r.falls >= NOVA_RUN_FALLS && !r.coasting) {
+          r.coasting = true;
+          this.nova.wheelAt = -Infinity;
+        }
+        if (m <= r.floor) {
+          r.floor = m;
+          r.pace = pace;
+        }
+      }
+      if (m >= NOVA_NOTCH && Math.abs(m / last - Math.round(m / last)) < 1e-3) grew = false;
+    }
+    r.t = now;
+    r.d = d;
+    return grew && !r.coasting && r.gap <= NOVA_STREAM_MS;
+  }
+
+  /** A press on the stage: a drag spins the ball (or scrolls the opened line); a still press is a tap. `touch`: a finger. */
+  press(x: number, y: number, touch = false) {
+    const now = performance.now();
+    this.drag = { x, y, t: now, moved: false, at: now, own: false };
+    this.nova.finger = touch;
+    this.novaTouch();
   }
 
   /** Returns true while the press has become a drag. */
@@ -1662,14 +2299,36 @@ export class ThreadScene {
     }
     const now = performance.now();
     const dt = Math.max(1, now - d.t) / 1000;
+    if (this.novaActive) {
+      // The covers out: a new drag sends them home, or hurries them (see novaInput). The hand
+      // that spun the ball up is still on it, and does neither.
+      this.novaTouch();
+      if (d.at > this.nova.collapsedAt && !d.own && !this.novaDeaf) {
+        d.own = true;
+        this.novaInput("drag");
+      }
+      d.x = x;
+      d.y = y;
+      d.t = now;
+      return true;
+    }
     if (this.opened) {
       const along = this.vertical ? dy : dx;
       this.scroll.target = THREE.MathUtils.clamp(this.scroll.target - along, 0, this.scroll.max);
       this.scroll.cur = THREE.MathUtils.clamp(this.scroll.cur - along, 0, this.scroll.max);
     } else {
       const turn = dx / Math.max(60, this.R);
-      this.angle += turn;
-      this.vel = this.opts.reducedMotion ? 0 : lerp(this.vel, turn / dt, 0.5);
+      if (this.novaBound) {
+        // Past the point of no return the hand has lost its grip: the ball spins on by itself, and
+        // a hand going its way can only spin it faster.
+        const v = turn / dt;
+        if (Math.sign(v) === this.nova.sign && Math.abs(v) > Math.abs(this.vel)) this.vel = lerp(this.vel, v, 0.5);
+      } else {
+        // The hand turns the ball true to its surface; a charged ball, pulled in, spins faster than the hand.
+        this.angle += turn * this.spinK;
+        this.vel = this.opts.reducedMotion ? 0 : lerp(this.vel, turn / dt, 0.5);
+      }
+      if (dx) this.nova.dragAt = now;
     }
     d.x = x;
     d.y = y;
@@ -1682,7 +2341,7 @@ export class ThreadScene {
     const d = this.drag;
     this.drag = null;
     if (!d) return false;
-    if (d.moved && performance.now() - d.t > 90) this.vel = 0; // held still before letting go
+    if (d.moved && performance.now() - d.t > 90 && !this.novaBound) this.vel = 0; // held still before letting go
     return !d.moved;
   }
 
@@ -1713,9 +2372,28 @@ export class ThreadScene {
     });
   }
 
-  /** Arrow keys: the next project along the thread, turned to the front; opened, if one was open. */
-  step(dir: 1 | -1) {
+  /**
+   * Arrow keys: the next project along the thread, turned to the front;
+   * opened, if one was open. On the ball a held arrow steps once, and past
+   * NOVA_KEY_MS winds it instead (see novaStep), so its repeats step no
+   * further; with reduced motion, or a project open, they step on as ever.
+   */
+  step(dir: 1 | -1, repeat = false) {
     if (!this.ready) return;
+    // The covers out: the arrows step through them in date order, a press at a time (an arrow
+    // still held from winding the ball up only repeats).
+    if (this.novaActive) {
+      this.novaTouch();
+      if (!repeat && this.fieldOn && !this.novaDeaf) this.fieldStep(dir);
+      return;
+    }
+    if (this.novaBound) return;
+    if (!this.opts.reducedMotion && !this.opened) {
+      if (repeat) return;
+      this.nova.key = { dir, at: performance.now(), spin: 0, free: false };
+      // Still pulled in from a charge: the arrow only winds it again, it does not choose.
+      if (this.novaQuiet) return;
+    }
     const list = this.order.filter((b) => b.project);
     if (!list.length) return;
     const from = this.opened ?? (this.hovered?.project ? this.hovered : null);
@@ -1732,18 +2410,38 @@ export class ThreadScene {
     if (b !== this.hovered) this.setHover(b);
   }
 
+  /** In the supernova's field the arrows step through the covers in date order: from the chosen one, or from the first (the last, going back). */
+  private fieldStep(dir: 1 | -1) {
+    const list = this.order.filter((b) => this.field.has(b));
+    if (!list.length) return;
+    const from = this.hovered ? list.indexOf(this.hovered) : -1;
+    const i = from < 0 ? (dir > 0 ? 0 : list.length - 1) : THREE.MathUtils.clamp(from + dir, 0, list.length - 1);
+    this.keyHold = true;
+    if (list[i] !== this.hovered) this.setHover(list[i]);
+  }
+
+  /** An arrow let go (or any, with no `dir`: the window lost the keys): its free spin ends, and the ball coasts. */
+  keyUp(dir?: 1 | -1) {
+    const k = this.nova.key;
+    if (!k.dir || (dir && dir !== k.dir)) return;
+    this.nova.key = { dir: 0, at: 0, spin: 0, free: false };
+  }
+
   // ---------------------------------------------------------------- hover
 
   pointer(clientX: number, clientY: number) {
     const rect = this.canvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
-    if (this.pointerAt && Math.hypot(x - this.pointerAt.x, y - this.pointerAt.y) < 1 && this.keyHold) return;
-    if (this.pointerAt && Math.hypot(x - this.pointerAt.x, y - this.pointerAt.y) >= 1) this.steer(x - this.pointerAt.x, y - this.pointerAt.y);
+    const moved = !this.pointerAt || Math.hypot(x - this.pointerAt.x, y - this.pointerAt.y) >= 1;
+    if (!moved && this.keyHold) return;
+    if (this.pointerAt && moved) this.steer(x - this.pointerAt.x, y - this.pointerAt.y);
     this.pointerAt = { x, y };
     this.keyHold = false;
+    if (moved) this.novaTouch();
     if (!this.ready || this.drag?.moved) return;
-    if (!this.opened) this.targetYaw = this.opts.reducedMotion ? 0 : (this.pointerAt.x / this.width - 0.5) * 0.45;
+    // The ball leans after the pointer, except while the supernova has it: it comes back as it went.
+    if (!this.opened && !this.novaActive) this.targetYaw = this.opts.reducedMotion ? 0 : (this.pointerAt.x / this.width - 0.5) * 0.45;
     this.hoverAtPointer();
   }
 
@@ -1764,6 +2462,15 @@ export class ThreadScene {
       this.setCoverHot(pc && pc.index === 0 ? pc : null);
       return;
     }
+    // The covers out: the ball's grammar, on the table. Over its caption a choice holds.
+    if (this.novaActive) {
+      if (!this.fieldOn || this.novaDeaf) return;
+      const b = this.onCaption(at.x, at.y) ? this.hovered : this.beadAt(at.x, at.y);
+      if (b !== this.hovered) this.setHover(b?.project ? b : null, true);
+      return;
+    }
+    // A ball pulled tight chooses nothing: it is the one thing happening.
+    if (this.novaQuiet) return;
     // Over the chosen project's caption the choice holds: where the ball reaches under the
     // words, its thinned rings are not there to be chosen.
     if (this.onCaption(at.x, at.y)) {
@@ -1854,6 +2561,11 @@ export class ThreadScene {
 
   /** Esc: an opened project winds back in and stays chosen; otherwise the choice is let go. */
   escape() {
+    if (this.novaActive) {
+      this.novaTouch();
+      this.novaInput("key");
+      return;
+    }
     if (this.opened && !this.closing) {
       this.keyHold = true;
       this.close();
@@ -1869,6 +2581,24 @@ export class ThreadScene {
     const rect = this.canvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
+    // The covers out: a cover (or its caption) gathers everything and opens it, a finger's first
+    // tap only chooses it, and empty space sends them home.
+    if (this.novaActive) {
+      this.novaTouch();
+      if (!this.fieldOn || this.novaDeaf) return "none";
+      const b = (this.onCaption(x, y) ? this.hovered : null) ?? this.beadAt(x, y);
+      if (!b?.project) {
+        if (this.hovered) this.setHover(null);
+        this.novaInput("tap");
+        return "none";
+      }
+      if (touch && b !== this.hovered) {
+        this.setHover(b);
+        return "select";
+      }
+      this.novaReturn({ to: b });
+      return "open";
+    }
     if (this.opened && this.closing) {
       // Caught on its way back in: the project, or another, opens from here.
       const again = this.beadAt(x, y);
@@ -1876,6 +2606,8 @@ export class ThreadScene {
       this.openBead(again);
       return "open";
     }
+    // A ball pulled tight chooses nothing, and opens nothing.
+    if (!this.opened && this.novaQuiet) return "none";
     if (this.opened) {
       // The second half of the double click that opened it is not a click on empty space. After
       // that, empty space winds it back from wherever the unspool has got to.
@@ -1921,6 +2653,8 @@ export class ThreadScene {
       if (!best || pc.sz > best.sz || (pc.bead === this.hovered && best.bead !== this.hovered)) best = pc;
     });
     if (best) return (best as Piece).bead;
+    // Out of the knot there are only the covers and their pieces.
+    if (this.novaActive) return null;
     let mark: Bead | null = null;
     let bestD = Infinity;
     this.beads.forEach((b) => {
@@ -2019,8 +2753,10 @@ export class ThreadScene {
 
   private captionOn(b: Bead) {
     const { name, status, why } = b.cap;
-    // Where it would land on its own pieces, it rises already stepped down.
-    if (!this.capSide) {
+    // In the supernova's field it stands beside its cover's knot; under the ball, where it would
+    // land on its own pieces, it rises already stepped down.
+    if (this.fieldOn) this.placeFieldCaption(b);
+    else if (!this.capSide) {
       b.capDy = this.captionClear(b);
       this.placeCaption(b);
     }
@@ -2061,6 +2797,11 @@ export class ThreadScene {
    */
   openBead(b: Bead, o: { immediate?: boolean } = {}) {
     if (!b.project || !b.open) return;
+    // The covers out: everything gathers first, then it opens (see novaGather).
+    if (this.novaActive) {
+      this.novaGather(b);
+      return;
+    }
     if (this.opened === b && !this.closing) return;
     if (this.opened && this.opened !== b) {
       this.close(() => this.openBead(b));
@@ -2266,6 +3007,1180 @@ export class ThreadScene {
     });
   }
 
+  // ---------------------------------------------------------------- the supernova's charge
+
+  /**
+   * Whether the ball can charge at all: not with reduced motion (it has no
+   * free spin there), not before the thread has wound itself, not while a
+   * project is out or winding back, and not during a slide or on another tab.
+   */
+  private get novaOn() {
+    if (this.opts.reducedMotion || !this.ready || !this.cursorOn || this.draw.value < 1 || this.opened || this.novaActive) return false;
+    return !this.opts.isCurrent || this.opts.isCurrent();
+  }
+
+  /** Past the point of no return, or gone: the charge finishes whatever the hand does. */
+  private get novaBound() {
+    return this.nova.committed || this.novaActive;
+  }
+
+  /** Pulled in far enough that nothing is chosen or opened (see NOVA_QUIET). */
+  private get novaQuiet() {
+    return this.nova.c >= NOVA_QUIET || this.novaBound;
+  }
+
+  /** How much faster the ball is drawn spinning than it is turned: (R/R_eff)², to NOVA_SPIN_MAX. 1 at rest. */
+  private get spinK() {
+    const c = this.nova.c;
+    return c > 0 ? Math.min(NOVA_SPIN_MAX, 1 / (1 - NOVA_PULL * c) ** 2) : 1;
+  }
+
+  /** R_eff/R, with the sigh's swell. 1 at rest. */
+  private get novaScale() {
+    return (1 - NOVA_PULL * this.nova.c) * (1 + this.nova.swell.v);
+  }
+
+  /** The far side's ink: BACK_INK at rest, brighter as the ball pulls in. */
+  private get backInk() {
+    return lerp(BACK_INK, NOVA_BACK_INK, this.nova.c);
+  }
+
+  /** The tick's playbackRate: exactly 1 at rest, to NOVA_RATE at full charge. */
+  private get tickRate() {
+    const c = this.nova.c;
+    return c > 0 ? lerp(1, NOVA_RATE, c) : 1;
+  }
+
+  /**
+   * One frame of the charge. The hand drives it (a drag, the wheel over the
+   * ball, a held arrow's free spin) and the ball's surface speed, |ω|·R, sets
+   * how fast it rises past NOVA_S0; anything else lets it drain, except the
+   * moment between two strokes. Past NOVA_COMMIT it finishes by itself, and
+   * at full charge the ball collapses (see novaCollapse). Once it has, the
+   * charge sleeps and the supernova runs its course (see novaRun).
+   */
+  private novaStep(dt: number) {
+    const n = this.nova;
+    if (this.novaActive) {
+      this.novaRun(dt);
+      // The heading: at half its ink through the collapse, then back to full for the covers.
+      n.head += ((n.phase === "collapse" ? 1 : 0) - n.head) * (1 - Math.exp(-dt / 0.3));
+      return;
+    }
+    const now = performance.now();
+    const on = this.novaOn;
+    // A held arrow, past NOVA_KEY_MS: the choice is let go and the ball spins freely, gathering pace.
+    const key = n.key;
+    if (key.dir && !on) this.keyUp();
+    else if (key.dir && now - key.at >= NOVA_KEY_MS) {
+      if (!key.free) {
+        key.free = true;
+        this.stopTurn();
+        key.spin = Math.max(0, key.dir * this.vel);
+        // The arrow is winding now, not choosing.
+        if (this.hovered && !this.opened) this.setHover(null);
+      }
+      key.spin = Math.min(NOVA_KEY_MAX, key.spin + NOVA_KEY_ACCEL * dt);
+      this.vel = key.dir * key.spin;
+    }
+    const R = this.R;
+    // Past the point of no return, and holding, the ball keeps spinning at S0 at least.
+    if (Math.abs(this.vel) > 0.05) n.sign = Math.sign(this.vel);
+    if (on && this.novaBound && Math.abs(this.vel) * R < NOVA_S0) this.vel = (n.sign * NOVA_S0) / R;
+    const S = Math.abs(this.vel) * R;
+    const driven = on && (key.free || now - n.dragAt < (n.finger ? NOVA_FLICK_MS : NOVA_DRAG_MS) || now - n.wheelAt < NOVA_WHEEL_MS);
+    const fast = S >= NOVA_S0;
+    const rise = NOVA_RISE + NOVA_RISE_MORE * Math.min(1, (S - NOVA_S0) / NOVA_S0);
+    if (driven && fast) n.drove = now;
+    const cap = now < n.coolUntil ? NOVA_COOL_CAP : 1;
+    const was = n.c;
+    let c = was;
+    if (!on) {
+      // Off (a project opening, a slide, another tab): it lets go, quickly if a project is out. A
+      // charge cut off past the point of no return has had its go all the same.
+      c -= (this.opened ? 3 : 1) * NOVA_DRAIN * dt;
+      if (this.novaBound) n.coolUntil = now + NOVA_COOL;
+      n.committed = false;
+    } else if (n.committed) {
+      c += Math.max(NOVA_RISE, driven && fast ? rise : 0) * dt;
+      if (c >= 1) {
+        // Full charge: the ball collapses.
+        n.c = 1;
+        n.head = 1;
+        this.bend = 1;
+        this.novaCollapse();
+        return;
+      }
+    } else if (c > cap) c = Math.max(cap, c - NOVA_DRAIN * dt);
+    else if (driven && fast) {
+      c = Math.min(cap, c + rise * dt);
+      if (c >= NOVA_COMMIT && cap >= 1) n.committed = true;
+    } else if (!(fast && now - n.drove < NOVA_BETWEEN_MS)) c -= NOVA_DRAIN * dt;
+    c = clamp01(c);
+    n.c = c;
+    this.bend = c;
+    if (c > was) {
+      n.peak = Math.max(n.peak, c);
+      // Wound up again mid-sigh: the swell gives way, quickly.
+      n.swell.t = -1;
+    } else if (c === 0 && was > 0) {
+      // Only a ball left to itself sighs: one that let go because a project opened just lets go.
+      if (on) this.sigh();
+      else n.peak = 0;
+    }
+    this.swell(dt);
+    n.head = c;
+    // Pulled tight, it chooses nothing.
+    if (this.novaQuiet && this.hovered && !this.opened) this.setHover(null);
+    this.setPhase(c > 0 ? "charge" : "idle");
+  }
+
+  /**
+   * Let go, the ball has opened all the way: it goes on a little over,
+   * NOVA_SIGH of its size after a near miss or more and less after a small
+   * charge, at the pace it was opening, and settles back (see swell).
+   */
+  private sigh() {
+    const n = this.nova;
+    const sw = n.swell;
+    sw.amount = NOVA_SIGH * Math.min(1, n.peak / NOVA_SIGH_FULL);
+    n.peak = 0;
+    if (sw.amount < 0.002) return;
+    // Out at the pace it was opening (R grows at NOVA_PULL·NOVA_DRAIN a second), so the turn is smooth.
+    sw.out = Math.max(0.06, (sw.amount * Math.PI) / 2 / (NOVA_PULL * NOVA_DRAIN));
+    sw.t = 0;
+  }
+
+  /** The sigh's swell this frame: out on a quarter sine, back over NOVA_SIGH_BACK on a half cosine; cut short, it fades in 50ms. */
+  private swell(dt: number) {
+    const sw = this.nova.swell;
+    if (sw.t < 0) {
+      sw.v = sw.v < 1e-4 ? 0 : sw.v * Math.exp(-dt / 0.05);
+      return;
+    }
+    sw.t += dt;
+    const { t, out, amount } = sw;
+    if (t < out) sw.v = amount * Math.sin(((Math.PI / 2) * t) / out);
+    else if (t < out + NOVA_SIGH_BACK) sw.v = amount * (0.5 + 0.5 * Math.cos((Math.PI * (t - out)) / NOVA_SIGH_BACK));
+    else {
+      sw.v = 0;
+      sw.t = -1;
+    }
+  }
+
+  /**
+   * The whirr: from NOVA_WHIRR_FROM, the marks' ticks and a tick as each
+   * piece on the ball, and each turn of the thread, crosses the front, placed
+   * on the audio clock NOVA_WHIRR_AHEAD seconds ahead of the ball as it spins,
+   * so none is lost to the tick's throttle and none lands late. A mark ticks
+   * where crossings() hears it, at the front and as it comes round the limb,
+   * at its own level; a turn of the thread has no one place, so each ticks
+   * where its lean walked to, a golden angle round from the last. The marks
+   * keep what they would have had (thinned only past NOVA_WHIRR_MAX a second
+   * on their own), the rest share what is left of it and come in thin: each
+   * tick has its place in the thinning, so a rising charge only adds to the
+   * ones already heard. No tick lands within NOVA_WHIRR_APART of another, a
+   * mark's before the rest. Heard with sound on; placed only while the ball
+   * is on screen and at rest.
+   */
+  private whirr(dt: number) {
+    const n = this.nova;
+    const a = this.angle + this.yaw;
+    const w = (a - n.lastA) / Math.max(dt, 1e-3);
+    n.lastA = a;
+    n.whirl += (w - n.whirl) * (1 - Math.exp(-dt / 0.05));
+    const now = performance.now();
+    n.trains = n.trains.filter((t) => t.until > now);
+    const clock = sfx.clock;
+    n.heard = n.heard.filter((t) => t > clock - NOVA_WHIRR_APART);
+    const on = this.novaOn;
+    const ramp = smooth(clamp01((n.c - NOVA_WHIRR_FROM) / (1 - NOVA_WHIRR_FROM)));
+    const spin = n.whirl;
+    n.whirring = on && sfx.awake && ramp > 0 && Math.abs(spin) >= 0.5;
+    if (!n.whirring) {
+      n.placed = null;
+      // Off: what is still to sound goes with it.
+      if (!on) this.hushWhirr();
+      return;
+    }
+    const dir = Math.sign(spin);
+    const ahead = a + spin * NOVA_WHIRR_AHEAD;
+    // From where the last frame placed up to, never behind the ball (a late tick is a wrong one).
+    let from = n.placed !== null && n.placedDir === dir ? n.placed : a;
+    from = dir > 0 ? Math.max(from, a) : Math.min(from, a);
+    n.placedDir = dir;
+    // The marks are the whirr's as far ahead as it places them: crossings() leaves them be.
+    n.marksUntil = now + NOVA_WHIRR_AHEAD * 1000 + 1000 * NOVA_WHIRR_APART;
+    // Already placed this far ahead (the spin eased off): nothing new, and nothing placed twice.
+    if ((ahead - from) * dir <= 1e-6) {
+      n.placed = from;
+      return;
+    }
+    n.placed = ahead;
+    const lo = Math.min(from, ahead);
+    const hi = Math.max(from, ahead);
+    const TAU = Math.PI * 2;
+    const drawn = this.draw.value * (this.M - 1);
+    // The marks: at the front, and coming round the limb a quarter turn before it.
+    const marks: number[] = [];
+    const p = this.tmp2;
+    this.beads.forEach((b) => {
+      if (!b.project || b.pop <= 0.5 || b.i > drawn) return;
+      this.samplePos(b.i, p);
+      const lon = Math.atan2(p.x, p.z);
+      marks.push(lon, lon + (dir * Math.PI) / 2);
+    });
+    // The rest: the pieces on the ball, then the turns.
+    const rest: number[] = [];
+    this.pieces.forEach((pc) => {
+      if (pc.onBall && pc.bead.pop > 0.5 && pc.bead.i <= drawn) rest.push(pc.lon);
+    });
+    const turns = Math.max(1, Math.round(this.turns));
+    for (let k = 0; k < turns; k++) rest.push(-k * GOLDEN);
+    // Thinned by the faster of the eased spin and this frame's, so a hand speeding up never overfills it.
+    const perTurn = Math.max(Math.abs(spin), Math.abs(w)) / TAU;
+    // The spacing below takes back some of what it is given (at 40 a second, about a third), so
+    // the thinning aims that much higher to be left with NOVA_WHIRR_MAX.
+    const most = NOVA_WHIRR_MAX / (1 - NOVA_WHIRR_MAX * NOVA_WHIRR_APART);
+    const markShare = Math.min(1, most / Math.max(1e-6, marks.length * perTurn));
+    const left = Math.max(0, most - marks.length * perTurn * markShare);
+    const restShare = Math.min(ramp, left / Math.max(1e-6, rest.length * perTurn));
+    // When (s from now) each crosses the front in this frame's stretch: where angle + lon is a whole turn.
+    const cross = (lons: number[], share: number) => {
+      const out: number[] = [];
+      lons.forEach((lon, j) => {
+        // Each has its place in the thinning: a golden-ratio sequence, so any share is spread evenly.
+        if ((j * 0.6180339887) % 1 >= share) return;
+        for (let t = Math.ceil((lo + lon) / TAU) * TAU - lon; t <= hi; t += TAU) {
+          if (t > lo || (t === lo && from === a)) out.push(Math.max(0, (t - a) / spin));
+        }
+      });
+      return out.sort((x, y) => x - y);
+    };
+    // Spaced on the audio clock: none within NOVA_WHIRR_APART of a tick already placed or played, the marks first.
+    const apart = (offsets: number[]) =>
+      offsets.filter((o) => {
+        const t = clock + o;
+        if (n.heard.some((h) => Math.abs(h - t) < NOVA_WHIRR_APART)) return false;
+        n.heard.push(t);
+        return true;
+      });
+    const onMarks = apart(cross(marks, markShare));
+    const onRest = apart(cross(rest, restShare));
+    const rate = this.tickRate;
+    const place = (offsets: number[], gain: number) => {
+      if (!offsets.length) return;
+      const cancel = sfx.train(offsets, { gain, rate });
+      n.trains.push({ cancel, until: now + (offsets[offsets.length - 1] + 0.05) * 1000 });
+    };
+    place(onMarks, MARK_TICK);
+    place(onRest, lerp(NOVA_WHIRR_GAIN[0], NOVA_WHIRR_GAIN[1], ramp));
+  }
+
+  /** Stops the whirr's ticks still to sound. */
+  private hushWhirr() {
+    this.nova.trains.forEach((t) => t.cancel());
+    this.nova.trains = [];
+  }
+
+  // ---------------------------------------------------------------- the supernova: collapse, burst, float, return
+
+  /** Collapsing, burst, floating or coming back: the ball is not itself, and the charge sleeps. */
+  private get novaActive() {
+    const p = this.nova.phase;
+    return p === "collapse" || p === "burst" || p === "float" || p === "return";
+  }
+
+  /** The covers are out of the knot and not on their way home: the field's grammar holds. */
+  private get fieldOn() {
+    const p = this.nova.phase;
+    return p === "burst" || p === "float";
+  }
+
+  /** Too soon after the collapse for anything the visitor does to count (see NOVA_DEAF). */
+  private get novaDeaf() {
+    return this.novaActive && this.nova.phase !== "return" && this.nova.t < NOVA_DEAF;
+  }
+
+  /** Seconds since the burst, negative before it: the filaments' and the covers' clock, which runs on through the return. */
+  private get burstT() {
+    return this.nova.t - NOVA_BURST;
+  }
+
+  /** Enters a phase and tells the page (see NOVA_EVENT). */
+  private setPhase(p: NovaPhase) {
+    if (this.nova.phase === p) return;
+    this.nova.phase = p;
+    window.dispatchEvent(new CustomEvent(NOVA_EVENT, { detail: { phase: p } }));
+  }
+
+  /** Something moved on the stage: the float's stillness starts again. */
+  private novaTouch() {
+    if (this.novaActive) this.nova.touched = this.nova.t;
+  }
+
+  /**
+   * Full charge: the ball drops to a knot and the ticks stop dead, and for
+   * NOVA_DEAF nothing the visitor does counts. What the burst needs is worked
+   * out now, from the ball as it stands: each sample's way out, each
+   * project's, and the field the covers will settle into. The bloom is placed
+   * on the audio clock to land with the ring.
+   */
+  private novaCollapse() {
+    const n = this.nova;
+    // A charge always comes first, however quickly it went.
+    this.setPhase("charge");
+    n.t = 0;
+    n.a0 = this.angle;
+    n.y0 = this.yaw;
+    n.committed = false;
+    n.burst = false;
+    n.yearsUp = false;
+    n.shape = 1;
+    n.pendingTo = null;
+    // The float's clocks run on the supernova's own, which starts again now.
+    n.touched = 0;
+    n.floatAt = 0;
+    n.chosenAt = -Infinity;
+    n.airUntil = -Infinity;
+    n.collapsedAt = performance.now();
+    // The way it was spinning: its momentum goes out with the thread, as a swirl.
+    n.spin = Math.sign(IDLE * this.idleK + this.vel) || n.sign;
+    this.hushWhirr();
+    n.placed = null;
+    n.whirring = false;
+    this.stopTurn();
+    this.keyUp();
+    if (this.hovered) this.setHover(null);
+    // No charge while it plays out; the cooldown proper starts when the ball is back (novaFinish).
+    n.coolUntil = Infinity;
+    n.bend0 = this.bend;
+    this.novaWays();
+    this.beads.forEach((b) => {
+      b.home = -1;
+      b.docked = false;
+    });
+    this.setPhase("collapse");
+    void this.layoutField();
+    n.bloom = sfx.bloom(NOVA_BURST);
+  }
+
+  /** The ball has gone into the knot: the charge that pulled it in is spent, and it will come back as it was. */
+  private novaGone() {
+    const n = this.nova;
+    n.c = 0;
+    n.peak = 0;
+    this.bend = 0;
+    n.swell.v = 0;
+    n.swell.t = -1;
+    this.angle = n.a0;
+    this.yaw = n.y0;
+    this.vel = 0;
+    this.idleK = 0;
+    this.shake.x = 0;
+    this.shake.y = 0;
+  }
+
+  /**
+   * The burst: one ring, the bloom (already on its way), the thread and the
+   * covers flying out, and the bed going through the wall. The heading's
+   * tail gives way to NOVA_WAIT.
+   */
+  private novaBurst() {
+    const n = this.nova;
+    this.novaGone();
+    n.burst = true;
+    // Sounding now: from here it plays out whatever happens.
+    n.bloom = null;
+    if (!this.opts.isCurrent || this.opts.isCurrent()) {
+      sfx.air(NOVA_AIR, NOVA_AIR_IN);
+      n.airShut = true;
+    }
+    this.swapTail(true);
+    this.setPhase("burst");
+  }
+
+  /**
+   * One frame of the supernova after the collapse. The knot drops and holds
+   * its breath; the burst comes at NOVA_BURST; the covers settle, float, and
+   * go home by themselves (see NOVA_STILLNESS) unless something sends them
+   * sooner. A page that stops being the one on screen (a slide away)
+   * gathers everything quickly and opens nothing.
+   */
+  private novaRun(dt: number) {
+    const n = this.nova;
+    n.t += dt;
+    const t = n.t;
+    if (this.opts.isCurrent && !this.opts.isCurrent()) {
+      if (n.phase !== "return") this.novaReturn({ quick: true });
+      else this.novaHurry();
+    }
+    if (n.phase === "collapse") {
+      // Down to a knot NOVA_KNOT across, power4.in, still spinning as it goes.
+      const r0 = this.R * this.novaScale;
+      n.shape = lerp(1, NOVA_KNOT / 2 / Math.max(1, r0), clamp01(t / NOVA_DROP) ** 4);
+      if (t >= NOVA_DROP) {
+        // The held breath: stillness and silence, the knot trembling by a pixel.
+        this.vel = 0;
+        const w = t * Math.PI * 2;
+        this.shake.x = NOVA_TREMBLE * (0.7 * Math.sin(w * 11) + 0.3 * Math.sin(w * 23 + 1.3));
+        this.shake.y = NOVA_TREMBLE * (0.7 * Math.sin(w * 13 + 0.7) + 0.3 * Math.sin(w * 19 + 2.1));
+      }
+      if (t >= NOVA_BURST) this.novaBurst();
+      return;
+    }
+    if (n.phase === "return") {
+      this.windStep();
+      return;
+    }
+    // Out on the table.
+    const tau = this.burstT;
+    if (!n.yearsUp && tau >= NOVA_SETTLE * 0.6) {
+      n.yearsUp = true;
+      this.yearsRise(true);
+    }
+    if (n.phase === "burst" && tau >= NOVA_SETTLE) {
+      n.floatAt = t;
+      n.touched = Math.max(n.touched, t);
+      this.setPhase("float");
+    }
+    if (this.novaDeaf) return;
+    // A project asked for too soon (a hash, Enter, a click in the deaf moment): now it gathers.
+    if (n.pendingTo) {
+      const to = n.pendingTo;
+      n.pendingTo = null;
+      this.novaReturn({ to });
+      return;
+    }
+    if (n.phase !== "float") return;
+    const still = this.vertical || n.finger ? NOVA_PHONE_FLOAT : NOVA_STILLNESS;
+    const quiet = t - n.touched >= still;
+    // A pointer resting on a cover holds them all out. A finger's choice has no hover to end, so it
+    // holds nothing: the float goes on NOVA_PHONE_FLOAT from the last touch, chosen or not.
+    const held = !!this.hovered && !n.finger;
+    if (held) n.chosenAt = t;
+    const long = t - n.floatAt >= NOVA_FLOAT_MAX && t - n.chosenAt >= NOVA_FLOAT_GRACE;
+    if (this.hovered ? !held && quiet : quiet || long) this.novaReturn();
+  }
+
+  /**
+   * A drag, a wheel, Escape or a tap on empty space while the covers are
+   * out: they go home at once. During the return a new drag hurries it.
+   * Nothing counts until NOVA_DEAF has passed.
+   */
+  private novaInput(kind: "drag" | "wheel" | "key" | "tap") {
+    if (this.novaDeaf) return;
+    if (this.fieldOn) this.novaReturn();
+    else if (this.nova.phase === "return" && kind === "drag") this.novaHurry();
+  }
+
+  /** A project asked for while the covers are out: everything gathers, then it opens; asked too soon, as soon as it can. */
+  private novaGather(b: Bead) {
+    const n = this.nova;
+    if (n.phase === "return") n.wind.to = b;
+    else if (n.phase === "collapse" || this.novaDeaf) n.pendingTo = b;
+    else this.novaReturn({ to: b });
+  }
+
+  /**
+   * The covers go home. By itself, or at a drag, a wheel, Escape or a tap on
+   * empty space: the slow return. `to`: a cover was chosen, so everything
+   * gathers in NOVA_GATHER and that project opens. `quick`: the page is
+   * leaving, so it gathers as quickly and opens nothing. The heading's tail
+   * comes back, the numerals go, and the bed's wall opens over the same span.
+   */
+  private novaReturn(o: { to?: Bead; quick?: boolean } = {}) {
+    const n = this.nova;
+    if (n.phase === "return") {
+      if (o.to) n.wind.to = o.to;
+      return;
+    }
+    const quick = !!o.to || !!o.quick;
+    // Sent home before the burst (only a slide away does that): the bloom never sounds, and the
+    // ball comes straight back out of the knot.
+    if (n.phase === "collapse") {
+      n.bloom?.();
+      n.bloom = null;
+      this.novaGone();
+    }
+    n.wind = { at: n.t, span: quick ? GATHER_WIND : NOVA_WIND, home: quick ? GATHER_HOME : NOVA_HOME, over: !quick, pos: -Infinity, to: o.to ?? null, hurried: !!o.quick };
+    n.pendingTo = null;
+    if (this.hovered) this.setHover(null);
+    this.swapTail(false);
+    this.yearsRise(false);
+    if (n.airShut) {
+      const over = quick ? NOVA_GATHER : NOVA_WIND + NOVA_OVER_BACK;
+      sfx.air(AIR_OPEN, over);
+      n.airShut = false;
+      n.airUntil = n.t + over;
+    }
+    this.setPhase("return");
+  }
+
+  /**
+   * A new hand on the ball as it comes back: what is left of the winding is
+   * done in NOVA_HURRY, the projects still to fly home go quickly, and the
+   * swell is left out, so the ball is there to be turned.
+   */
+  private novaHurry() {
+    const n = this.nova;
+    const w = n.wind;
+    if (n.phase !== "return" || w.hurried) return;
+    w.hurried = true;
+    const u = clamp01((n.t - w.at) / w.span);
+    // The same point along the winding (its ease is the same function of u), reached sooner: nothing jumps.
+    const left = Math.max(0.05, 1 - u);
+    w.span = (NOVA_HURRY * 0.6) / left;
+    w.at = n.t - u * w.span;
+    w.over = false;
+    const home = NOVA_HURRY * 0.4;
+    w.home = Math.min(w.home, home);
+    this.beads.forEach((b) => {
+      if (b.home < 0 || b.docked) return;
+      const e = clamp01((n.t - b.home) / b.homeFor);
+      b.homeFor = Math.min(b.homeFor, home);
+      b.home = n.t - e * b.homeFor;
+    });
+    // The bed's wall opens with the ball, not on the slow return's clock.
+    if (n.airUntil > n.t + NOVA_HURRY) {
+      sfx.air(AIR_OPEN, NOVA_HURRY);
+      n.airUntil = n.t + NOVA_HURRY;
+    }
+  }
+
+  /** How far the winder has eased sample i back onto the ball (0..1). */
+  private kAt(i: number) {
+    const span = NOVA_WIND_SPAN * (STEP / this.arcStep);
+    return smooth(clamp01((this.nova.wind.pos - i + span) / (2 * span)));
+  }
+
+  /**
+   * One frame of the return: the winder travels the thread from its oldest
+   * end, in the reveal's order; the projects it has reached fly home and
+   * dock, each with its tick, so his career replays in date order; and as it
+   * finishes the ball swells to 1 + NOVA_OVER and settles.
+   */
+  private windStep() {
+    const n = this.nova;
+    const w = n.wind;
+    const rt = n.t - w.at;
+    const span = NOVA_WIND_SPAN * (STEP / this.arcStep);
+    // It sets off at once (a return asked for is seen to start) and slows into the last turns.
+    const u = clamp01(rt / w.span);
+    w.pos = lerp(-span, this.M - 1 + span, lerp(u, inOut(u), 0.4));
+    const here = !this.opts.isCurrent || this.opts.isCurrent();
+    this.order.forEach((b) => {
+      if (b.home < 0 && w.pos >= b.i) {
+        b.home = n.t;
+        b.homeFor = w.home;
+      }
+      if (b.home >= 0 && !b.docked && n.t - b.home >= b.homeFor) {
+        b.docked = true;
+        if (b.project && here) this.dockTick();
+      }
+    });
+    let over = 0;
+    if (w.over) {
+      const lead = 0.6;
+      if (rt < w.span) over = NOVA_OVER * Math.sin((Math.PI / 2) * clamp01((rt - (w.span - lead)) / lead));
+      else over = NOVA_OVER * (0.5 + 0.5 * Math.cos(Math.PI * clamp01((rt - w.span) / NOVA_OVER_BACK)));
+    }
+    n.shape = 1 + over;
+    if (rt >= w.span + (w.over ? NOVA_OVER_BACK : 0) && this.beads.every((b) => b.docked)) this.novaFinish();
+  }
+
+  /** A project docks: its tick, the Projects tick at NOVA_DOCK_TICK, never lost to the one before (see NOVA_DOCK_APART). */
+  private dockTick() {
+    const n = this.nova;
+    if (!sfx.awake) {
+      sfx.play("tick", NOVA_DOCK_TICK);
+      return;
+    }
+    const now = sfx.clock;
+    const at = Math.max(now, n.dockAt + NOVA_DOCK_APART);
+    n.dockAt = at;
+    sfx.train([at - now], { gain: NOVA_DOCK_TICK });
+  }
+
+  /** The ball is itself again: the cooldown starts, the captions go back under the ball, and a chosen project opens. */
+  private novaFinish() {
+    const n = this.nova;
+    const to = n.wind.to;
+    n.wind.to = null;
+    n.shape = 1;
+    n.burst = false;
+    n.yearsUp = false;
+    n.collapsedAt = Infinity;
+    n.coolUntil = performance.now() + NOVA_COOL;
+    this.field.clear();
+    this.pieces.forEach((pc) => (pc.field = null));
+    this.years.forEach(({ m }) => {
+      gsap.killTweensOf(m);
+      m.t.visible = false;
+    });
+    this.beads.forEach((b) => {
+      b.home = -1;
+      b.docked = true;
+    });
+    this.setPhase("idle");
+    // The captions go back to their places under the ball.
+    void this.layout();
+    if (to) this.openBead(to);
+  }
+
+  /** The heading's tail gives way to NOVA_WAIT while the covers are out (`wait`), and comes back as they go home. */
+  private swapTail(wait: boolean) {
+    const h = this.heading;
+    if (!h || this.waitShown === wait) return;
+    this.waitShown = wait;
+    const [off, on] = wait ? [h.tail, h.wait] : [h.wait, h.tail];
+    this.ctx.add(() => {
+      gsap.to(off, { offset: off.span, duration: 0.35, ease: "power3.in", overwrite: true, onUpdate: () => this.applyMask(off) });
+      gsap.to(on, { offset: 0, duration: 0.9, delay: 0.3, ease: "power4.out", overwrite: true, onUpdate: () => this.applyMask(on) });
+    });
+  }
+
+  /** The year numerals rise over their covers as they settle, and go as the covers leave. */
+  private yearsRise(on: boolean) {
+    this.ctx.add(() => {
+      this.years.forEach(({ m }, k) => {
+        gsap.to(m, {
+          offset: on ? 0 : m.span,
+          duration: on ? 0.9 : 0.35,
+          delay: on ? 0.05 * k : 0,
+          ease: on ? "power4.out" : "power3.in",
+          overwrite: true,
+          onUpdate: () => this.applyMask(m),
+        });
+      });
+    });
+  }
+
+  /**
+   * Each sample's way out of the knot: the way it faced at the collapse,
+   * plus NOVA_SWIRL of its spin's tangent, bent up to NOVA_CRUMPLE and scaled
+   * by noise along the thread, so the turns crumple into filaments while
+   * neighbours stay together. Screen px for each px of blast radius.
+   */
+  private novaWays(w = this.bend) {
+    const M = this.M;
+    if (this.BX.length !== M) {
+      this.BX = new Float32Array(M);
+      this.BY = new Float32Array(M);
+    }
+    const n = this.nova;
+    const a = n.a0 + n.y0;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const { ct, st } = this.rot;
+    const P = this.P;
+    const Q = this.P0;
+    const swirl = NOVA_SWIRL * n.spin;
+    for (let i = 0; i < M; i++) {
+      const o = i * 3;
+      let x = lerp(P[o], Q[o], w);
+      let y = lerp(P[o + 1], Q[o + 1], w);
+      let z = lerp(P[o + 2], Q[o + 2], w);
+      const l = 1 / Math.hypot(x, y, z);
+      x *= l;
+      y *= l;
+      z *= l;
+      // Where it faced (spun, then tilted), and the way the spin was carrying it.
+      const x1 = x * ca + z * sa;
+      const z1 = -x * sa + z * ca;
+      let vx = x1 + swirl * z1;
+      let vy = y * ct - z1 * st + swirl * x1 * st;
+      const vz = y * st + z1 * ct - swirl * x1 * ct;
+      const len = Math.hypot(vx, vy, vz) || 1;
+      vx /= len;
+      vy /= -len; // screen y runs down
+      const cb = Math.cos(this.BB[i]);
+      const sb = Math.sin(this.BB[i]);
+      const scale = this.BS[i];
+      this.BX[i] = (vx * cb - vy * sb) * scale;
+      this.BY[i] = (vx * sb + vy * cb) * scale;
+    }
+  }
+
+  /** The filaments this frame: the blast radius, their drift's turn, and their ink. */
+  private filaments(tau: number) {
+    const t = Math.max(0, tau);
+    const r = NOVA_BLAST * Math.max(this.width, this.height) * (1 - Math.exp(-t / NOVA_BLAST_T)) ** 0.4 * (1 + NOVA_CREEP * (1 - Math.exp(-t / NOVA_CREEP_T)));
+    const turn = this.nova.spin * NOVA_DRIFT_TURN * (1 - Math.exp(-t / NOVA_CREEP_T));
+    const ink = lerp(0.85, NOVA_FILAMENT, smooth(clamp01(t / NOVA_SETTLE))) * lerp(1, DIM, this.dim);
+    return { r, c: Math.cos(turn), s: Math.sin(turn), ink };
+  }
+
+  /**
+   * Where the covers settle: a loose contact sheet in reading order by date,
+   * oldest at the top left, each cover with its pieces as they hung beside
+   * it on the ball (past MANY projects, the cover alone). Up to
+   * FIELD_ROWS_FROM projects, a grid whose columns are as wide as their
+   * widest knot; past it, year rows (see FIELD_ROWS_FROM). As many to a row
+   * as best give the room's shape, a little wider, inside the bounds and the
+   * area budget; rows keep room for a year numeral where a year starts. What
+   * does not fit closes its gaps, then shrinks. A phone keeps room under the
+   * sheet for the hover caption, and so does a screen too full to leave it
+   * anywhere else. Laid out at the collapse (and again on a
+   * resize while the covers are out); where each hover caption stands follows
+   * once its words are measured (see fieldCaptions).
+   */
+  private async layoutField() {
+    const gen = ++this.fieldGen;
+    const beads = this.order.filter((b) => b.project && b.pieces.length);
+    if (!beads.length) return;
+    const laying = () => !this.disposed && gen === this.fieldGen && (this.fieldOn || this.nova.phase === "collapse");
+    // The captions are measured at the width they are set from: as the layout left them, unless a
+    // field before this one, on another screen, narrowed some.
+    const natW = this.vertical ? Math.min(WHY_MAX, this.width - 48) : WHY_MAX;
+    const stale = beads.filter((b) => b.cap.why.t.maxWidth !== natW);
+    if (stale.length) {
+      stale.forEach((b) => (b.cap.why.t.maxWidth = natW));
+      await Promise.all(stale.map((b) => syncText(b.cap.why.t)));
+      if (!laying()) return;
+    }
+    // Each sample's way out, worked out for the thread as it is wound now (see fitStep).
+    if (this.BX.length !== this.M) return;
+    const W = this.width;
+    const H = this.height;
+    const v = this.vertical;
+    const count = this.projects.length;
+    const onlyCovers = count > MANY;
+    const rows = count > FIELD_ROWS_FROM;
+    const edge = v ? FIELD_PHONE_EDGE : FIELD_EDGE;
+    const top = this.headY + this.headingHalf + FIELD_TOP;
+    const capH = Math.max(...beads.map((b) => 50 + this.textHeight(b.cap.why)));
+    const bw = W - 2 * edge;
+    const budget = FIELD_AREA * W * H;
+    const numH = YEAR_SIZE + YEAR_GAP + 3;
+    // Each knot at R_REF: its members' centres from its cover's, and its bounds round that centre.
+    const knots = beads.map((b, i) => {
+      const cover = b.pieces[0];
+      const members = onlyCovers ? [cover] : b.pieces.filter((pc) => pc.onBall);
+      const parts = members.map((pc) => ({ pc, x: pc.along - cover.along, y: -(pc.up - cover.up), w: pc.h * pc.aspect, h: pc.h }));
+      const box: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+      parts.forEach((q) => {
+        box[0] = Math.min(box[0], q.x - q.w / 2);
+        box[1] = Math.min(box[1], q.y - q.h / 2);
+        box[2] = Math.max(box[2], q.x + q.w / 2);
+        box[3] = Math.max(box[3], q.y + q.h / 2);
+      });
+      return { b, parts, box, coverH: cover.h, year: i === 0 || beads[i - 1].year !== b.year };
+    });
+    const coverMax = Math.max(...knots.map((k) => k.coverH));
+    // The knots of each year, in order.
+    const years: number[][] = [];
+    knots.forEach((k, i) => {
+      if (k.year || !years.length) years.push([i]);
+      else years[years.length - 1].push(i);
+    });
+    const widthOf = (i: number, scale: number) => (knots[i].box[2] - knots[i].box[0]) * scale;
+    type Sheet = { lines: { i: number; x: number }[][]; up: number[]; down: number[]; w: number; h: number; gap: number; scale: number };
+    // Rows in reading order, each knot at its x along its row (to its left edge), and each row's reach
+    // over and under its covers' centres.
+    const sheet = (lines: { i: number; x: number }[][], scale: number, gap: number): Sheet => {
+      const up: number[] = [];
+      const down: number[] = [];
+      let w = 0;
+      lines.forEach((line, r) => {
+        up[r] = 0;
+        down[r] = 0;
+        line.forEach(({ i, x }) => {
+          const k = knots[i];
+          up[r] = Math.max(up[r], -k.box[1] * scale, k.year ? (k.coverH * scale) / 2 + numH : 0);
+          down[r] = Math.max(down[r], k.box[3] * scale);
+          w = Math.max(w, x + widthOf(i, scale));
+        });
+      });
+      const h = up.reduce((s, u, r) => s + u + down[r], 0) + (lines.length - 1) * gap;
+      return { lines, up, down, w, h, gap, scale };
+    };
+    // A grid, `n` to a row, each column as wide as its widest knot, so the covers line up down it.
+    const grid = (scale: number, n: number, gap: number) => {
+      const list: number[][] = [];
+      for (let i = 0; i < knots.length; i += n) list.push(knots.slice(i, i + n).map((_, j) => i + j));
+      const colW: number[] = [];
+      list.forEach((r) => r.forEach((i, c) => (colW[c] = Math.max(colW[c] ?? 0, widthOf(i, scale)))));
+      const lines = list.map((r) => {
+        let x = 0;
+        return r.map((i, c) => {
+          const at = x;
+          x += colW[c] + gap;
+          return { i, x: at };
+        });
+      });
+      return sheet(lines, scale, gap);
+    };
+    // Year rows about `n` knots long (see FIELD_ROWS_FROM). `share`: a year may start on the row the
+    // last one ended in, if all of it fits there.
+    const unit = knots.reduce((s, _, i) => s + widthOf(i, 1), 0) / knots.length;
+    const yearRows = (share: boolean) => (scale: number, n: number, gap: number) => {
+      const most = Math.min(bw, n * (unit * scale + gap) - gap);
+      const apart = gap * FIELD_YEAR_GAP;
+      const lines: { i: number; x: number }[][] = [];
+      let line: { i: number; x: number }[] = [];
+      let x = 0;
+      const next = () => {
+        if (line.length) lines.push(line);
+        line = [];
+        x = 0;
+      };
+      years.forEach((g) => {
+        const run = g.reduce((s, i) => s + widthOf(i, scale), 0) + (g.length - 1) * gap;
+        if (line.length && (!share || x + apart + run > most)) next();
+        g.forEach((i, j) => {
+          const w = widthOf(i, scale);
+          let lead = line.length ? (j ? gap : apart) : 0;
+          // A year longer than a row runs on to the next.
+          if (line.length && x + lead + w > most) {
+            next();
+            lead = 0;
+          }
+          line.push({ i, x: x + lead });
+          x += lead + w;
+        });
+      });
+      next();
+      return sheet(lines, scale, gap);
+    };
+    // Year rows of their own first, while the room holds that many; then years sharing rows.
+    const modes = rows ? [yearRows(false), yearRows(true)] : [grid];
+    const base = (v || rows ? 1 : FIELD_SCALE) * Math.min(this.R / R_REF, PIECE_MAX);
+    // Where the knots round a cover leave its caption nowhere, it goes past them (see fieldCaptions):
+    // so a sheet that leaves a margin at its sides, or room over or under it, is chosen over one
+    // that fills the room. With the caption's room kept under the sheet (`foot`), any will do.
+    const loose = CAP_BESIDE + CAP_CLEAR + FIELD_DRIFT + FIELD_JITTER;
+    const pick = (bh: number, foot: boolean, passes = 12) => {
+      const fits = (f: Sheet) => f.w <= bw && f.h <= bh && f.w * f.h <= budget;
+      // The sheet takes the room's shape, a little wider: it is read across, in rows.
+      const shape = (FIELD_WIDE * bw) / Math.max(1, bh);
+      const score = (f: Sheet) => Math.abs(Math.log(f.w / f.h / shape));
+      const legible = (f: Sheet) => {
+        if (foot) return true;
+        const y0 = THREE.MathUtils.clamp(this.cy - f.h / 2, top, Math.max(top, top + bh - f.h));
+        return (bw - f.w) / 2 >= CAP_BESIDE_MIN + loose || Math.max(y0 - top, H - FIELD_PHONE_EDGE - (y0 + f.h)) >= capH + loose;
+      };
+      let scale = base;
+      for (let pass = 0; pass < passes; pass++, scale *= 0.9) {
+        const gap0 = Math.max(FIELD_GAP_MIN, FIELD_GAP * coverMax * scale + FIELD_GAP_PX);
+        // Each layout at each gap, the widest first, and the sheets it makes that fit.
+        const tries = modes.flatMap((mode) =>
+          [1, 0.75, 0.5, 0.25].map((share) => {
+            const out: Sheet[] = [];
+            for (let n = 1; n <= knots.length; n++) {
+              const f = mode(scale, n, Math.max(FIELD_GAP_MIN, gap0 * share));
+              if (fits(f)) out.push(f);
+            }
+            return out;
+          }),
+        );
+        // The first that makes a sheet leaving its captions somewhere to go, else the first that
+        // fits at all; of its sheets, the one nearest the room's shape.
+        for (const strict of [true, false]) {
+          for (const list of tries) {
+            const ok = strict ? list.filter(legible) : list;
+            if (ok.length) {
+              const sheet = ok.reduce((a, c) => (score(c) < score(a) ? c : a));
+              return { sheet, bh, foot, pass, clear: legible(sheet) };
+            }
+          }
+        }
+      }
+      return null;
+    };
+    // A phone's caption stands under the sheet, as it stands under the ball, and the room for it is
+    // kept; so is it on a screen where no sheet leaves its captions anywhere else, if the sheet
+    // still fits as large.
+    const kept = H - FIELD_PHONE_EDGE - top - CAP_BESIDE - capH;
+    let got = v ? pick(kept, true) : pick(H - edge - top, false);
+    if (got && !got.clear) got = pick(kept, true, got.pass + 1) ?? got;
+    // Nothing fits (a screen too small for anything): a sheet as small as it gets, as wide as the room.
+    if (!got) {
+      const scale = base * 0.9 ** 12;
+      const cellW = Math.max(...knots.map((kn) => kn.box[2] - kn.box[0])) * scale;
+      const n = Math.max(1, Math.floor((bw + FIELD_GAP_MIN) / (cellW + FIELD_GAP_MIN)));
+      const sheet = rows ? yearRows(true)(scale, n, FIELD_GAP_MIN) : grid(scale, n, FIELD_GAP_MIN);
+      got = { sheet, bh: v ? kept : H - edge - top, foot: v, pass: 12, clear: false };
+    }
+    const { bh, foot } = got;
+    const chosen = got.sheet;
+    this.fieldBox = { x0: edge, y0: top, x1: W - edge, y1: Math.max(top, top + bh) };
+    const { lines, up, down, w, h, gap } = chosen;
+    const k = chosen.scale;
+    const x0 = (W - w) / 2;
+    let y = THREE.MathUtils.clamp(this.cy - h / 2, top, Math.max(top, top + bh - h));
+    // A tight sheet lies straighter and drifts less: its covers would only cover each other.
+    const room = Math.min(1, gap / 48);
+    const jitter = Math.min(FIELD_JITTER, gap * 0.25);
+    const amp = Math.min(FIELD_DRIFT, Math.max(2, gap * 0.12));
+    this.field.clear();
+    this.pieces.forEach((pc) => (pc.field = null));
+    lines.forEach((line, r) => {
+      const cy = y + up[r];
+      line.forEach(({ i, x: along }) => {
+        const kn = knots[i];
+        const b = kn.b;
+        const rnd = seeded(b.project!.slug);
+        const x = x0 + along - kn.box[0] * k;
+        // Its way out: its mark's sample's, so its pieces leave with their stretch of thread.
+        const m = Math.max(0, Math.min(this.M - 1, Math.round(b.i)));
+        const dl = Math.hypot(this.BX[m], this.BY[m]) || 1;
+        // A drift of so many px/s: a Lissajous figure's mean speed is about 0.9·amp·ω.
+        const speed = lerp(FIELD_DRIFT_SPEED[0], FIELD_DRIFT_SPEED[1], rnd()) * (amp / FIELD_DRIFT);
+        const om = speed / (0.9 * amp);
+        const box: [number, number, number, number] = [kn.box[0] * k, kn.box[1] * k, kn.box[2] * k, kn.box[3] * k];
+        const slot: Slot = {
+          x,
+          y: cy,
+          jx: (rnd() * 2 - 1) * jitter,
+          jy: (rnd() * 2 - 1) * jitter,
+          rot: (rnd() * 2 - 1) * FIELD_TURN * room,
+          amp,
+          w1: om * lerp(0.85, 1.15, rnd()),
+          w2: om * lerp(0.85, 1.15, rnd()),
+          p1: rnd() * Math.PI * 2,
+          p2: rnd() * Math.PI * 2,
+          dirX: this.BX[m] / dl,
+          dirY: this.BY[m] / dl,
+          reach: 0.5 * Math.hypot(x - this.cx, cy - this.cy) + 0.2 * Math.min(W, H),
+          tumble: this.nova.spin * FIELD_TUMBLE * lerp(0.7, 1.3, rnd()),
+          box,
+          // Where its caption stands is fieldCaptions' to say, once every knot has its place.
+          cap: "under",
+          capX: (box[0] + box[2]) / 2,
+          capY: box[3] + CAP_BESIDE,
+          fixed: false,
+          capW: natW,
+          year: kn.year ? (this.years.find((yr) => yr.year === b.year)?.m ?? null) : null,
+          rank: i,
+        };
+        this.field.set(b, slot);
+        kn.parts.forEach((q) => (q.pc.field = { x: q.x * k, y: q.y * k, w: q.w * k, h: q.h * k }));
+      });
+      y += up[r] + down[r] + gap;
+    });
+    // The numerals start out of sight, to rise as the covers settle.
+    this.field.forEach((slot) => {
+      if (!slot.year || slot.year.t.visible) return;
+      slot.year.t.visible = true;
+      slot.year.offset = this.nova.yearsUp ? 0 : 1e3;
+    });
+    // The caption in its kept room stands under the sheet's last row (y has gone a gap past it).
+    this.fieldCaptions(natW, foot ? y - gap + amp + CAP_BESIDE : null);
+    await Promise.all(beads.flatMap((b) => [b.cap.name.t, b.cap.status.t, b.cap.why.t]).map((t) => syncText(t)));
+    if (this.disposed || gen !== this.fieldGen || !this.fieldOn) return;
+    if (this.hovered) this.placeFieldCaption(this.hovered);
+  }
+
+  /** A knot as it lies in the field at rest, turned and jittered, padded by `pad` px: x0, y0, x1, y1 on the screen. */
+  private knotRect(f: Slot, pad: number): [number, number, number, number] {
+    const c = Math.cos(f.rot);
+    const s = Math.sin(f.rot);
+    const [a, b, d, e] = f.box;
+    const xs = [a * c - b * s, d * c - b * s, a * c - e * s, d * c - e * s];
+    const ys = [a * s + b * c, d * s + b * c, a * s + e * c, d * s + e * c];
+    const x = f.x + f.jx;
+    const y = f.y + f.jy;
+    return [x + Math.min(...xs) - pad, y + Math.min(...ys) - pad, x + Math.max(...xs) + pad, y + Math.max(...ys) + pad];
+  }
+
+  /**
+   * Where each cover's hover caption stands, from its words as measured at
+   * `natW` and the knots as they lie (turned, jittered, with room for their
+   * drift): beside its knot, after it or else before it, where it has
+   * CAP_BESIDE_MIN px clear of every other knot and numeral, its line
+   * wrapping to fit; else under or over it; else past the other knots on its
+   * row, or under or over the whole sheet, whichever is nearest; and where
+   * nothing is clear (a crowded sheet on a small screen), under or over it
+   * where it covers least, which the veil then thins. Where room was kept for
+   * it under the sheet (see layoutField), it stands there, at `foot`.
+   */
+  private fieldCaptions(natW: number, foot: number | null) {
+    type Rect = [number, number, number, number];
+    type Try = { cap: Slot["cap"]; r: Rect; w: number; ok: boolean };
+    const W = this.width;
+    const edge = this.vertical ? FIELD_PHONE_EDGE : FIELD_EDGE;
+    const top = this.fieldBox.y0;
+    const bottom = this.height - FIELD_PHONE_EDGE;
+    const widthOf = (m: Masked) => blockBounds(m.t)[2] - blockBounds(m.t)[0];
+    // Every knot, with room for its drift and a little air, and every year's numeral over its first cover.
+    const blocks: { b: Bead; knot: boolean; r: Rect }[] = [];
+    this.field.forEach((f, b) => {
+      blocks.push({ b, knot: true, r: this.knotRect(f, f.amp + CAP_CLEAR) });
+      const cover = b.pieces[0]?.field;
+      if (!f.year || !cover) return;
+      const x = f.x + f.jx - cover.w / 2;
+      const y = f.y + f.jy - cover.h / 2 - YEAR_GAP;
+      const pad = f.amp + CAP_CLEAR / 2;
+      blocks.push({ b, knot: false, r: [x - pad, y - this.textHeight(f.year) - pad, x + widthOf(f.year) + pad, y + pad] });
+    });
+    const overlap = (r: Rect, o: Rect) => Math.max(0, Math.min(r[2], o[2]) - Math.max(r[0], o[0])) * Math.max(0, Math.min(r[3], o[3]) - Math.max(r[1], o[1]));
+    this.field.forEach((f, b) => {
+      const { name, status, why } = b.cap;
+      const anchor = (to: "left" | "right" | "center") => {
+        [name, status, why].forEach((m) => (m.t.anchorX = to));
+        why.t.textAlign = to;
+      };
+      if (foot !== null) {
+        // In its room, centred under the sheet.
+        Object.assign(f, { cap: "under", capX: W / 2, capY: foot, fixed: true, capW: natW });
+        anchor("center");
+        why.t.maxWidth = natW;
+        return;
+      }
+      const whyW = widthOf(why);
+      const whyH = this.textHeight(why);
+      const lineH = WHY_SIZE * 1.3;
+      const lines = Math.max(1, Math.round(whyH / lineH));
+      const heads = Math.max(widthOf(name), widthOf(status));
+      const natural = Math.max(heads, whyW);
+      // Its size set `w` wide: narrower than it was measured, its line wraps into about as many more.
+      const size = (w: number) => {
+        const n = whyW <= w + 0.5 ? lines : Math.max(lines + 1, Math.ceil((whyW * lines) / (0.9 * w)));
+        return { w: Math.max(heads, Math.min(w, whyW)), h: 50 + (n === lines ? whyH : n * lineH) };
+      };
+      const K = this.knotRect(f, f.amp);
+      const cx = f.x + f.jx;
+      const cy = f.y + f.jy;
+      const others = blocks.filter((o) => !(o.b === b && o.knot));
+      const covers = (r: Rect, all = false) => (all ? blocks : others).reduce((s, o) => s + overlap(r, o.r), 0);
+      const inside = (r: Rect) => r[1] >= top && r[3] <= bottom;
+      // Beside it, after (1) or before (-1): up to whatever is in the way, or past all of it on its row (`far`).
+      const beside = (dir: 1 | -1, far: boolean): Try => {
+        let w = natural;
+        let r: Rect = [0, 0, 0, 0];
+        for (let pass = 0; pass < 3; pass++) {
+          const s = size(w);
+          const y0 = Math.max(top, Math.min(K[1], bottom - s.h));
+          const row = others.filter((o) => o.r[3] > y0 && o.r[1] < y0 + s.h);
+          let from = dir > 0 ? K[2] + CAP_BESIDE : K[0] - CAP_BESIDE;
+          if (far) row.forEach((o) => (from = dir > 0 ? Math.max(from, o.r[2] + CAP_BESIDE) : Math.min(from, o.r[0] - CAP_BESIDE)));
+          let to = dir > 0 ? W - edge : edge;
+          row.forEach((o) => {
+            if (dir > 0 && o.r[2] > from) to = Math.min(to, o.r[0]);
+            if (dir < 0 && o.r[0] < from) to = Math.max(to, o.r[2]);
+          });
+          const fit = Math.min(w, (to - from) * dir);
+          const t = size(Math.max(1, fit));
+          r = dir > 0 ? [from, y0, from + t.w, y0 + t.h] : [from - t.w, y0, from, y0 + t.h];
+          const done = fit >= w - 0.5;
+          w = fit;
+          if (done) break;
+        }
+        return { cap: dir > 0 ? "after" : "before", r, w, ok: w >= Math.min(CAP_BESIDE_MIN, natural) && inside(r) && covers(r) === 0 };
+      };
+      // Under (1) or over (-1) it, centred on it and kept inside the edges: right by it, or past all of it (`far`).
+      const stack = (dir: 1 | -1, far: boolean): Try => {
+        const s = size(natural);
+        const mid = THREE.MathUtils.clamp((K[0] + K[2]) / 2, edge + s.w / 2, Math.max(edge + s.w / 2, W - edge - s.w / 2));
+        const x0 = mid - s.w / 2;
+        const x1 = mid + s.w / 2;
+        let from = dir > 0 ? K[3] + CAP_BESIDE : K[1] - CAP_BESIDE;
+        if (far) {
+          others.forEach((o) => {
+            if (o.r[2] > x0 && o.r[0] < x1) from = dir > 0 ? Math.max(from, o.r[3] + CAP_BESIDE) : Math.min(from, o.r[1] - CAP_BESIDE);
+          });
+        }
+        const r: Rect = dir > 0 ? [x0, from, x1, from + s.h] : [x0, from - s.h, x1, from];
+        return { cap: dir > 0 ? "under" : "over", r, w: natW, ok: inside(r) && covers(r) === 0 };
+      };
+      const away = (r: Rect) => Math.hypot(Math.max(r[0] - cx, 0, cx - r[2]), Math.max(r[1] - cy, 0, cy - r[3]));
+      let pick = [beside(1, false), beside(-1, false), stack(1, false), stack(-1, false)].find((t) => t.ok);
+      pick ??= [beside(1, true), beside(-1, true), stack(1, true), stack(-1, true)].filter((t) => t.ok).sort((p, q) => away(p.r) - away(q.r))[0];
+      if (!pick) {
+        // Nowhere clear: under or over it, kept on the screen, wherever it covers least.
+        const kept = [stack(1, false), stack(-1, false)].map((t) => {
+          const dy = t.r[3] > bottom ? bottom - t.r[3] : t.r[1] < top ? top - t.r[1] : 0;
+          return { ...t, r: [t.r[0], t.r[1] + dy, t.r[2], t.r[3] + dy] as Rect };
+        });
+        pick = kept.sort((p, q) => covers(p.r, true) - covers(q.r, true))[0];
+      }
+      const beside1 = pick.cap === "after" || pick.cap === "before";
+      const at = pick.cap === "after" ? pick.r[0] : pick.cap === "before" ? pick.r[2] : (pick.r[0] + pick.r[2]) / 2;
+      Object.assign(f, { cap: pick.cap, capX: at - cx, capY: pick.r[1] - cy, fixed: false, capW: beside1 && pick.w < whyW - 0.5 ? Math.max(1, pick.w) : natW });
+      anchor(pick.cap === "after" ? "left" : pick.cap === "before" ? "right" : "center");
+      why.t.maxWidth = f.capW;
+    });
+  }
+
+  /**
+   * A piece in the field this frame, into `out`: out of the knot along its
+   * bead's way, curving round into its cover's slot as it settles
+   * (NOVA_SETTLE), then drifting there; grown to size by NOVA_GROW, and
+   * turned with its cover. False if it does not come out of the knot.
+   */
+  private fieldPose(pc: Piece, tau: number, out: Pose) {
+    const b = pc.bead;
+    const f = this.field.get(b);
+    const pf = pc.field;
+    if (!f || !pf) return false;
+    const t = Math.max(0, tau);
+    // Where its cover lies now: its slot, as it fell there, drifting; never past the field's bounds.
+    const fb = this.fieldBox;
+    const [bx0, by0, bx1, by1] = f.box;
+    const sx = THREE.MathUtils.clamp(f.x + f.jx + f.amp * Math.sin(f.w1 * t + f.p1), fb.x0 - bx0, Math.max(fb.x0 - bx0, fb.x1 - bx1));
+    const sy = THREE.MathUtils.clamp(f.y + f.jy + f.amp * Math.sin(f.w2 * t + f.p2), fb.y0 - by0, Math.max(fb.y0 - by0, fb.y1 - by1));
+    // Out along its way, then round into its slot: a curve whose first leg is its way out.
+    const u = outCubic(clamp01(t / NOVA_SETTLE));
+    const a = (1 - u) * (1 - u);
+    const m = 2 * u * (1 - u);
+    const c = u * u;
+    const x = a * this.cx + m * (this.cx + f.dirX * f.reach) + c * sx;
+    const y = a * this.cy + m * (this.cy + f.dirY * f.reach) + c * sy;
+    const grow = outCubic(clamp01(t / NOVA_GROW));
+    const rot = f.rot + f.tumble * (1 - u) * (1 - u);
+    const cs = Math.cos(rot);
+    const sn = Math.sin(rot);
+    const ox = pf.x * grow;
+    const oy = pf.y * grow;
+    out.x = x + ox * cs - oy * sn;
+    out.y = y + ox * sn + oy * cs;
+    out.w = pf.w * grow;
+    out.h = pf.h * grow;
+    out.rot = rot;
+    // The ball's grammar: the chosen at full ink, the rest at 35%. Dead work a little under.
+    out.ink = (b.side < 0 ? DEAD_INK : 1) * lerp(lerp(1, DIM, this.dim), 1, b.hl) * clamp01(t / 0.12);
+    out.rank = f.rank;
+    return true;
+  }
+
+  /** The chosen project's caption where fieldCaptions set it, following its cover as it drifts; in its kept room it stays put. */
+  private placeFieldCaption(b: Bead) {
+    const f = this.field.get(b);
+    const cover = b.pieces[0];
+    if (!f || !cover || !this.fieldPose(cover, this.burstT, this.pose)) return;
+    const { name, status, why } = b.cap;
+    const h = 50 + this.textHeight(why);
+    const top = this.fieldBox.y0;
+    const x = f.fixed ? f.capX : this.pose.x + f.capX;
+    const y = THREE.MathUtils.clamp(f.fixed ? f.capY : this.pose.y + f.capY, top, Math.max(top, this.height - FIELD_PHONE_EDGE - h));
+    this.setBase(name, x, y);
+    this.setBase(status, x, y + 30);
+    this.setBase(why, x, y + 50);
+  }
+
+  /** Each year's numeral over its first project's cover, drifting with it. */
+  private placeYears() {
+    const tau = this.burstT;
+    const ink = YEAR_INK * lerp(1, DIM, this.dim);
+    this.field.forEach((f, b) => {
+      const m = f.year;
+      const cover = b.pieces[0];
+      if (!m || !cover?.field || !this.fieldPose(cover, tau, this.pose)) return;
+      const { x, y, w, h } = this.pose;
+      // Placed for the first time: out of sight under its mask, until it rises.
+      const fresh = m.offset >= 1e3;
+      this.setBase(m, x - w / 2, y - h / 2 - YEAR_GAP - this.textHeight(m));
+      if (fresh) {
+        m.offset = m.span;
+        this.applyMask(m);
+      }
+      // Under a caption it thins as the covers do.
+      const bb = blockBounds(m.t);
+      m.t.material.opacity = ink * this.veilOf(this.capVeil, CAP_VEIL_PAD, CAP_VEIL_FEATHER, m.base.x + (bb[0] + bb[2]) / 2, -m.base.y - (bb[1] + bb[3]) / 2);
+    });
+  }
+
   // ---------------------------------------------------------------- frame
 
   private frame(dt: number) {
@@ -2275,13 +4190,26 @@ export class ThreadScene {
     // Nothing is drawn until the layout has placed it: the texts wait at the origin until their fonts are in.
     if (!this.ready) return;
 
+    // The charge first: it can hold the spin up, and a held arrow spins the ball freely. Past full
+    // charge, the supernova.
+    this.novaStep(dt);
+    const active = this.novaActive;
+
     // Spin: slow on its own, slower still while something is held, still while a project is open.
-    const idleTarget = rm || this.opened ? 0 : this.hovered ? 0.1 : 1;
+    // Gone into the knot, the ball holds the angle and lean it had, to come back to them.
+    const idleTarget = rm || this.opened || active ? 0 : this.hovered ? 0.1 : 1;
     this.idleK += (idleTarget - this.idleK) * (1 - Math.pow(0.02, dt));
-    if (!this.drag?.moved && !this.turning) this.angle += (IDLE * this.idleK + this.vel) * dt;
-    this.vel *= Math.pow(0.15, dt);
-    if (Math.abs(this.vel) < 1e-4) this.vel = 0;
-    this.yaw += (this.targetYaw - this.yaw) * (1 - Math.pow(0.03, dt));
+    if (active && this.nova.phase !== "collapse") {
+      this.angle = this.nova.a0;
+      this.yaw = this.nova.y0;
+      this.vel = 0;
+    } else {
+      // A ball past the point of no return spins on under a hand held still on it.
+      if ((!this.drag?.moved || this.novaBound) && !this.turning) this.angle += (IDLE * this.idleK + this.vel) * dt * this.spinK;
+      this.vel *= Math.pow(0.15, dt);
+      if (Math.abs(this.vel) < 1e-4) this.vel = 0;
+      if (!active) this.yaw += (this.targetYaw - this.yaw) * (1 - Math.pow(0.03, dt));
+    }
 
     this.scroll.cur += (this.scroll.target - this.scroll.cur) * (1 - Math.pow(0.9, dt * 60));
     this.openGroup.position.set(this.layoutO ? (this.layoutO.vertical ? 0 : -this.scroll.cur) : 0, this.layoutO?.vertical ? this.scroll.cur : 0, 0);
@@ -2310,8 +4238,13 @@ export class ThreadScene {
     this.project();
     this.drawThread();
     this.hang();
+    if (this.field.size) {
+      if (this.fieldOn && this.hovered) this.placeFieldCaption(this.hovered);
+      this.placeYears();
+    }
     this.clearCaption(dt);
     this.crossings();
+    this.whirr(dt);
     this.dimHeading();
     this.glass.setVelocity(Math.abs(this.scroll.cur - this.lastScroll) / Math.max(dt, 1e-3) / 1500);
     this.lastScroll = this.scroll.cur;
@@ -2325,15 +4258,20 @@ export class ThreadScene {
     return this.opts.reducedMotion ? this.fadeIn.value : inOut(clamp01(this.unspool.p * 1.5));
   }
 
-  /** The ball's radius this frame: smaller as it recedes, to 86%, and never larger than it always receded to. */
+  /**
+   * The ball's radius this frame: smaller as it recedes, to 86%, and never
+   * larger than it always receded to; pulled in by a charge (R_eff), and a
+   * little over at the end of a sigh; down to a knot at the collapse, and a
+   * little over again at the end of the supernova's return.
+   */
   private radiusAt(recede: number) {
-    return this.R * lerp(1, Math.min(RECEDE_SCALE, RECEDE_D / (2 * this.R)), recede);
+    return this.R * lerp(1, Math.min(RECEDE_SCALE, RECEDE_D / (2 * this.R)), recede) * this.novaScale * this.nova.shape;
   }
 
   /** The chosen caption steps down, if it must, to clear its own pieces; within one hover it only ever steps further. */
   private clearCaption(dt: number) {
     const b = this.hovered;
-    if (!b || this.opened || this.capSide) return;
+    if (!b || this.opened || this.capSide || this.novaActive) return;
     const want = this.captionClear(b);
     if (want <= b.capDy + 0.25) return;
     const k = this.opts.reducedMotion ? 1 : 1 - Math.pow(0.001, dt);
@@ -2374,6 +4312,24 @@ export class ThreadScene {
     cv.k += ((on ? 1 : 0) - cv.k) * k;
     if (cv.k < 0.001) cv.k = 0;
 
+    // The supernova's filaments reach across the heading: they thin under its words.
+    const hv = this.headVeil;
+    const h = this.heading;
+    const out = !!h && (this.fieldOn || this.nova.phase === "return");
+    if (out && h) {
+      const words = [h.lead, this.waitShown ? h.wait : h.tail];
+      hv.x0 = Math.min(...words.map((m) => m.base.x + blockBounds(m.t)[0]));
+      hv.x1 = Math.max(...words.map((m) => m.base.x + blockBounds(m.t)[2]));
+      hv.y0 = this.headY - this.headingHalf;
+      hv.y1 = this.headY + this.headingHalf;
+    }
+    hv.k += ((out ? 1 : 0) - hv.k) * k;
+    if (hv.k < 0.001) hv.k = 0;
+    // And they keep out from under the tab bar, which stays as it is.
+    const nv = this.navVeil;
+    nv.k += ((this.fieldOn || this.nova.phase === "return" ? 1 : 0) - nv.k) * k;
+    if (nv.k < 0.001) nv.k = 0;
+
     const v = this.veil;
     const o = this.opened?.open;
     v.k = o && this.layoutO ? this.recede : 0;
@@ -2398,9 +4354,20 @@ export class ThreadScene {
     v.y1 = y1 + VEIL_PAD;
   }
 
-  /** The share of its ink the ball keeps at a point: all of it, except under a caption or the opened project's words. */
+  /**
+   * The share of its ink the ball keeps at a point: all of it, except under a
+   * caption, the opened project's words, or the heading while the
+   * supernova's filaments cross it; and none under the tab bar while they
+   * reach up there.
+   */
   private veilAt(x: number, y: number) {
-    return this.veilOf(this.veil, 0, VEIL_FEATHER, x, y) * this.veilOf(this.capVeil, CAP_VEIL_PAD, CAP_VEIL_FEATHER, x, y);
+    const nav = this.navVeil.k > 0 ? 1 - this.navVeil.k * (1 - navFade(y)) : 1;
+    return (
+      nav *
+      this.veilOf(this.veil, 0, VEIL_FEATHER, x, y) *
+      this.veilOf(this.capVeil, CAP_VEIL_PAD, CAP_VEIL_FEATHER, x, y) *
+      this.veilOf(this.headVeil, CAP_VEIL_PAD, CAP_VEIL_FEATHER, x, y)
+    );
   }
 
   private veilOf(v: { x0: number; y0: number; x1: number; y1: number; k: number }, pad: number, feather: number, x: number, y: number) {
@@ -2411,8 +4378,37 @@ export class ThreadScene {
     return 1 - v.k * (1 - VEIL_INK) * near;
   }
 
-  /** Every sample to the screen: on the ball, on the line, or on its way between. */
+  /**
+   * The supernova's thread, out of the knot: one ribbon, each sample on its
+   * way (see novaWays) at the blast's radius, fading to NOVA_FILAMENT. The
+   * hovered cover's own stretch comes up, the ball's grammar on the table.
+   */
+  private projectFilaments() {
+    const M = this.M;
+    const f = this.filaments(this.burstT);
+    const { cx, cy, BX, BY } = this;
+    for (let i = 0; i < M; i++) {
+      const bx = BX[i];
+      const by = BY[i];
+      const x = cx + (bx * f.c - by * f.s) * f.r;
+      const y = cy + (bx * f.s + by * f.c) * f.r;
+      const o = this.owner[i];
+      const hl = o >= 0 ? this.beads[o].hl : 0;
+      this.SX[i] = x;
+      this.SY[i] = y;
+      this.SZ[i] = 1;
+      this.SA[i] = lerp(f.ink, NOVA_FILAMENT_HL, hl) * this.veilAt(x, y);
+      this.lifted[i] = 0;
+    }
+    fillNormals(this.SX, this.SY, this.NX, this.NY, M);
+  }
+
+  /** Every sample to the screen: on the ball, on the line, or on its way between; out of the knot, or wound back into it. */
   private project() {
+    if (this.fieldOn) {
+      this.projectFilaments();
+      return;
+    }
     const M = this.M;
     const q = new THREE.Vector3();
     const s = { x: 0, y: 0 };
@@ -2440,10 +4436,29 @@ export class ThreadScene {
       }
       if (t >= (pl.dead ? PLUCK_TWITCH : PLUCK_RING)) this.plucked = null;
     }
+    // A charging ball: the thread leans less (toward P0) and its far side brightens.
+    const bend = this.bend;
+    const Q = this.P0;
+    const back = this.backInk;
+    // Coming back from the supernova: each sample eases from its filament onto the ball as the winder passes.
+    const winding = this.nova.phase === "return";
+    const fil = winding ? this.filaments(this.burstT) : null;
+    const span = NOVA_WIND_SPAN * (STEP / this.arcStep);
+    const wpos = this.nova.wind.pos;
     for (let i = 0; i < M; i++) {
-      this.rotate(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], q);
+      if (bend > 0) {
+        const o = i * 3;
+        let x = lerp(P[o], Q[o], bend);
+        let y = lerp(P[o + 1], Q[o + 1], bend);
+        let z = lerp(P[o + 2], Q[o + 2], bend);
+        const n = 1 / Math.hypot(x, y, z);
+        x *= n;
+        y *= n;
+        z *= n;
+        this.rotate(x, y, z, q);
+      } else this.rotate(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], q);
       this.toScreen(q, radius, s);
-      const d = depthInk(q.z);
+      const d = depthInk(q.z, back);
       const o = this.owner[i];
       const hl = o >= 0 ? this.beads[o].hl : 0;
       let ink = lerp(d * base, 0.55 + 0.45 * smooth(clamp01((q.z + 0.85) / 1.7)), hl);
@@ -2469,10 +4484,24 @@ export class ThreadScene {
           ink = lerp(ink, 1, lift);
         }
       }
+      let z = lift > 0.3 ? 2 : q.z;
+      if (fil) {
+        const k = smooth(clamp01((wpos - i + span) / (2 * span)));
+        if (k < 1) {
+          const bx = this.BX[i];
+          const by = this.BY[i];
+          const fx = this.cx + (bx * fil.c - by * fil.s) * fil.r;
+          const fy = this.cy + (bx * fil.s + by * fil.c) * fil.r;
+          s.x = lerp(fx, s.x, k);
+          s.y = lerp(fy, s.y, k);
+          ink = lerp(fil.ink * this.veilAt(fx, fy), ink, k);
+          if (k < 0.5) z = 1;
+        }
+      }
       if (i > drawn) ink = 0;
       this.SX[i] = s.x;
       this.SY[i] = s.y;
-      this.SZ[i] = lift > 0.3 ? 2 : q.z;
+      this.SZ[i] = z;
       this.SA[i] = ink;
       this.lifted[i] = lift;
     }
@@ -2548,8 +4577,30 @@ export class ThreadScene {
 
     this.drawMarks(back, front);
     this.drawLooseEnd(back, front, drawn);
+    this.drawRing(front);
     back.end();
     front.end();
+  }
+
+  /** The supernova's one ring: out of the knot, past the corners, fading as it goes. */
+  private drawRing(front: Ribbons) {
+    const n = this.nova;
+    const rt = this.burstT;
+    if (!n.burst || rt < 0 || rt >= NOVA_RING_DUR) return;
+    const u = rt / NOVA_RING_DUR;
+    const r0 = NOVA_KNOT / 2;
+    const r = r0 + (NOVA_RING_REACH * Math.hypot(this.width, this.height) - r0) * outCubic(u);
+    const ink = NOVA_RING_INK * (1 - u);
+    const sc = this.ringScratch;
+    sc.reset();
+    for (let k = 0; k <= NOVA_RING_POINTS; k++) {
+      const a = (k / NOVA_RING_POINTS) * Math.PI * 2;
+      const y = this.cy + Math.sin(a) * r;
+      // Past the corners, but never through the tab bar.
+      sc.push(this.cx + Math.cos(a) * r, y, ink * navFade(y));
+    }
+    sc.normals(true);
+    front.strip(sc.x, sc.y, sc.a, sc.nx, sc.ny, 0, sc.n - 1);
   }
 
   /** Ticks in the horizon's grammar: alive breathes, paused wears a ring, shipped a dot, dead hangs down. */
@@ -2567,13 +4618,22 @@ export class ThreadScene {
     const base = lerp(lerp(1, DIM, this.dim), RECEDE_INK, recede);
     const L = this.layoutO;
     const rm = !!this.opts.reducedMotion;
+    // Out of the knot the marks are nowhere: each comes back with its stretch of thread.
+    if (this.fieldOn) {
+      this.beads.forEach((b) => {
+        if (b.dot) b.dot.visible = false;
+      });
+      return;
+    }
+    const winding = this.nova.phase === "return";
+    const at = { x: 0, y: 0 };
     this.beads.forEach((b) => {
       const opened = b === this.opened;
       // The mark on the ball.
       this.samplePos(b.i, p);
       this.rotate(p.x, p.y, p.z, q);
       const k = this.toScreen(q, radius, s0);
-      const dz = depthInk(q.z);
+      const dz = depthInk(q.z, this.backInk);
       let ink = lerp(dz * base, 0.55 + 0.45 * dz, b.hl) * b.pop * this.veilAt(s0.x, s0.y);
       if (b.i > this.draw.value * (this.M - 1)) ink = 0;
       b.mz = q.z;
@@ -2594,6 +4654,15 @@ export class ThreadScene {
       let mx = s0.x;
       let my = s0.y;
       let front1 = b.mz >= 0;
+      if (winding) {
+        // Where its thread has got to, as it winds back; drawn as the winder reaches it.
+        this.screenAt(b.i, at);
+        mx = at.x;
+        my = at.y;
+        const kb = this.kAt(b.i);
+        ink *= kb;
+        len *= kb;
+      }
       if (opened && L) {
         const lift = rm ? 0 : this.liftOf(b, b.i);
         const l = this.lineAt(L, L.mark, { x: 0, y: 0 });
@@ -2654,7 +4723,10 @@ export class ThreadScene {
 
   /** Now: 40px of thread past the last turn at the top, held still: it turns with the ball and nothing else. */
   private drawLooseEnd(back: Ribbons, front: Ribbons, drawn: number) {
-    if (!this.cursorOn || drawn < this.M - 1) return;
+    if (!this.cursorOn || drawn < this.M - 1 || this.fieldOn) return;
+    // Wound back last of all, out of the supernova.
+    const wound = this.nova.phase === "return" ? this.kAt(this.M - 1) ** 2 : 1;
+    if (wound <= 0) return;
     const sc = this.scratch;
     const p = new THREE.Vector3();
     const t = new THREE.Vector3();
@@ -2679,7 +4751,7 @@ export class ThreadScene {
       this.rotate(x, y, zz, q);
       this.toScreen(q, radius, s);
       if (k === 0) z = q.z;
-      sc.push(s.x, s.y, depthInk(q.z) * base * this.veilAt(s.x, s.y));
+      sc.push(s.x, s.y, depthInk(q.z, this.backInk) * base * this.veilAt(s.x, s.y) * wound);
     }
     sc.normals();
     (z >= 0 ? front : back).strip(sc.x, sc.y, sc.a, sc.nx, sc.ny, 0, sc.n - 1);
@@ -2699,8 +4771,13 @@ export class ThreadScene {
     const radius = this.radiusAt(recede);
     // The pieces grow with the ball to PIECE_MAX, and each knot's layout with them, so a big
     // ball's knots sit as close to their marks as a small one's: past that, only the ball grows.
-    const scale = Math.min(radius / R_REF, PIECE_MAX);
+    // A charge pulls them in to NOVA_PIECE_SCALE of that, flat on the thread, and takes their ink.
+    const nc = this.nova.c;
+    const scale = Math.min(radius / this.novaScale / R_REF, PIECE_MAX) * lerp(1, NOVA_PIECE_SCALE, nc);
     const fit = scale / (radius / R_REF);
+    const hangOut = lerp(HANG_OUT, 0, nc);
+    const pull = lerp(1, NOVA_PIECE_INK, nc);
+    const whirring = nc > NOVA_WHIRR_FROM;
     // Behind an opened line the ball's pieces go further back than its thread: colour carries further than ink.
     const base = lerp(lerp(1, DIM, this.dim), RECEDE_PIECE_INK, recede);
     const pxToIdx = 1 / (this.arcStep * R_REF);
@@ -2709,6 +4786,11 @@ export class ThreadScene {
     const L = this.layoutO;
     const rm = !!this.opts.reducedMotion;
     const drawn = this.draw.value * (this.M - 1);
+    // The supernova: the covers (and their pieces) out in the field, or flying home in the return.
+    const tabled = this.fieldOn || this.nova.phase === "return";
+    const winding = this.nova.phase === "return";
+    const tau = this.burstT;
+    const fp = this.pose;
     const sorted: { pc: Piece; z: number; layer: number }[] = [];
     this.pieces.forEach((pc) => {
       const b = pc.bead;
@@ -2728,10 +4810,11 @@ export class ThreadScene {
       this.toScreen(q, radius, a);
       bn.copy(p).cross(t).normalize();
       const up = (pc.up * fit) / R_REF;
-      const out = (HANG_OUT * fit) / R_REF;
+      const out = (hangOut * fit) / R_REF;
       c.copy(p)
         .addScaledVector(bn, b.side * up)
         .addScaledVector(p, b.side * out);
+      if (whirring) pc.lon = Math.atan2(c.x, c.z);
       this.rotate(c.x, c.y, c.z, q);
       const k = this.toScreen(q, radius, s);
       const dz = depthInk(q.z);
@@ -2739,7 +4822,7 @@ export class ThreadScene {
       let w = h * pc.aspect;
       // Behind the ball a piece is only a shape through the thread; inside it, half ink and soft.
       let ink = b.side > 0 ? 0.1 + 0.9 * smooth(clamp01((q.z + 0.3) / 0.8)) : 0.5 * (0.7 + 0.3 * dz);
-      ink *= lerp(base, 1, b.hl) * b.pop;
+      ink *= lerp(base, 1, b.hl) * b.pop * pull;
       if (crowd) ink *= smooth(clamp01((b.mz + 0.1) / 0.25));
       // Near the limb a knot hangs out past the ball: rather than be cut by the screen's edge, it
       // fades out as it crosses the side margin, gone by the time it would touch the edge.
@@ -2759,6 +4842,29 @@ export class ThreadScene {
       let y = s.y;
       let z = q.z;
       let layer = b.side < 0 ? 1 : q.z >= 0 ? 2 : 0;
+      let rot = 0;
+      if (tabled) {
+        // How far home it has flown, in the return (0: still out).
+        const home = winding && b.home >= 0 ? inOut(clamp01((this.nova.t - b.home) / b.homeFor)) : 0;
+        if (this.fieldPose(pc, tau, fp)) {
+          x = lerp(fp.x, x, home);
+          y = lerp(fp.y, y, home);
+          w = lerp(fp.w, w, home);
+          h = lerp(fp.h, h, home);
+          ink = lerp(fp.ink, ink, home);
+          rot = fp.rot * (1 - home);
+          blur *= home;
+          // Over everything until it lands; later work on top.
+          if (home < 1) {
+            layer = 3;
+            z = 1 + fp.rank * 0.001 + (b.pieces.length - pc.index) * 0.00001;
+          }
+          // Its tick sounds as its cover docks (see windStep).
+        } else {
+          // It stayed in the knot: it comes back with its project, a study as the winder passes it.
+          ink *= winding ? (b.project ? home : this.kAt(idx)) : 0;
+        }
+      }
       if (opened) {
         const f = L.frames[pc.index];
         const lineIdx = this.indexOfAlong(b, L, f.along);
@@ -2811,6 +4917,8 @@ export class ThreadScene {
       if (!pc.mesh.visible) return;
       pc.mesh.position.set(x, -y, 0);
       pc.mesh.scale.set(w, h, 1);
+      // Turned on the table: clockwise on screen is the other way in the scene, whose y runs up.
+      pc.mesh.rotation.z = -rot;
       u.uFade.value = ink;
       u.uBlur.value = blur;
       sorted.push({ pc, z, layer });
@@ -2823,13 +4931,27 @@ export class ThreadScene {
     });
   }
 
-  /** A quiet tick as each project's mark crosses the front, only while the ball is being turned. */
+  /**
+   * A quiet tick as each project's mark crosses the front, only while the
+   * ball is being turned. The same tick at the same level, faster and higher
+   * as a charge pulls the ball in (1 at rest, exactly as it always was); in
+   * the whirr the marks tick on the audio clock instead (see whirr).
+   */
   private crossings() {
     const turning = Math.abs(this.vel) > 0.2 || !!this.turning;
+    const rate = this.tickRate;
+    const now = performance.now();
+    const whirr = this.nova.whirring || now < this.nova.marksUntil;
+    // From the collapse the ticks stop dead; the return has its own (see windStep).
+    const gone = this.novaActive;
     this.beads.forEach((b) => {
       if (!b.project) return;
       const s = b.mz > 0 ? Math.sign(b.mx - this.cx) || 1 : 0;
-      if (s && b.crossed && s !== b.crossed && turning) sfx.play("tick", 0.6);
+      if (s && b.crossed && s !== b.crossed && turning && !whirr && !gone) {
+        sfx.play("tick", MARK_TICK, rate);
+        // Charging, the whirr about to start keeps its ticks clear of this one.
+        if (this.nova.c > 0) this.nova.heard.push(sfx.clock);
+      }
       if (s) b.crossed = s;
     });
   }
@@ -2867,11 +4989,18 @@ export class ThreadScene {
         if (m.offset < m.span * 0.9 && shares(y - bb[3], y - bb[1])) on = true;
       });
     }
-    if (on === this.headingDimmed) return;
-    this.headingDimmed = on;
-    this.ctx.add(() => {
-      gsap.to([this.heading!.lead.t.material, this.heading!.tail.t.material], { opacity: on ? 0 : 1, duration: this.dur(0.3), ease: "power2.inOut", overwrite: true });
-    });
+    if (on !== this.headingDimmed) {
+      this.headingDimmed = on;
+      this.ctx.add(() => {
+        gsap.to(this.headInk, { v: on ? 0 : 1, duration: this.dur(0.3), ease: "power2.inOut", overwrite: true });
+      });
+    }
+    // A charging ball takes the heading down to half its ink; the covers out, it comes back.
+    const ink = this.headInk.v * lerp(1, NOVA_HEADING, this.nova.head);
+    if (ink === this.headInkSet) return;
+    this.headInkSet = ink;
+    this.heading.lead.t.material.opacity = ink;
+    this.heading.tail.t.material.opacity = ink;
   }
 
   setVisible(on: boolean) {
@@ -2888,12 +5017,26 @@ export class ThreadScene {
   dispose() {
     this.disposed = true;
     gsap.ticker.remove(this.ticker);
+    // Gone mid-supernova (a slide away drops the panel): the bloom still to come never sounds, the
+    // bed comes back through the wall, the cooldown runs from now, and the page hears it is over.
+    const n = this.nova;
+    if (this.novaActive) {
+      n.bloom?.();
+      n.bloom = null;
+      if (n.airShut) sfx.air(AIR_OPEN, 0.6);
+      n.airShut = false;
+      n.coolUntil = performance.now() + NOVA_COOL;
+      this.setPhase("idle");
+    }
     this.intro?.kill();
     this.openTl?.kill();
     this.unpluck();
+    this.hushWhirr();
     this.stopTurn();
     this.ctx.kill();
-    gsap.killTweensOf([this, this.unspool, this.fadeIn, this.draw, this.scroll, this.caseLift]);
+    gsap.killTweensOf([this, this.unspool, this.fadeIn, this.draw, this.scroll, this.caseLift, this.headInk]);
+    if (this.heading) gsap.killTweensOf([this.heading.lead, this.heading.tail, this.heading.wait]);
+    gsap.killTweensOf(this.years.map((y) => y.m));
     this.pieces.forEach((pc) => {
       gsap.killTweensOf(pc.mesh.material.uniforms.uMix);
       pc.mesh.material.dispose();
