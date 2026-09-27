@@ -531,8 +531,6 @@ const NOVA_FILAMENT = 0.3;
 const NOVA_CREEP = 0.03;
 const NOVA_CREEP_T = 6;
 const NOVA_DRIFT_TURN = 0.05;
-/** Under the hovered cover's own stretch of thread, the filament comes up to this. */
-const NOVA_FILAMENT_HL = 0.6;
 /**
  * The filaments and the ring reach past the top edge, and the tab bar must
  * not change: their ink is gone at the pills' foot (NAV_FOOT) and back in
@@ -4400,8 +4398,10 @@ export class ThreadScene {
 
   /**
    * The supernova's thread, out of the knot: one ribbon, each sample on its
-   * way (see novaWays) at the blast's radius, fading to NOVA_FILAMENT. The
-   * hovered cover's own stretch comes up, the ball's grammar on the table.
+   * way (see novaWays) at the blast's radius, fading to NOVA_FILAMENT. A
+   * chosen cover's own stretch does not come up with it: it lies wherever
+   * its samples flew, far from the cover's slot, and would only be a bright
+   * line running across the others. The cover's ink and caption answer.
    */
   private projectFilaments() {
     const M = this.M;
@@ -4412,12 +4412,10 @@ export class ThreadScene {
       const by = BY[i];
       const x = cx + (bx * f.c - by * f.s) * f.r;
       const y = cy + (bx * f.s + by * f.c) * f.r;
-      const o = this.owner[i];
-      const hl = o >= 0 ? this.beads[o].hl : 0;
       this.SX[i] = x;
       this.SY[i] = y;
       this.SZ[i] = 1;
-      this.SA[i] = lerp(f.ink, NOVA_FILAMENT_HL, hl) * this.veilAt(x, y);
+      this.SA[i] = f.ink * this.veilAt(x, y);
       this.lifted[i] = 0;
     }
     fillNormals(this.SX, this.SY, this.NX, this.NY, M);
