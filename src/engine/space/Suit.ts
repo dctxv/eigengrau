@@ -2,7 +2,7 @@ import gsap from "gsap";
 import { sfx } from "@/audio/sfx";
 import { decline, leaveHome, suitUp } from "@/engine/urchi/acts";
 import type { Attention, Point } from "@/engine/urchi/attention";
-import { createUrchi, preloadSuit, type UrchiCharacter } from "@/engine/urchi/character";
+import { createUrchi, preloadSuit, type HeadPose, type UrchiCharacter } from "@/engine/urchi/character";
 import { setAlong } from "@/lib/along";
 import type { RoomScene } from "./RoomScene";
 import { Tether } from "./Tether";
@@ -24,14 +24,14 @@ const BODY = 0.446;
  * Suiting up, seconds from the press (about 2.3s in all; the fog and the blink after). The act
  * looks at the peg and dips (0.2s); the room steps back (`frame`); the body builds from the neck
  * ring outward (`body`: the ears fold in at the end of it); the helmet lifts off the peg (`lift`)
- * and floats to the head on an arc (`fly`, power2.inOut), coming down over it; as it settles (from
- * `rise` before it lands: it is a few pixels off by then) the painted helmet rises and seals under
- * it (`sealFor`), hidden by its dark glass; the glass tick and the hiss as it touches down (`seal`
- * from its end), and the flying helmet fades into the painted one (`fade`, from `fadeAt`), so all that changes is
- * the visor clearing onto the eyes, wide; the tether draws from the peg to the backpack
- * (`tether`); the float comes in (`float`).
+ * and floats to the head on an arc (`fly`, power2.inOut), coming down over it, turned as the head
+ * is by then (see TURN); once it is down (`rise` after it lands) the painted helmet rises and
+ * seals under it (`sealFor`), hidden by it; the glass tick and the hiss as it seals (`seal`), and
+ * only then, with nothing of the painted one left to show past it, the flying helmet fades into
+ * it (`fade`, from `fadeAt`), so all that changes is the visor clearing onto the eyes, wide; the
+ * tether draws from the peg to the backpack (`tether`); the float comes in (`float`).
  */
-const UP = { frame: 0.12, frameFor: 1, body: 0.2, bodyFor: 0.95, lift: 0.45, liftFor: 0.2, fly: 0.65, flyFor: 0.85, rise: -0.08, sealFor: 0.14, seal: -0.08, fadeAt: 0.03, fade: 0.24, tether: 1.8, tetherFor: 0.5, float: 2.05, done: 2.3 };
+const UP = { frame: 0.12, frameFor: 1, body: 0.2, bodyFor: 0.95, lift: 0.45, liftFor: 0.2, fly: 0.65, flyFor: 0.85, rise: 0, sealFor: 0.14, seal: 0.06, fadeAt: 0.16, fade: 0.24, tether: 1.8, tetherFor: 0.5, float: 2.05, done: 2.3 };
 /**
  * Leaving it home, the other way round: the tether reels in (`reel`); the flying helmet fades in
  * over the painted one (`cover`: the visor darkens over the eyes), which sinks away under it
@@ -48,6 +48,22 @@ const GLINT = { seconds: 1, alpha: 0.6, width: 0.28 };
  * up off the peg by `arc` of the room's height, and down onto the head from `drop` of it above.
  */
 const FLIGHT = { lift: 8, roll: -12, arc: 0.22, drop: 0.3 };
+/** Facing out, level: the helmet on its peg, and on its way off it. */
+const LEVEL: HeadPose = { yaw: 0, pitch: 0, roll: 0, shift: 0, rise: 0 };
+/**
+ * The flying helmet is painted turned as the head is (the head's own pose, see holdPose), so the
+ * two are one outline wherever it looks, asleep or awake: coming down, it takes the head's pose
+ * over the last of its flight, from `land` of the way; over the head it is the head's, frame by
+ * frame; lifted off, it keeps the pose the head had then and turns level again by `level` of the
+ * way back from it.
+ */
+const TURN = { land: 0.7, level: 0.35 };
+const smooth = (a: number, b: number, v: number) => {
+  const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+const mix = (a: HeadPose, b: HeadPose, t: number): HeadPose =>
+  t <= 0 ? a : t >= 1 ? b : { yaw: a.yaw + (b.yaw - a.yaw) * t, pitch: a.pitch + (b.pitch - a.pitch) * t, roll: a.roll + (b.roll - a.roll) * t, shift: a.shift + (b.shift - a.shift) * t, rise: a.rise + (b.rise - a.rise) * t };
 
 type State = "home" | "suiting" | "suited" | "unsuiting";
 
@@ -86,8 +102,13 @@ export class Suit {
   private glass: UrchiCharacter | null = null;
   private ctx: CanvasRenderingContext2D;
   private glintCanvas = document.createElement("canvas");
-  /** The helmet's canvas as painted: its unit (css px per mesh unit) and pose. */
-  private painted = { unit: 0, nx: 0, ny: 0, dpr: 0 };
+  /** The helmet's canvas as sized: its unit (css px per mesh unit), screen pixels and rim (mesh units; null, the painter's own). */
+  private painted = { unit: 0, dpr: 0, rim: null as number | null };
+  /** The pose the empty helmet (and, for the glint, its glass) was last painted at. */
+  private pose: HeadPose | null = null;
+  private glassPose: HeadPose | null = null;
+  /** Going home: the head's pose as the painted helmet left it (the flying one keeps it, turning level on the way). */
+  private snap: HeadPose | null = null;
   /** Where the helmet is: 0 on the peg .. 1 on the head (along the arc), off the peg (0..1), how much of it shows, the glint's run. */
   private flight = { p: 0, lift: 0, alpha: 1, glint: -1 };
   private tl: gsap.core.Timeline | null = null;
@@ -171,7 +192,8 @@ export class Suit {
       () => {
         if (this.disposed) return;
         this.makePainters();
-        if (this.state === "home") this.paint(this.onPeg().unit, 0, 0);
+        if (this.state === "home") this.size(this.onPeg().unit, null);
+        this.draw();
         this.place();
         // faded in (at once on a return, as the room itself fades in); the helmet settling onto its peg
         gsap.fromTo(this.o.wall, { autoAlpha: 0 }, { autoAlpha: 1, duration: now ? 0.6 : this.reduced ? 0.6 : 0.9, ease: "power2.out" });
@@ -193,7 +215,11 @@ export class Suit {
    */
   away(on: boolean) {
     this.o.peg.inert = on;
-    if (this.state === "suited") this.tether.dim(on);
+    if (this.state === "suited") {
+      this.tether.dim(on);
+      // stacked above the board it holds still (its soles keep their gap to the plate), and floats again after
+      this.room.floatUrchi(!on);
+    }
     if (!this.shown) return;
     gsap.to(this.o.wall, { autoAlpha: on ? 0 : 1, duration: on ? 0.3 : 0.5, ease: "power2.out", overwrite: true });
   }
@@ -213,16 +239,20 @@ export class Suit {
     for (const ch of [this.empty, this.glass]) ch.setSuit(1);
   }
 
-  /** Both painters at `unit` css px per mesh unit (at this screen's pixels), turned to a look (nx, ny) as the head would be. */
-  private paint(unit: number, nx: number, ny: number) {
+  /**
+   * Both painters at `unit` css px per mesh unit (at this screen's pixels), outlined `rim` mesh
+   * units wide: over the head, the rim the room holds for it there, so neither outline shows past
+   * the other; on the peg, null (the painter's own, a hairline at that size).
+   */
+  private size(unit: number, rim: number | null) {
     const dpr = Math.min(window.devicePixelRatio || 1, 3), p = this.painted;
-    if (!this.empty || !this.glass || (p.unit === unit && p.nx === nx && p.ny === ny && p.dpr === dpr)) return;
-    Object.assign(p, { unit, nx, ny, dpr });
+    if (!this.empty || !this.glass || (p.unit === unit && p.dpr === dpr && p.rim === rim)) return;
+    Object.assign(p, { unit, dpr, rim });
     for (const ch of [this.empty, this.glass]) {
       ch.setResolution(1080 * unit * dpr);
-      ch.lookAt(nx, ny, "snap");
-      ch.update(0.001);
+      ch.setRim(rim);
     }
+    this.pose = this.glassPose = null;
     const c = this.o.helmet;
     // whole device pixels, and the css box exactly their size, so nothing resamples it at rest
     c.width = Math.ceil(WIN.w * unit * dpr);
@@ -234,13 +264,49 @@ export class Suit {
     this.drawn = "";
   }
 
+  /** A painter turned to a pose and painted, unless it shows that pose already (then false). */
+  private static turn(ch: UrchiCharacter, was: HeadPose | null, pose: HeadPose) {
+    if (was && Math.abs(was.yaw - pose.yaw) < 1e-5 && Math.abs(was.pitch - pose.pitch) < 1e-5 && Math.abs(was.roll - pose.roll) < 1e-5 && Math.abs(was.shift - pose.shift) < 1e-3 && Math.abs(was.rise - pose.rise) < 1e-3) return false;
+    ch.holdPose(pose);
+    ch.update(0.001);
+    return true;
+  }
+
+  /** The pose the helmet is turned to now: level on and off its peg; the head's as it comes down over it, sits on it and leaves it (see TURN). */
+  private posed(): HeadPose {
+    const f = this.flight;
+    if (f.p <= 0) return LEVEL;
+    const live = this.room.urchi.character.headPose;
+    if (this.state === "suiting") return mix(LEVEL, live, smooth(TURN.land, 1, f.p));
+    if (this.state === "unsuiting") {
+      // off the head (the painted helmet has gone from it by then): the pose it had, turning level
+      if (f.p < 1 && !this.snap) this.snap = live;
+      return this.snap ? mix(LEVEL, this.snap, smooth(TURN.level, 1, f.p)) : live;
+    }
+    return live;
+  }
+
   /** What the helmet's canvas shows now, as a key: it is only drawn again when that changes. */
   private drawn = "";
 
   /** The helmet into its canvas: the empty helmet, and the glint on its glass. */
   private draw() {
-    const { glint } = this.flight, key = glint.toFixed(3);
-    if (!this.empty || !this.glass || key === this.drawn) return;
+    const { glint } = this.flight;
+    if (!this.empty || !this.glass) return;
+    if (this.flight.alpha > 0) {
+      const pose = this.posed();
+      if (Suit.turn(this.empty, this.pose, pose)) {
+        this.pose = pose;
+        this.drawn = "";
+      }
+      // its glass only for the glint (on the peg)
+      if (glint >= 0 && Suit.turn(this.glass, this.glassPose, pose)) {
+        this.glassPose = pose;
+        this.drawn = "";
+      }
+    }
+    const key = glint.toFixed(3);
+    if (key === this.drawn) return;
     this.drawn = key;
     const g = this.ctx, c = this.o.helmet;
     const blit = (to: CanvasRenderingContext2D, ch: UrchiCharacter) => {
@@ -343,6 +409,24 @@ export class Suit {
     });
   }
 
+  /**
+   * Along, but its model came too late for it to arrive suited (see the panel's SUIT_WAIT): now it
+   * is here, it suits up as if the peg had been pressed. Asleep, it stays home.
+   */
+  resume() {
+    // (after the peg's own wait for the model, so its painters are there)
+    preloadSuit().then(() => {
+      if (this.state !== "home" || !this.shown || this.disposed || !this.empty) return;
+      if (this.att.mood === "asleep") {
+        setAlong(false);
+        this.o.onChange?.(false);
+        return;
+      }
+      if (this.att.mood === "dozing") this.att.rouse();
+      this.suitUp();
+    }, () => {});
+  }
+
   private suitUp() {
     this.state = "suiting";
     setAlong(true);
@@ -376,11 +460,10 @@ export class Suit {
       tl.to({}, { duration: FADE }, FADE);
       return;
     }
-    const nx = 0, ny = this.faceLook();
     tl.call(() => room.frameSuited(true, UP.frameFor), [], UP.frame);
     tl.to(this.amount, { v: BODY, duration: UP.bodyFor, ease: "sine.inOut", onUpdate: () => room.urchi.setSuit(this.amount.v) }, UP.body);
-    // off the peg, at the size it will land at (painted once, turned as the head will be)
-    tl.call(() => this.paint(room.unitAt(true), nx, ny), [], UP.lift - 0.01);
+    // off the peg, at the size it will land at, and with the rim it will have there
+    tl.call(() => this.size(room.unitAt(true), room.urchi.rimFor(room.unitAt(true))), [], UP.lift - 0.01);
     tl.to(f, { lift: 1, duration: UP.liftFor, ease: "power2.out" }, UP.lift);
     tl.to(f, { p: 1, duration: UP.flyFor, ease: "power2.inOut" }, UP.fly);
     const land = UP.fly + UP.flyFor;
@@ -394,12 +477,17 @@ export class Suit {
 
   private goHome() {
     this.state = "unsuiting";
+    this.snap = null;
     setAlong(false);
     this.o.onChange?.(false);
     this.att.setAlong(false);
     const room = this.room, f = this.flight;
+    // What is left of suiting up (the fog, the satisfied blink) gives way to it; a doze is broken, as
+    // a press to suit up breaks one; asleep, it sleeps on, and the helmet comes off it as it lies.
+    this.att.cancel("suitUp");
+    if (this.att.mood === "dozing") this.att.rouse();
     if (this.att.mood === "awake") {
-      this.att.play("leaveHome", 7, () => leaveHome(this.att, { peg: () => this.ringAt(), helmet: () => (f.p < 1 && f.p > 0 ? this.helmetAt() : null), done: () => this.state === "home" }), { queue: 2 });
+      this.att.play("leaveHome", 8, () => leaveHome(this.att, { peg: () => this.ringAt(), helmet: () => (f.p < 1 && f.p > 0 ? this.helmetAt() : null), done: () => this.state === "home" }), { queue: 1 });
     }
     const tl = (this.tl = gsap.timeline({ onComplete: () => this.settled("home") }));
     room.floatUrchi(false);
@@ -411,7 +499,7 @@ export class Suit {
         this.amount.v = 0;
         room.frameSuited(false, 0);
         f.p = 0; f.lift = 0;
-        this.paint(this.onPeg().unit, 0, 0);
+        this.size(this.onPeg().unit, null);
         room.urchi.fade(1, FADE);
         gsap.to(f, { alpha: 1, duration: FADE * 2, ease: "power2.out" });
       }, [], FADE);
@@ -419,9 +507,10 @@ export class Suit {
       return;
     }
     this.tether.reel(HOME.reel);
-    // the flying helmet over the painted one, where it is, turned as the head is when it looks out
+    // the flying helmet over the painted one, where it is and turned as it is (see posed)
     tl.call(() => {
-      this.paint(room.headOnScreen().unit, 0, this.faceLook());
+      const u = room.headOnScreen().unit;
+      this.size(u, room.urchi.rimFor(u));
       f.p = 1; f.lift = 1;
     }, [], HOME.cover - 0.01);
     tl.fromTo(f, { alpha: 0 }, { alpha: 1, duration: HOME.coverFor, ease: "power1.inOut" }, HOME.cover);
@@ -429,16 +518,10 @@ export class Suit {
     tl.to(this.amount, { v: BODY, duration: HOME.unsealFor, ease: "power1.in", onUpdate: () => room.urchi.setSuit(this.amount.v) }, HOME.unseal);
     tl.to(f, { p: 0, duration: HOME.flyFor, ease: "power2.inOut" }, HOME.fly);
     tl.to(f, { lift: 0, duration: 0.25, ease: "power2.inOut" }, HOME.fly + HOME.flyFor - 0.1);
-    tl.call(() => this.paint(this.onPeg().unit, 0, 0), [], HOME.fly + HOME.flyFor + 0.16);
+    tl.call(() => this.size(this.onPeg().unit, null), [], HOME.fly + HOME.flyFor + 0.16);
     tl.to(this.amount, { v: 0, duration: HOME.bodyFor, ease: "sine.inOut", onUpdate: () => room.urchi.setSuit(this.amount.v) }, HOME.body);
     tl.call(() => room.frameSuited(false, HOME.frameFor), [], HOME.frame);
     tl.to({}, { duration: 0.01 }, HOME.done);
-  }
-
-  /** The look (the pointer's space, y) that faces you from the suited head once it has stepped back: what the flying helmet is turned to. */
-  private faceLook() {
-    const r = this.room.canvas.getBoundingClientRect(), e = this.room.eyesAt(true);
-    return Math.max(-1, Math.min(1, ((r.top + r.height / 2 - e.y) / innerHeight) * 2 - 1));
   }
 
   private settled(state: State) {

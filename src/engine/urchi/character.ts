@@ -576,6 +576,14 @@ export type UrchiCharacter = {
    * the glass, that comes in over a quarter of a second and clears over 1.2s. Only with the suit on.
    */
   fog(amount?: number): void;
+  /** The head's pose as it was last painted: what another painter holds to paint a helmet exactly over it (holdPose). */
+  readonly headPose: HeadPose;
+  /**
+   * Paint at exactly this pose instead of the head's own (its springs, breath and tilts run on
+   * unseen), until null: Space's peg helmet, lowered onto a head or lifted off it, is turned,
+   * tipped and risen as that head is (its headPose), so the two are one outline.
+   */
+  holdPose(pose: HeadPose | null): void;
   /** The canvas's frame in mesh units: URCHI_FRAME, or URCHI_SUIT_FRAME while the suit is painted. */
   readonly frame: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
 
@@ -648,6 +656,8 @@ export type UrchiCharacter = {
 
 /** How the gaze turns when lookAt moves it: "snap" is already there; "quick" turns faster than usual. */
 export type LookHow = "snap" | "quick";
+/** A head's pose as painted: yaw, pitch and roll in radians, and its sideways shift and its rise (the breath's) in mesh units. */
+export type HeadPose = { yaw: number; pitch: number; roll: number; shift: number; rise: number };
 
 export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): UrchiCharacter {
   const D2R = Math.PI / 180;
@@ -1990,7 +2000,11 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
    */
   let lastDrawn: number[] | null = null;
   const DRAWN_EPS = 1e-5;
+  /** The head's pose this frame, as painted (see headPose), and one held instead of its own (see holdPose). */
+  const posed: HeadPose = { yaw: 0, pitch: 0, roll: 0, shift: 0, rise: 0 };
+  let held: HeadPose | null = null;
   function paint(yaw: number, pitch: number, roll: number): boolean {
+    Object.assign(posed, { yaw, pitch, roll, shift, rise });
     const now = [yaw, pitch, roll, lidOf(0), lidOf(1), gaze.x.v, gaze.y.v, gaze.h.v, gaze.conv.v, wide.v, shift, rise, reveal, CELL, rimWidth()];
     if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift, fogging.v);
     const was = lastDrawn;
@@ -2054,6 +2068,10 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       const e = S.t - fogging.start;
       if (e >= FOG.rise + FOG.clear || suit <= 0) { fogging.v = 0; fogging.start = -1; }
       else fogging.v = fogging.amount * (e < FOG.rise ? smooth01(0, FOG.rise, e) : 1 - smooth01(0, FOG.clear, e - FOG.rise));
+    }
+    if (held) {
+      shift = held.shift; rise = held.rise;
+      return paint(held.yaw, held.pitch, held.roll);
     }
     return paint(S.yaw.v + tilt.yaw.v + away.turn.v + extra.yaw, S.pitch.v + tilt.pitch.v + nod + extra.pitch, roll);
   }
@@ -2137,6 +2155,12 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     fog(amount = 1) {
       if (suit <= 0) return;
       fogging.amount = clamp(amount, 0, 1); fogging.start = S.t;
+    },
+    get headPose() {
+      return { ...posed };
+    },
+    holdPose(pose) {
+      held = pose && { ...pose };
     },
     get frame() {
       return frameNow();

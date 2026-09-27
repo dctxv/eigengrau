@@ -165,11 +165,15 @@ export class Urchi {
 
   /** A held rim follows the head's size as shown: one art pixel, within its bounds. */
   private fitRim() {
-    if (!this.rim) return;
-    const shown = this.unit * this.zoom;
-    if (shown <= 0) return;
+    const r = this.rimFor(this.unit * this.zoom);
+    if (r !== null) this.character.setRim(r);
+  }
+
+  /** The rim it holds (mesh units) for the head shown at `shown` host units per mesh unit; null if it holds none. Space's peg helmet wears the same over the head. */
+  rimFor(shown: number): number | null {
+    if (!this.rim || shown <= 0) return null;
     const [min, max] = this.rim;
-    this.character.setRim(Math.min(max / shown, Math.max(min / shown, ART_PIXEL)));
+    return Math.min(max / shown, Math.max(min / shown, ART_PIXEL));
   }
 
   /** Host units per mesh unit. */
