@@ -85,9 +85,12 @@ const FIGURE_TURN = { rise: 90, drop: 26 };
  * bottom 64px; about 80 on a phone, where the band sits higher), and under the tab bar's `top` px
  * with room for its turn; and `wall` px clear of each side (the peg is on the left one, and its
  * tether wants a length of rope to show). It stands as low as that lets it, so its eyes rise as
- * little as they can, and the room stays mostly dark round it.
+ * little as they can, and the room stays mostly dark round it. Standing on its soles, a taller
+ * figure lifts its eyes further, so it is also kept to a size that leaves them no more than `rise`
+ * of the window's height above where they were (it steps back rather than jumping up), though it
+ * is never drawn smaller than the bare head was.
  */
-const SUITED = { share: 0.56, feet: 40, top: 60, phoneCaption: 80, wall: 72 };
+const SUITED = { share: 0.56, feet: 40, top: 60, phoneCaption: 80, wall: 72, rise: 0.05 };
 /**
  * Suited and at rest it floats (zero gravity, on its tether): a slow bob of `bob` of its height
  * and a roll of `roll` degrees, on periods that never line up, coming in over `in` seconds. Its
@@ -221,7 +224,12 @@ export class RoomScene {
     const caption = w > SIZE.narrow ? PLACE.caption : SUITED.phoneCaption;
     const room = Math.max(1, h - caption - SUITED.feet - SUITED.top);
     // its height at rest, and turned, within the room between the tab bar and the caption
-    const figure = Math.min(SUITED.share * h, (room * tall) / turned);
+    let figure = Math.min(SUITED.share * h, (room * tall) / turned);
+    // and its eyes no more than SUITED.rise of the height above wave 1's (room px, y up), unless
+    // that would draw it smaller than the bare head: soles on their line, eyes this far above them
+    const eyesWere = this.home - EYES_Y * unit;
+    const most = (SUITED.rise * h + eyesWere + h / 2 - caption - SUITED.feet) / (URCHI_FIGURE.bottom + FIGURE_TURN.drop - EYES_Y);
+    figure = Math.min(figure, Math.max(most * tall, HEAD_ART * this.pixel));
     this.fitZoom = Math.min(1, figure / (tall * unit), Math.max(0.1, w / 2 - SUITED.wall) / (URCHI_FIGURE.half * unit));
     const u = unit * this.fitZoom;
     // the soles (and a turn's drop) on the line above the caption's band
@@ -275,13 +283,17 @@ export class RoomScene {
   /**
    * What the game's stack stacks, in CSS px at rest: the head (ear tips to chin) or, suited, the
    * whole figure (crown to soles), how far down it the head's centre is (a share of it), how far a
-   * turn lifts its top (a share), and the smallest it may be drawn.
+   * turn lifts its top (a share), the smallest it may be drawn, and what it dims to where not even
+   * that fits. Suited, the whole figure may be drawn as small as the bare head's smallest (wave 4
+   * shows it smaller still, docked), so it stacks wherever the head would, on a short laptop too;
+   * where neither fits it fades right out behind the board, as at the head's 15% its helmet and
+   * boots would show round the plate.
    */
   stackShape() {
     const unit = (this.pixel * HEAD_ART) / (URCHI_HEAD.bottom - URCHI_HEAD.top);
-    if (this.suited.v < 0.5) return { h: this.urchiSize.h, centre: 0.5, rise: URCHI_TURN.rise, min: this.minHead };
+    if (this.suited.v < 0.5) return { h: this.urchiSize.h, centre: 0.5, rise: URCHI_TURN.rise, min: this.minHead, dim: DIM_FADE };
     const tall = URCHI_FIGURE.bottom - URCHI_FIGURE.top;
-    return { h: tall * unit * this.fitZoom, centre: -URCHI_FIGURE.top / tall, rise: FIGURE_TURN.rise / tall, min: (this.minHead * tall) / (URCHI_HEAD.bottom - URCHI_HEAD.top) };
+    return { h: tall * unit * this.fitZoom, centre: -URCHI_FIGURE.top / tall, rise: FIGURE_TURN.rise / tall, min: this.minHead, dim: 0 };
   }
 
   /** Into the suited framing (true) or back to wave 1's head (false), over `seconds` (0 at once). */
@@ -427,9 +439,9 @@ export class RoomScene {
     else gsap.to(this.risen, { v: on ? 1 : 0, duration: seconds, ease: "sine.inOut" });
   }
 
-  /** On a short viewport Urchi dims instead of rising. */
-  dimUrchi(on: boolean) {
-    this.urchi.fade(on ? DIM_FADE : 1, 0.6, on ? 0 : 0.2);
+  /** On a short viewport Urchi dims instead of rising: to `to` (the head's 15%, unless the stack's shape says otherwise). */
+  dimUrchi(on: boolean, to = DIM_FADE) {
+    this.urchi.fade(on ? to : 1, 0.6, on ? 0 : 0.2);
   }
 
   /** Whether a client point is on Urchi: its drawn pixels, rim included. */

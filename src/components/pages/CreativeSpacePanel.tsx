@@ -347,6 +347,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
 
     // ---- Threshold: the door, the stack, the result
     let gameOpen = false;
+    /** Along, its model came while the game was up: it suits up once the game closes (see arrive). */
+    let resumeSuit = false;
     /** The day the open run belongs to, so a run across UTC midnight still scores that day. */
     let gameDate = todayUTC();
     /** The run's result, shown once the board has left. */
@@ -373,7 +375,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       const tall = head + STACK_GAP + plate;
       const top = Math.min(Math.max((H - tall) / 2, STACK_CLEAR + ears), H - STACK_CLEAR - tall);
       room.liftUrchi(fits ? H / 2 - top - head * shape.centre : null, duration, head / shape.h);
-      room.dimUrchi(!fits);
+      room.dimUrchi(!fits, shape.dim);
       return fits ? top + head + STACK_GAP + plate / 2 - H / 2 : 0;
     };
     const showResult = (date: string, result: number) => {
@@ -421,6 +423,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       att.pause(false);
       motes.hide(false);
       suit.away(false);
+      if (resumeSuit) suit.resume();
+      resumeSuit = false;
       if (!abandoned && pending !== null) showResult(gameDate, pending);
       pending = null;
     };
@@ -563,13 +567,17 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       // Real timers, not gsap's: its clock can jump ahead after a long first frame.
       let arriveTimer = 0;
       let suitTimer = 0;
+      let suitReady = false;
       const arrive = () => {
         if (arrived) return;
         arrived = true;
         window.clearTimeout(arriveTimer);
         window.clearTimeout(suitTimer);
-        // along: already suited and tethered, as it was left (no animation)
-        if (along) suit.restore();
+        // Along: already suited and tethered, as it was left (no animation). Its model late (past
+        // SUIT_WAIT), it arrives bare, as nothing of a suit can be drawn yet, and suits up once
+        // the model is here (after the game, if that is up by then).
+        if (along && suitReady) suit.restore();
+        else if (along) pegLabel(false);
         room.showUrchi(0.6);
         begin(false);
       };
@@ -594,10 +602,18 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
           dressed = true;
           ready();
         };
-        preloadSuit().then(dress, () => {
-          along = false; // no model to wear: it stays home
-          dress();
-        });
+        preloadSuit().then(
+          () => {
+            suitReady = true;
+            if (!arrived) dress();
+            else if (gameOpen) resumeSuit = true;
+            else suit.resume();
+          },
+          () => {
+            along = false; // no model to wear: it stays home
+            dress();
+          },
+        );
         suitTimer = window.setTimeout(dress, SUIT_WAIT);
       }
       ready();
