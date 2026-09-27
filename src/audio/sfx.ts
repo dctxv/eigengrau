@@ -1137,6 +1137,15 @@ export const sfx = {
   get awake() {
     return enabled && !!ctx && ctx.state === "running";
   },
+  /**
+   * The audio clock (s), 0 before there is one: a train's offsets count from
+   * it, and a cue played now sounds on it now. The whirr keeps its ticks
+   * apart on this clock rather than the page's, which it only roughly
+   * follows.
+   */
+  get clock() {
+    return ctx ? ctx.currentTime : 0;
+  },
   set(on: boolean) {
     enabled = on;
     try {

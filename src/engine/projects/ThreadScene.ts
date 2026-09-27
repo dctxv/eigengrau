@@ -334,22 +334,33 @@ const NOVA_KEY_MS = 800;
 const NOVA_KEY_ACCEL = 2.5;
 const NOVA_KEY_MAX = 6.5;
 /**
- * The wheel over the ball may turn it at up to 1.6·S0 (4 rad/s elsewhere,
- * as ever). A notched mouse wheel spun hard settles near 2-2.6 rad/s and
- * never gets there: it steps (see NOVA_NOTCH). Past R_REF each wheel step
- * turns the ball by the same distance on its surface rather than the same
- * angle, so a big ball is not a notched wheel's way in either.
+ * Each px of wheel turns the ball WHEEL_TURN rad/s faster, to WHEEL_MAX, as
+ * ever; over the ball the most is lifted to NOVA_WHEEL_MAX·S0 (never below
+ * WHEEL_MAX, so a big ball's wheel is the one it always was). A notched
+ * mouse wheel can still spin it past S0, so it is known by its steps rather
+ * than held back by its speed: see byHand.
  */
 const NOVA_WHEEL_MAX = 1.6;
 const WHEEL_TURN = 0.0025;
 const WHEEL_MAX = 4;
 /**
- * Trackpad momentum is a run of steadily falling steps, each within
- * NOVA_RUN_GAP ms of the last: NOVA_RUN_FALLS falls in a row and it is the
- * ball coasting, until a step grows again.
+ * A wheel's run: steps of one sign, each within NOVA_RUN_GAP ms of the last.
+ * Trackpad momentum only ever falls or holds (whole pixels come in pairs, and
+ * a busy page sums a few into one), so a step counts as the hand only when it
+ * plainly grows past the lowest since the last that did, by NOVA_RISE_BY and
+ * NOVA_RISE_PX, in size and in pace alike; and NOVA_RUN_FALLS falls with none
+ * that grew is the ball coasting.
  */
 const NOVA_RUN_GAP = 120;
 const NOVA_RUN_FALLS = 4;
+const NOVA_RISE_BY = 1.1;
+const NOVA_RISE_PX = 2;
+/**
+ * A trackpad sends its steps as a stream, one a frame; a notched wheel, a
+ * step a notch, however hard it is spun: a run counts only while its steps
+ * come NOVA_STREAM_MS apart or closer, on average.
+ */
+const NOVA_STREAM_MS = 22;
 /** A wheel step this big (px) that comes the same size as the last, or a whole multiple of it, is a notch. */
 const NOVA_NOTCH = 40;
 /**
@@ -379,14 +390,19 @@ const NOVA_PIECE_INK = 0.6;
 const NOVA_HEADING = 0.5;
 /** The tick's playbackRate at full charge: faster and higher, never louder. */
 const NOVA_RATE = 1.25;
+/** The tick as a project's mark crosses the front, at rest and in the whirr alike. */
+const MARK_TICK = 0.6;
 /**
- * From NOVA_WHIRR_FROM a train on the audio clock adds a tick as each piece,
- * and each turn of the thread, crosses the front, thinned so it rises to
- * about NOVA_WHIRR_MAX a second at full charge whatever the ball holds, and
- * placed NOVA_WHIRR_AHEAD seconds ahead of the ball at a time.
+ * From NOVA_WHIRR_FROM the marks' own ticks move onto the audio clock, and a
+ * train adds a tick as each piece, and each turn of the thread, crosses the
+ * front. Marks and all, it is thinned to about NOVA_WHIRR_MAX a second at
+ * full charge whatever the ball holds, no two ticks nearer than
+ * NOVA_WHIRR_APART s (the tick has died away by then; nearer, two would sum
+ * to a louder one), and placed NOVA_WHIRR_AHEAD s ahead of the ball at a time.
  */
 const NOVA_WHIRR_FROM = 0.5;
 const NOVA_WHIRR_MAX = 40;
+const NOVA_WHIRR_APART = 0.01;
 const NOVA_WHIRR_AHEAD = 0.06;
 const NOVA_WHIRR_GAIN = [0.2, 0.35] as const;
 /** Until the collapse exists, full charge holds the tightest ball this long (s) and lets go. */
@@ -395,13 +411,25 @@ const NOVA_HOLD = 0.6;
 const NOVA_COOL = 25000;
 const NOVA_COOL_CAP = 0.35;
 /**
+ * When the cooldown ends (performance.now() ms). It outlives the scene: the
+ * panel is built afresh after every slide, and a trip to About and back is
+ * not 25 seconds.
+ */
+let novaCoolUntil = 0;
+/**
  * Let go short of the point of no return, the ball opens again and over,
- * to 1 + NOVA_SIGH of its size (less after a smaller charge), and settles:
- * a sigh. Nothing chooses while it is this tight (NOVA_QUIET) or tighter.
+ * to 1 + NOVA_SIGH of its size, and settles: a sigh. A near miss
+ * (NOVA_SIGH_FULL, one hard flick) sighs in full; a smaller charge less.
  */
 const NOVA_SIGH = 0.03;
+const NOVA_SIGH_FULL = 0.15;
 const NOVA_SIGH_BACK = 0.7;
-const NOVA_QUIET = 0.1;
+/**
+ * Pulled in this far (the most the cooldown allows), or past the point of no
+ * return, the ball chooses nothing: it is the one thing happening. Below it,
+ * a tap just after a flick chooses as ever.
+ */
+const NOVA_QUIET = 0.35;
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
@@ -702,8 +730,9 @@ export class ThreadScene {
   private lastScroll = 0;
   private dotGeo = new THREE.CircleGeometry(1, 20);
   private planeGeo = new THREE.PlaneGeometry(1, 1);
-  /** Scratch for blending a sample toward the unleaning thread. */
+  /** Scratch for blending a sample toward the unleaning thread, and for the whirr's marks. */
   private tmp = new THREE.Vector3();
+  private tmp2 = new THREE.Vector3();
 
   // The thread: M samples on the unit sphere, evenly spaced along it, and their tangents.
   /** The arc between samples: STEP, or half of it on a big ball. */
@@ -819,35 +848,48 @@ export class ThreadScene {
    * The supernova's charge (milestone A): see NOVA_S0 on. `c` is the charge;
    * `peak` the most it reached since it last sighed; `committed` past the
    * point of no return; `hold` the seconds left at the tightest ball;
-   * `coolUntil` when the cooldown ends (ms). When the hand last drove it at
-   * S0 or more, last dragged it (and whether with a finger) and last wheeled
-   * it over the ball (ms); the way it last turned. The held arrow: which,
-   * since when (ms), its free spin's speed and whether it has begun. The
-   * wheel's run, for telling a trackpad's momentum from a hand. The sigh's
-   * swell: its size now, how far into it (s, -1: none), how big and how long
-   * it takes to go out. The whirr: the angle
-   * its ticks are placed up to, the way they were placed, the ball's drawn
-   * spin (rad/s, eased), and the trains still to sound, with when they end.
+   * `coolUntil` when the cooldown ends. When the hand last drove it at S0 or
+   * more, last dragged it (and whether with a finger) and last wheeled it
+   * over the ball (ms); the way it last turned. The held arrow: which, since
+   * when (ms), its free spin's speed and whether it has begun. The wheel's run
+   * (see byHand): its last step and when, falls since one grew, whether it
+   * is coasting, its steps' spacing (ms, eased), and the lowest step since
+   * one grew, with its pace (px/ms). The sigh's swell: its size now, how far
+   * into it (s, -1: none), how big and how long it takes to go out. The
+   * whirr: whether it has the marks' ticks, the angle its ticks are placed
+   * up to and the way, the ball's drawn spin (rad/s, eased), the trains still
+   * to sound with when they end, when every tick lately placed or played
+   * sounds (s, on the audio clock), and until when (ms) the marks' ticks
+   * are its own.
    */
   private nova = {
     c: 0,
     peak: 0,
     committed: false,
     hold: 0,
-    coolUntil: 0,
+    /** When the cooldown ends (ms): novaCoolUntil, which outlives the scene. */
+    get coolUntil() {
+      return novaCoolUntil;
+    },
+    set coolUntil(t: number) {
+      novaCoolUntil = t;
+    },
     drove: -Infinity,
     dragAt: -Infinity,
     finger: false,
     wheelAt: -Infinity,
     sign: 1,
     key: { dir: 0, at: 0, spin: 0, free: false },
-    run: { t: -Infinity, d: 0, falls: 0, coasting: false },
+    run: { t: -Infinity, d: 0, falls: 0, coasting: false, gap: 0, floor: 0, pace: 0 },
     swell: { v: 0, t: -1, amount: 0, out: 0 },
+    whirring: false,
     placed: null as number | null,
     placedDir: 0,
     lastA: 0,
     whirl: 0,
     trains: [] as { cancel: () => void; until: number }[],
+    heard: [] as number[],
+    marksUntil: 0,
   };
   /** The heading's ink as an opened project leaves it (see dimHeading); a charge takes it down further. */
   private headInk = { v: 1 };
@@ -1808,11 +1850,9 @@ export class ThreadScene {
       this.angle += d * 0.002;
       return;
     }
-    // True to the surface past R_REF (see NOVA_WHEEL_MAX); at R_REF and under, the wheel it always was.
-    const surface = Math.min(1, R_REF / this.R);
     const over = clientX !== undefined && clientY !== undefined && this.overBall(clientX, clientY);
-    const most = over ? (NOVA_WHEEL_MAX * NOVA_S0) / this.R : WHEEL_MAX * surface;
-    this.vel = THREE.MathUtils.clamp(this.vel + d * WHEEL_TURN * surface, -most, most);
+    const most = over ? Math.max(WHEEL_MAX, (NOVA_WHEEL_MAX * NOVA_S0) / this.R) : WHEEL_MAX;
+    this.vel = THREE.MathUtils.clamp(this.vel + d * WHEEL_TURN, -most, most);
     if (this.byHand(d) && over) this.nova.wheelAt = performance.now();
   }
 
@@ -1823,39 +1863,58 @@ export class ThreadScene {
   }
 
   /**
-   * Whether this wheel step is the hand driving the ball. Not a trackpad's
-   * momentum, a run of steadily falling steps (see NOVA_RUN_FALLS): a step
-   * that falls never counts, and once the run is plainly momentum even the
-   * steps before it stop counting, until a finger pushes again. Nor a notched
-   * wheel's steps, which come the same size again (or a few at once, a whole
-   * multiple of it) and are big: they turn the ball as they always did, and
-   * never charge it however fast the wheel is spun.
+   * Whether this wheel step is the hand driving the ball: a trackpad under a
+   * moving finger. Not its momentum, which only falls or holds: a step counts
+   * only when it plainly grows past the lowest since the last one that did
+   * (NOVA_RISE_BY and NOVA_RISE_PX), in pace as well as size, so a few steps
+   * summed into one by a busy page are not a push; and NOVA_RUN_FALLS falls
+   * with none that grew is the ball coasting, which unmarks the steps before
+   * it until a finger pushes again. Nor a notched wheel, which steps rather
+   * than streams (NOVA_STREAM_MS), and whose steps come the same size again
+   * (or a few at once, a whole multiple of it) and big: it turns the ball as
+   * it always did, and never charges it however fast it is spun.
    */
   private byHand(d: number) {
     const r = this.nova.run;
     const now = performance.now();
     const m = Math.abs(d);
     const last = Math.abs(r.d);
-    const fresh = now - r.t > NOVA_RUN_GAP || Math.sign(d) !== Math.sign(r.d) || !last;
-    let hand = true;
+    const gap = now - r.t;
+    const fresh = gap > NOVA_RUN_GAP || Math.sign(d) !== Math.sign(r.d) || !last;
+    // px per ms, so that two steps summed into one, a frame late, keep their pace.
+    const pace = m / THREE.MathUtils.clamp(fresh ? 16 : gap, 4, 50);
+    let grew = false;
     if (fresh) {
+      // A run starts unproven: sparse until its steps come as a stream, and nothing yet has grown.
+      r.gap = NOVA_STREAM_MS * 2;
       r.falls = 0;
       r.coasting = false;
-    } else if (m < last) {
-      hand = false;
-      if (++r.falls >= NOVA_RUN_FALLS && !r.coasting) {
-        r.coasting = true;
-        this.nova.wheelAt = -Infinity;
-      }
+      r.floor = m;
+      r.pace = pace;
     } else {
-      // Falls in a row only; and a run that was momentum stays it until a step plainly grows.
-      r.falls = 0;
-      if (m > last * 1.1 + 1) r.coasting = false;
+      r.gap += (gap - r.gap) * 0.35;
+      if (m > r.floor * NOVA_RISE_BY + NOVA_RISE_PX && pace > r.pace * NOVA_RISE_BY) {
+        grew = true;
+        r.falls = 0;
+        r.coasting = false;
+        r.floor = m;
+        r.pace = pace;
+      } else {
+        // A step the same size as the last is neither: momentum's whole pixels come in pairs.
+        if (m < last && ++r.falls >= NOVA_RUN_FALLS && !r.coasting) {
+          r.coasting = true;
+          this.nova.wheelAt = -Infinity;
+        }
+        if (m <= r.floor) {
+          r.floor = m;
+          r.pace = pace;
+        }
+      }
+      if (m >= NOVA_NOTCH && Math.abs(m / last - Math.round(m / last)) < 1e-3) grew = false;
     }
-    if (!fresh && m >= NOVA_NOTCH && Math.abs(m / last - Math.round(m / last)) < 1e-3) hand = false;
     r.t = now;
     r.d = d;
-    return hand && !r.coasting;
+    return grew && !r.coasting && r.gap <= NOVA_STREAM_MS;
   }
 
   /** A press on the stage: a drag spins the ball (or scrolls the opened line); a still press is a tap. `touch`: a finger. */
@@ -1883,9 +1942,16 @@ export class ThreadScene {
       this.scroll.cur = THREE.MathUtils.clamp(this.scroll.cur - along, 0, this.scroll.max);
     } else {
       const turn = dx / Math.max(60, this.R);
-      // The hand turns the ball true to its surface; a charged ball, pulled in, spins faster than the hand.
-      this.angle += turn * this.spinK;
-      this.vel = this.opts.reducedMotion ? 0 : lerp(this.vel, turn / dt, 0.5);
+      if (this.novaBound) {
+        // Past the point of no return the hand has lost its grip: the ball spins on by itself, and
+        // a hand going its way can only spin it faster.
+        const v = turn / dt;
+        if (Math.sign(v) === this.nova.sign && Math.abs(v) > Math.abs(this.vel)) this.vel = lerp(this.vel, v, 0.5);
+      } else {
+        // The hand turns the ball true to its surface; a charged ball, pulled in, spins faster than the hand.
+        this.angle += turn * this.spinK;
+        this.vel = this.opts.reducedMotion ? 0 : lerp(this.vel, turn / dt, 0.5);
+      }
       if (dx) this.nova.dragAt = now;
     }
     d.x = x;
@@ -1899,7 +1965,7 @@ export class ThreadScene {
     const d = this.drag;
     this.drag = null;
     if (!d) return false;
-    if (d.moved && performance.now() - d.t > 90) this.vel = 0; // held still before letting go
+    if (d.moved && performance.now() - d.t > 90 && !this.novaBound) this.vel = 0; // held still before letting go
     return !d.moved;
   }
 
@@ -2588,8 +2654,10 @@ export class ThreadScene {
     const was = n.c;
     let c = was;
     if (!on) {
-      // Off (a project opening, a slide, another tab): it lets go, quickly if a project is out.
+      // Off (a project opening, a slide, another tab): it lets go, quickly if a project is out. A
+      // charge cut off past the point of no return has had its go all the same.
       c -= (this.opened ? 3 : 1) * NOVA_DRAIN * dt;
+      if (this.novaBound) n.coolUntil = now + NOVA_COOL;
       n.committed = false;
       n.hold = 0;
     } else if (n.hold > 0) {
@@ -2629,13 +2697,13 @@ export class ThreadScene {
 
   /**
    * Let go, the ball has opened all the way: it goes on a little over,
-   * NOVA_SIGH of its size after a real charge and less after a small one, at
-   * the pace it was opening, and settles back (see swell).
+   * NOVA_SIGH of its size after a near miss or more and less after a small
+   * charge, at the pace it was opening, and settles back (see swell).
    */
   private sigh() {
     const n = this.nova;
     const sw = n.swell;
-    sw.amount = NOVA_SIGH * Math.min(1, n.peak / 0.25);
+    sw.amount = NOVA_SIGH * Math.min(1, n.peak / NOVA_SIGH_FULL);
     n.peak = 0;
     if (sw.amount < 0.002) return;
     // Out at the pace it was opening (R grows at NOVA_PULL·NOVA_DRAIN a second), so the turn is smooth.
@@ -2661,15 +2729,19 @@ export class ThreadScene {
   }
 
   /**
-   * The whirr: from NOVA_WHIRR_FROM, a tick as each piece on the ball, and
-   * each turn of the thread, crosses the front, placed on the audio clock
-   * NOVA_WHIRR_AHEAD seconds ahead of the ball as it spins, so none is lost
-   * to the tick's throttle and none lands late. A turn of the thread has no
-   * one place, so each ticks where its lean walked to, a golden angle round
-   * from the last. It thins as it would pass NOVA_WHIRR_MAX a second, and
-   * comes in thin: each tick has its place in the thinning, so a rising charge
-   * only adds to the ones already heard. Heard with sound on; placed only
-   * while the ball is on screen and at rest.
+   * The whirr: from NOVA_WHIRR_FROM, the marks' ticks and a tick as each
+   * piece on the ball, and each turn of the thread, crosses the front, placed
+   * on the audio clock NOVA_WHIRR_AHEAD seconds ahead of the ball as it spins,
+   * so none is lost to the tick's throttle and none lands late. A mark ticks
+   * where crossings() hears it, at the front and as it comes round the limb,
+   * at its own level; a turn of the thread has no one place, so each ticks
+   * where its lean walked to, a golden angle round from the last. The marks
+   * keep what they would have had (thinned only past NOVA_WHIRR_MAX a second
+   * on their own), the rest share what is left of it and come in thin: each
+   * tick has its place in the thinning, so a rising charge only adds to the
+   * ones already heard. No tick lands within NOVA_WHIRR_APART of another, a
+   * mark's before the rest. Heard with sound on; placed only while the ball
+   * is on screen and at rest.
    */
   private whirr(dt: number) {
     const n = this.nova;
@@ -2679,10 +2751,13 @@ export class ThreadScene {
     n.whirl += (w - n.whirl) * (1 - Math.exp(-dt / 0.05));
     const now = performance.now();
     n.trains = n.trains.filter((t) => t.until > now);
+    const clock = sfx.clock;
+    n.heard = n.heard.filter((t) => t > clock - NOVA_WHIRR_APART);
     const on = this.novaOn;
     const ramp = smooth(clamp01((n.c - NOVA_WHIRR_FROM) / (1 - NOVA_WHIRR_FROM)));
     const spin = n.whirl;
-    if (!on || !sfx.awake || ramp <= 0 || Math.abs(spin) < 0.5) {
+    n.whirring = on && sfx.awake && ramp > 0 && Math.abs(spin) >= 0.5;
+    if (!n.whirring) {
       n.placed = null;
       // Off: what is still to sound goes with it.
       if (!on) this.hushWhirr();
@@ -2694,6 +2769,8 @@ export class ThreadScene {
     let from = n.placed !== null && n.placedDir === dir ? n.placed : a;
     from = dir > 0 ? Math.max(from, a) : Math.min(from, a);
     n.placedDir = dir;
+    // The marks are the whirr's as far ahead as it places them: crossings() leaves them be.
+    n.marksUntil = now + NOVA_WHIRR_AHEAD * 1000 + 1000 * NOVA_WHIRR_APART;
     // Already placed this far ahead (the spin eased off): nothing new, and nothing placed twice.
     if ((ahead - from) * dir <= 1e-6) {
       n.placed = from;
@@ -2702,31 +2779,62 @@ export class ThreadScene {
     n.placed = ahead;
     const lo = Math.min(from, ahead);
     const hi = Math.max(from, ahead);
-    // The pieces on the ball, then the turns.
-    const lons: number[] = [];
+    const TAU = Math.PI * 2;
     const drawn = this.draw.value * (this.M - 1);
+    // The marks: at the front, and coming round the limb a quarter turn before it.
+    const marks: number[] = [];
+    const p = this.tmp2;
+    this.beads.forEach((b) => {
+      if (!b.project || b.pop <= 0.5 || b.i > drawn) return;
+      this.samplePos(b.i, p);
+      const lon = Math.atan2(p.x, p.z);
+      marks.push(lon, lon + (dir * Math.PI) / 2);
+    });
+    // The rest: the pieces on the ball, then the turns.
+    const rest: number[] = [];
     this.pieces.forEach((pc) => {
-      if (pc.onBall && pc.bead.pop > 0.5 && pc.bead.i <= drawn) lons.push(pc.lon);
+      if (pc.onBall && pc.bead.pop > 0.5 && pc.bead.i <= drawn) rest.push(pc.lon);
     });
     const turns = Math.max(1, Math.round(this.turns));
-    for (let k = 0; k < turns; k++) lons.push(-k * GOLDEN);
-    const TAU = Math.PI * 2;
+    for (let k = 0; k < turns; k++) rest.push(-k * GOLDEN);
     // Thinned by the faster of the eased spin and this frame's, so a hand speeding up never overfills it.
-    const natural = (lons.length * Math.max(Math.abs(spin), Math.abs(w))) / TAU;
-    const share = Math.min(ramp, NOVA_WHIRR_MAX / Math.max(1e-6, natural));
-    const offsets: number[] = [];
-    lons.forEach((lon, j) => {
-      // Each has its place in the thinning: a golden-ratio sequence, so any share is spread evenly.
-      if ((j * 0.6180339887) % 1 >= share) return;
-      // It faces front where angle + lon is a whole turn.
-      for (let t = Math.ceil((lo + lon) / TAU) * TAU - lon; t <= hi; t += TAU) {
-        if (t > lo || (t === lo && from === a)) offsets.push(Math.max(0, (t - a) / spin));
-      }
-    });
-    if (!offsets.length) return;
-    offsets.sort((x, y) => x - y);
-    const cancel = sfx.train(offsets, { gain: lerp(NOVA_WHIRR_GAIN[0], NOVA_WHIRR_GAIN[1], ramp), rate: this.tickRate });
-    n.trains.push({ cancel, until: now + (offsets[offsets.length - 1] + 0.05) * 1000 });
+    const perTurn = Math.max(Math.abs(spin), Math.abs(w)) / TAU;
+    // The spacing below takes back some of what it is given (at 40 a second, about a third), so
+    // the thinning aims that much higher to be left with NOVA_WHIRR_MAX.
+    const most = NOVA_WHIRR_MAX / (1 - NOVA_WHIRR_MAX * NOVA_WHIRR_APART);
+    const markShare = Math.min(1, most / Math.max(1e-6, marks.length * perTurn));
+    const left = Math.max(0, most - marks.length * perTurn * markShare);
+    const restShare = Math.min(ramp, left / Math.max(1e-6, rest.length * perTurn));
+    // When (s from now) each crosses the front in this frame's stretch: where angle + lon is a whole turn.
+    const cross = (lons: number[], share: number) => {
+      const out: number[] = [];
+      lons.forEach((lon, j) => {
+        // Each has its place in the thinning: a golden-ratio sequence, so any share is spread evenly.
+        if ((j * 0.6180339887) % 1 >= share) return;
+        for (let t = Math.ceil((lo + lon) / TAU) * TAU - lon; t <= hi; t += TAU) {
+          if (t > lo || (t === lo && from === a)) out.push(Math.max(0, (t - a) / spin));
+        }
+      });
+      return out.sort((x, y) => x - y);
+    };
+    // Spaced on the audio clock: none within NOVA_WHIRR_APART of a tick already placed or played, the marks first.
+    const apart = (offsets: number[]) =>
+      offsets.filter((o) => {
+        const t = clock + o;
+        if (n.heard.some((h) => Math.abs(h - t) < NOVA_WHIRR_APART)) return false;
+        n.heard.push(t);
+        return true;
+      });
+    const onMarks = apart(cross(marks, markShare));
+    const onRest = apart(cross(rest, restShare));
+    const rate = this.tickRate;
+    const place = (offsets: number[], gain: number) => {
+      if (!offsets.length) return;
+      const cancel = sfx.train(offsets, { gain, rate });
+      n.trains.push({ cancel, until: now + (offsets[offsets.length - 1] + 0.05) * 1000 });
+    };
+    place(onMarks, MARK_TICK);
+    place(onRest, lerp(NOVA_WHIRR_GAIN[0], NOVA_WHIRR_GAIN[1], ramp));
   }
 
   /** Stops the whirr's ticks still to sound. */
@@ -2750,7 +2858,8 @@ export class ThreadScene {
     // Spin: slow on its own, slower still while something is held, still while a project is open.
     const idleTarget = rm || this.opened ? 0 : this.hovered ? 0.1 : 1;
     this.idleK += (idleTarget - this.idleK) * (1 - Math.pow(0.02, dt));
-    if (!this.drag?.moved && !this.turning) this.angle += (IDLE * this.idleK + this.vel) * dt * this.spinK;
+    // A ball past the point of no return spins on under a hand held still on it.
+    if ((!this.drag?.moved || this.novaBound) && !this.turning) this.angle += (IDLE * this.idleK + this.vel) * dt * this.spinK;
     this.vel *= Math.pow(0.15, dt);
     if (Math.abs(this.vel) < 1e-4) this.vel = 0;
     this.yaw += (this.targetYaw - this.yaw) * (1 - Math.pow(0.03, dt));
@@ -3323,15 +3432,22 @@ export class ThreadScene {
   /**
    * A quiet tick as each project's mark crosses the front, only while the
    * ball is being turned. The same tick at the same level, faster and higher
-   * as a charge pulls the ball in (1 at rest, exactly as it always was).
+   * as a charge pulls the ball in (1 at rest, exactly as it always was); in
+   * the whirr the marks tick on the audio clock instead (see whirr).
    */
   private crossings() {
     const turning = Math.abs(this.vel) > 0.2 || !!this.turning;
     const rate = this.tickRate;
+    const now = performance.now();
+    const whirr = this.nova.whirring || now < this.nova.marksUntil;
     this.beads.forEach((b) => {
       if (!b.project) return;
       const s = b.mz > 0 ? Math.sign(b.mx - this.cx) || 1 : 0;
-      if (s && b.crossed && s !== b.crossed && turning) sfx.play("tick", 0.6, rate);
+      if (s && b.crossed && s !== b.crossed && turning && !whirr) {
+        sfx.play("tick", MARK_TICK, rate);
+        // Charging, the whirr about to start keeps its ticks clear of this one.
+        if (this.nova.c > 0) this.nova.heard.push(sfx.clock);
+      }
       if (s) b.crossed = s;
     });
   }
