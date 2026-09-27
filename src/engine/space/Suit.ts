@@ -46,13 +46,13 @@ const UP = { frame: 0.12, frameFor: 1, body: 0.2, bodyFor: 0.95, lift: 0.45, lif
  */
 const HOME = { reel: 0.6, unseal: 0.5, fly: 0.68, flyFor: 0.9, body: 1.05, bodyFor: 0.8, frame: 0.95, frameFor: 1, done: 2 };
 /**
- * The helmet's glass as it flies (see clearGlass), by how far along its arc it is: dark inside on
- * the peg and for most of the way; clearing from `from` to `to`, before it comes down over the head,
- * so the eyes are seen through it; from `to` to `seat` clear too where the head will be, and from
- * `seat` to the head dark again round it, so sat on the head it is the worn helmet exactly, and the
- * head's own outline, inside it now, is not seen through the glass. Going home, the other way.
+ * The helmet's glass as it flies (see clearGlass): dark inside on the peg and for the first of its
+ * arc; from `from` to `to` of the way, before it comes over the head, it clears where the head is
+ * (wherever that is under it, all the way down), so the eyes are seen through it as through the
+ * worn visor, and nothing of the head's outline: sat on the head it is the worn helmet exactly.
+ * Going home, the other way.
  */
-const CLEAR = { from: 0.6, to: 0.85, seat: 0.95 };
+const CLEAR = { from: 0.45, to: 0.65 };
 /** Reduced motion: the suit fades on or off, 400ms in all (out, the change, back in), and the peg's helmet with it. */
 const FADE = 0.2;
 /** The glint on the helmet's glass as Urchi looks at it: `seconds` long, at most `alpha` white, a band `width` of the glass wide. */
@@ -360,11 +360,16 @@ export class Suit {
     return true;
   }
 
-  /** How clear the helmet's glass is now (see CLEAR), all of it and where the head will be: dark on the peg, clear coming over the head. */
-  private clearNow(): [number, number] {
+  /**
+   * How clear the helmet's glass is now (see CLEAR), and where the head is under it: its middle in
+   * the helmet's own mesh units (its canvas turned with it), and its size against the helmet's.
+   */
+  private clearNow(): [number, { x: number; y: number; k: number }] {
     const p = this.flight.p;
-    if (p <= 0) return [0, 0];
-    return [smooth(CLEAR.from, CLEAR.to, p) * (1 - smooth(CLEAR.seat, 1, p)), smooth(CLEAR.to, CLEAR.seat, p)];
+    if (p <= 0) return [0, { x: 0, y: 0, k: 1 }];
+    const at = this.where(), head = this.room.headOnScreen(), r = (-at.roll * Math.PI) / 180;
+    const dx = head.x - at.x, dy = head.y - at.y;
+    return [smooth(CLEAR.from, CLEAR.to, p), { x: (dx * Math.cos(r) - dy * Math.sin(r)) / at.unit, y: (dx * Math.sin(r) + dy * Math.cos(r)) / at.unit, k: head.unit / at.unit }];
   }
 
   /** The pose the helmet is turned to now: level on and off its peg; the head's as it comes down over it, sits on it and leaves it (see TURN). */
@@ -383,18 +388,20 @@ export class Suit {
 
   /** What the helmet's canvas shows now, as a key: it is only drawn again when that changes. */
   private drawn = "";
-  /** How clear the empty helmet's glass was last painted (see clearNow). */
-  private clear: [number, number] = [0, 0];
+  /** How clear the empty helmet's glass was last painted, and where the head under it was (see clearNow). */
+  private clear = { v: 0, x: 0, y: 0, k: 1 };
 
   /** The helmet into its canvas: the empty helmet, and the glint on its glass. */
   private draw() {
     const { glint } = this.flight;
     if (!this.empty) return;
     if (this.flight.alpha > 0) {
-      const pose = this.posed(), clear = this.clearNow(), cleared = Math.abs(clear[0] - this.clear[0]) + Math.abs(clear[1] - this.clear[1]) > 1e-4;
+      const pose = this.posed(), [clear, under] = this.clearNow(), was = this.clear;
+      // (the head's place under it to a tenth of a mesh unit: finer is no difference in its canvas)
+      const cleared = Math.abs(clear - was.v) > 1e-4 || (clear > 0 && (Math.abs(under.x - was.x) > 0.1 || Math.abs(under.y - was.y) > 0.1 || Math.abs(under.k - was.k) > 1e-4));
       if (cleared) {
-        this.empty.clearGlass(...clear);
-        this.clear = clear;
+        this.empty.clearGlass(clear, under);
+        this.clear = { v: clear, ...under };
       }
       if (Suit.turn(this.empty, this.pose, pose, cleared)) {
         this.pose = pose;

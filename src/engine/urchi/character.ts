@@ -624,13 +624,14 @@ export type UrchiCharacter = {
    */
   fog(amount?: number): void;
   /**
-   * The empty helmet's glass (suitEmpty only): its dark inside and the far side of its rim across
-   * it (as it hangs on Space's peg) wiped away by `all` (0..1) over the whole glass, and by `head`
-   * where a head would be, the head's own outline in this pose, rim not included: what is behind
-   * the canvas shows through there, under the smoke and the sheen. Lowered over the head, the eyes
-   * show through it; sat on it (`head` 1 alone) it looks exactly as the worn helmet does.
+   * The empty helmet's glass (suitEmpty only): its dark inside, and the far side of its rim across
+   * it (as it hangs on Space's peg), wiped away by `amount` (0..1) where a head is, the head's own
+   * outline in this pose, rim not included, its middle at `x`, `y` (mesh units from this helmet's
+   * middle, as painted) and `k` times this size: there what is behind the canvas shows through,
+   * under the smoke and the sheen. Brought down over a head, with where it is, the head shows
+   * through it just as it does through the worn visor, eyes and all, and nothing of its outline.
    */
-  clearGlass(all: number, head?: number): void;
+  clearGlass(amount: number, at?: { x: number; y: number; k: number }): void;
   /** The head's pose as it was last painted: what another painter holds to paint a helmet exactly over it (holdPose). */
   readonly headPose: HeadPose;
   /**
@@ -1402,11 +1403,12 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   const FOG = { alpha: 0.08, from: 0.45, full: 0.78, rise: 0.25, clear: 1.2 };
   /** The fog now (0..1), and the breath that made it: how much, and when (-1: none). */
   const fogging = { v: 0, amount: 0, start: -1 };
-  /** How clear an empty helmet's glass is, all of it and where the head would be (see clearGlass). */
-  const clearness = { all: 0, head: 0 };
+  /** How clear an empty helmet's glass is where the head is, and where that head is (see clearGlass). */
+  const clearness = { v: 0, x: 0, y: 0, k: 1 };
   /**
-   * Where the head would be, the glass clears this many canvas px inside its outline, measured where
-   * the tucked head's outline crosses the glass, about `r` mesh units from its middle (its crown).
+   * The glass clears this many canvas px inside the head's outline, measured where the tucked head's
+   * outline crosses the glass, about `r` mesh units from its middle (its crown), so a head under it
+   * drawn a pixel off never shows its rim at the edge.
    */
   const GLASS_CUT = { px: 2.5, r: 300 };
   let suit = 0;
@@ -1797,16 +1799,12 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       underlay(R.rim, through);
       for (const g of through.sort(byDepth)) fillPlane(g);
       ctx.save(); ctx.clip(opening);
-      if (empty && (clearness.all > 0 || clearness.head > 0)) {
-        // an empty helmet's glass cleared (see clearGlass): its inside wiped away, so what is behind the canvas shows through the smoke
-        ctx.globalCompositeOperation = "destination-out";
-        if (clearness.all > 0) { ctx.globalAlpha = clearness.all; ctx.fill(opening); }
-        if (clearness.head > 0) {
-          // a hair inside the head's outline (GLASS_CUT canvas px where it crosses the glass, about
-          // `r` from the middle), so a head under it drawn a pixel off never shows its rim at the edge
-          const k = 1 - (GLASS_CUT.px * CELL) / GLASS_CUT.r;
-          ctx.globalAlpha = clearness.head; ctx.save(); ctx.transform(k, 0, 0, k, 0, 0); ctx.fill(head); ctx.restore();
-        }
+      if (empty && clearness.v > 0) {
+        // an empty helmet's glass cleared where the head is (see clearGlass): its inside wiped away
+        // there, so the head behind the canvas shows through the smoke; a hair inside its outline
+        const { x, y, k } = clearness, s = k - (GLASS_CUT.px * CELL) / GLASS_CUT.r;
+        ctx.globalCompositeOperation = "destination-out"; ctx.globalAlpha = clearness.v;
+        ctx.save(); ctx.transform(s, 0, 0, s, x, y); ctx.fill(head); ctx.restore();
         ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
       }
       headItems();
@@ -1941,7 +1939,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   function paint(yaw: number, pitch: number, roll: number): boolean {
     Object.assign(posed, { yaw, pitch, roll, shift, rise });
     const now = [yaw, pitch, roll, lidOf(0), lidOf(1), gaze.x.v, gaze.y.v, gaze.h.v, gaze.conv.v, wide.v, shift, rise, reveal, CELL, rimWidth()];
-    if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift, fogging.v, clearness.all, clearness.head);
+    if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift, fogging.v, clearness.v, clearness.x, clearness.y, clearness.k);
     const was = lastDrawn;
     if (was && was.length === now.length && now.every((v, i) => Math.abs(v - was[i]) < DRAWN_EPS)) return false;
     lastDrawn = now;
@@ -2091,9 +2089,9 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       if (suit <= 0) return;
       fogging.amount = clamp(amount, 0, 1); fogging.start = S.t;
     },
-    clearGlass(all, head = 0) {
-      clearness.all = clamp(all, 0, 1);
-      clearness.head = clamp(head, 0, 1);
+    clearGlass(amount, at) {
+      clearness.v = clamp(amount, 0, 1);
+      if (at) Object.assign(clearness, { x: at.x, y: at.y, k: at.k });
     },
     get headPose() {
       return { ...posed };
