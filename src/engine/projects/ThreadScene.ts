@@ -388,7 +388,8 @@ const NOVA_DRAG_MS = 120;
 /**
  * A finger's flick is over in a tenth of a second, where a mouse's drag
  * lasts: on touch the drag counts for this long after it last moved, so
- * three or four hard flicks set it off on a phone, and one is a near miss.
+ * three to five hard flicks set it off on a phone (three at an easy pace,
+ * more in a rush or far apart), and one is a near miss.
  */
 const NOVA_FLICK_MS = 220;
 const NOVA_WHEEL_MS = 150;
@@ -434,7 +435,7 @@ const NOVA_NOTCH = 40;
  * a second while driven at S0 or more, and drains at NOVA_DRAIN otherwise.
  * Between strokes, the ball still turning at S0 or more within
  * NOVA_BETWEEN_MS of the hand leaving it, it neither rises nor drains, so
- * flicks in a row add up (three or four hard ones on a phone) while one
+ * flicks in a row add up (three to five hard ones on a phone) while one
  * flick, or a trackpad's momentum, only ever lets go.
  */
 const NOVA_RISE = 0.35;
