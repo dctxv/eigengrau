@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import gsap from "gsap";
 import { makeRenderer } from "@/engine/common/loader";
-import { URCHI_BOX, URCHI_EYES, URCHI_FRAME, URCHI_HEAD } from "@/engine/urchi/character";
+import type { Attention } from "@/engine/urchi/attention";
+import { URCHI_BOX, URCHI_EYES, URCHI_HEAD, type UrchiCharacter } from "@/engine/urchi/character";
 import { Urchi } from "@/engine/urchi/Urchi";
 
 export type RoomOptions = {
@@ -13,9 +14,6 @@ const ART_CELL = 7.5;
 /** Urchi's box and head in art pixels: 144 across, about 116 from ear tips to chin. */
 const BOX_ART = URCHI_BOX.w / ART_CELL;
 const HEAD_ART = (URCHI_HEAD.bottom - URCHI_HEAD.top) / ART_CELL;
-/** The canvas's edges from the head's centre, in art pixels: half its width, and its top (up is +y here). */
-const FRAME_HALF_W = URCHI_FRAME.w / 2 / ART_CELL;
-const FRAME_TOP = -URCHI_FRAME.y / ART_CELL;
 /** The eyes' midpoint below the head's centre, and the chin below the eyes, as shares of the head's height. */
 const EYES_Y = URCHI_EYES.centres.reduce((s, p) => s + p[1], 0) / (URCHI_EYES.centres.length || 1);
 const EYES_DOWN = EYES_Y / (URCHI_HEAD.bottom - URCHI_HEAD.top);
@@ -73,6 +71,31 @@ const LEAN = { closer: 0.04, in: 0.45, out: 0.7 };
  */
 const RISE = { share: 0.03, long: 0.05, narrow: 0.02 };
 const DIM_FADE = 0.15;
+/**
+ * The suited figure at rest (panel 2, the spacesuit), in mesh units from the head's centre (y down),
+ * rim included, as the painter draws it facing you: the helmet's crown, the soles, and half its
+ * width, the helmet's side discs (measured on the painted figure).
+ */
+export const URCHI_FIGURE = { top: -362, bottom: 1491, half: 566 } as const;
+/** How far past that a turn reaches, mesh units: the crown looking up (a caught stretch's the most), the boots as it turns. */
+const FIGURE_TURN = { rise: 90, drop: 26 };
+/**
+ * Suited, it steps back: the whole astronaut `share` of the height, never bigger than the head was
+ * drawn (wave 1's size is what it returns to), standing `feet` px clear of the caption's band (the
+ * bottom 64px; about 80 on a phone, where the band sits higher), and under the tab bar's `top` px
+ * with room for its turn; and `wall` px clear of each side (the peg is on the left one, and its
+ * tether wants a length of rope to show). It stands as low as that lets it, so its eyes rise as
+ * little as they can, and the room stays mostly dark round it.
+ */
+const SUITED = { share: 0.56, feet: 40, top: 60, phoneCaption: 80, wall: 72 };
+/**
+ * Suited and at rest it floats (zero gravity, on its tether): a slow bob of `bob` of its height
+ * and a roll of `roll` degrees, on periods that never line up, coming in over `in` seconds. Its
+ * pivot is the figure's middle, so the helmet and the boots swing apart.
+ */
+const DRIFT = { bob: 0.008, roll: 1.4, periods: [7.7, 11.3] as const, in: 2.5, out: 0.8 };
+/** Where the tether clips on: the left side of the backpack, half way down it, on screen at rest (mesh units, perspective in; hidden behind the arm and the torso). */
+const PACK = { x: -134, y: 616 };
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -126,8 +149,20 @@ export class RoomScene {
   private lean = { v: 0 };
   /** Risen in a stretch, 0 .. 1. Tweened. */
   private risen = { v: 0 };
+  /** Suited framing, 0 (wave 1's head) .. 1 (the whole astronaut): its size against rest there, and its head's centre above the room's centre. Tweened. */
+  private suited = { v: 0 };
+  private fitZoom = 1;
+  private fitY = 0;
+  /** The zero-g drift: how much of it (0 .. 1, tweened), its clock, and this frame's bob (px) and roll (radians). */
+  private drift = { amp: 0, t: 0, bob: 0, roll: 0 };
+  /**
+   * The Attention that looks out through this Urchi (the panel's), for the companion to take over
+   * with the same character when it leaves Space (see handover).
+   */
+  attention: Attention | null = null;
   private opts: RoomOptions;
   private hooks = new Set<(dt: number) => void>();
+  private afterHooks = new Set<(dt: number) => void>();
   private tick: (time: number, dt: number) => void;
   private disposed = false;
 
@@ -173,6 +208,24 @@ export class RoomScene {
     this.sink = clamp(h - PLACE.caption - PLACE.chin - PLACE.outline - chin, 0, SETTLE.sink * h);
     this.urchi.width = this.pixel * BOX_ART;
     this.urchi.pixelRatio = this.ratio;
+    this.fitSuited(w, h);
+  }
+
+  /**
+   * The suited framing for this viewport (see SUITED): the figure's height, as a size against the
+   * head's rest, and where the head's centre goes so the soles stand clear of the caption.
+   */
+  private fitSuited(w: number, h: number) {
+    const unit = (this.pixel * HEAD_ART) / (URCHI_HEAD.bottom - URCHI_HEAD.top); // css px per mesh unit at rest
+    const tall = URCHI_FIGURE.bottom - URCHI_FIGURE.top, turned = tall + FIGURE_TURN.rise + FIGURE_TURN.drop;
+    const caption = w > SIZE.narrow ? PLACE.caption : SUITED.phoneCaption;
+    const room = Math.max(1, h - caption - SUITED.feet - SUITED.top);
+    // its height at rest, and turned, within the room between the tab bar and the caption
+    const figure = Math.min(SUITED.share * h, (room * tall) / turned);
+    this.fitZoom = Math.min(1, figure / (tall * unit), Math.max(0.1, w / 2 - SUITED.wall) / (URCHI_FIGURE.half * unit));
+    const u = unit * this.fitZoom;
+    // the soles (and a turn's drop) on the line above the caption's band
+    this.fitY = -h / 2 + caption + SUITED.feet + (URCHI_FIGURE.bottom + FIGURE_TURN.drop) * u;
   }
 
   /** Runs `fn(dt)` every frame, before Urchi and the render; returns the way to stop it. */
@@ -180,6 +233,14 @@ export class RoomScene {
     this.hooks.add(fn);
     return () => {
       this.hooks.delete(fn);
+    };
+  }
+
+  /** Runs `fn(dt)` every frame once Urchi is placed, before the render (what follows the figure: the tether); returns the way to stop it. */
+  afterUrchi(fn: (dt: number) => void) {
+    this.afterHooks.add(fn);
+    return () => {
+      this.afterHooks.delete(fn);
     };
   }
 
@@ -199,6 +260,108 @@ export class RoomScene {
   /** The smallest head the room draws, in CSS px: one screen pixel per art pixel, about 116. */
   get minHead() {
     return pixelAt(1, this.ratio) * HEAD_ART;
+  }
+
+  /** How far into the suited framing it is: 0 wave 1's head, 1 the whole astronaut (between, stepping back or forward). */
+  get suitedness() {
+    return this.suited.v;
+  }
+
+  /** The size Urchi is shown at against wave 1's rest, by the suited framing alone (1 unsuited): what distances measured by urchiSize scale by. */
+  get fit() {
+    return 1 + (this.fitZoom - 1) * this.suited.v;
+  }
+
+  /**
+   * What the game's stack stacks, in CSS px at rest: the head (ear tips to chin) or, suited, the
+   * whole figure (crown to soles), how far down it the head's centre is (a share of it), how far a
+   * turn lifts its top (a share), and the smallest it may be drawn.
+   */
+  stackShape() {
+    const unit = (this.pixel * HEAD_ART) / (URCHI_HEAD.bottom - URCHI_HEAD.top);
+    if (this.suited.v < 0.5) return { h: this.urchiSize.h, centre: 0.5, rise: URCHI_TURN.rise, min: this.minHead };
+    const tall = URCHI_FIGURE.bottom - URCHI_FIGURE.top;
+    return { h: tall * unit * this.fitZoom, centre: -URCHI_FIGURE.top / tall, rise: FIGURE_TURN.rise / tall, min: (this.minHead * tall) / (URCHI_HEAD.bottom - URCHI_HEAD.top) };
+  }
+
+  /** Into the suited framing (true) or back to wave 1's head (false), over `seconds` (0 at once). */
+  frameSuited(on: boolean, seconds: number, ease = "power2.inOut") {
+    gsap.killTweensOf(this.suited);
+    if (seconds <= 0) this.suited.v = on ? 1 : 0;
+    else gsap.to(this.suited, { v: on ? 1 : 0, duration: seconds, ease });
+  }
+
+  /** The zero-g drift in (true) or out (false); never under reduced motion. `now`: at once. */
+  floatUrchi(on: boolean, now = false) {
+    gsap.killTweensOf(this.drift);
+    const amp = on && !this.opts.reducedMotion ? 1 : 0;
+    if (now) this.drift.amp = amp;
+    else gsap.to(this.drift, { amp, duration: on ? DRIFT.in : DRIFT.out, ease: "sine.inOut" });
+  }
+
+  /** CSS px per mesh unit as Urchi is drawn this frame. */
+  private get unitNow() {
+    return this.urchi.mesh.scale.x / this.urchi.character.frame.w;
+  }
+
+  /** A point of the figure (mesh units from the head's centre, y down, as painted facing you) where it is on screen this frame, in room px (y up): the drift's roll and bob included. */
+  onFigure(mx: number, my: number) {
+    const u = this.unitNow, m = this.urchi.mesh, c = Math.cos(this.drift.roll), s = Math.sin(this.drift.roll);
+    const x = mx * u, y = -my * u;
+    return { x: m.position.x + x * c - y * s, y: m.position.y + x * s + y * c };
+  }
+
+  /** Where the tether clips onto the backpack this frame, in room px. */
+  backpack() {
+    return this.onFigure(PACK.x, PACK.y);
+  }
+
+  /** The head's centre and the mesh units' size on screen this frame, in client px: where a helmet brought to it must land. */
+  headOnScreen() {
+    const r = this.canvas.getBoundingClientRect(), m = this.urchi.mesh;
+    return { x: r.left + r.width / 2 + m.position.x, y: r.top + r.height / 2 - m.position.y, unit: this.unitNow, roll: this.drift.roll };
+  }
+
+  /** The suited figure's rect on screen now, in client px (the drift's roll taken in); unsuited, the head's box. */
+  figureRect(): DOMRect {
+    const r = this.canvas.getBoundingClientRect();
+    const suited = this.urchi.character.suit > 0;
+    const [x0, x1, y0, y1] = suited ? [-URCHI_FIGURE.half, URCHI_FIGURE.half, URCHI_FIGURE.top, URCHI_FIGURE.bottom] : [URCHI_BOX.x, URCHI_BOX.x + URCHI_BOX.w, URCHI_HEAD.top, URCHI_HEAD.bottom];
+    const pts = [this.onFigure(x0, y0), this.onFigure(x1, y0), this.onFigure(x0, y1), this.onFigure(x1, y1)];
+    const xs = pts.map((p) => r.left + r.width / 2 + p.x), ys = pts.map((p) => r.top + r.height / 2 - p.y);
+    return new DOMRect(Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  }
+
+  /**
+   * What the companion takes over from the room as the slide starts (the next packet builds it):
+   * the figure's rect on screen, the same character and attention (never a second Urchi), and what
+   * to bring it back to on tab 1, wave 1's rest: its size (urchiSize) and where its eyes are there.
+   */
+  handover(): { rect: DOMRect; character: UrchiCharacter; attention: Attention | null; home: { size: { w: number; h: number }; eyes: { x: number; y: number; reach: number } } } {
+    return { rect: this.figureRect(), character: this.urchi.character, attention: this.attention, home: { size: this.urchiSize, eyes: this.eyesAt(false) } };
+  }
+
+  /** CSS px per mesh unit at rest (awake, not stacked): wave 1's head, or suited. */
+  unitAt(suited: boolean) {
+    return (this.pixel / ART_CELL) * (suited ? this.fitZoom : 1);
+  }
+
+  /** Where the eyes are at rest (awake, not stacked), in room px: at wave 1's size (what a return lands on), or suited. */
+  eyesAt(suited: boolean) {
+    const unit = this.unitAt(suited);
+    const c = URCHI_EYES.centres;
+    const mx = c.reduce((s, p) => s + p[0], 0) / (c.length || 1);
+    const my = c.reduce((s, p) => s + p[1], 0) / (c.length || 1);
+    const reach = Math.max(0, ...c.map(([x, y]) => Math.hypot(x - mx, y - my))) + URCHI_EYES.reach;
+    return { x: mx * unit, y: (suited ? this.fitY : this.home) - my * unit, reach: reach * unit };
+  }
+
+  /** Whether a room point (px, y up) falls within the suited figure's box, `margin` px round it; never unsuited. */
+  nearFigure(x: number, y: number, margin: number) {
+    if (this.urchi.character.suit <= 0) return false;
+    const r = this.figureRect(), c = this.canvas.getBoundingClientRect();
+    const cx = c.left + c.width / 2 + x, cy = c.top + c.height / 2 - y;
+    return cx > r.left - margin && cx < r.right + margin && cy > r.top - margin && cy < r.bottom + margin;
   }
 
   /**
@@ -279,9 +442,10 @@ export class RoomScene {
 
   /** The head's centre above the room's centre, and its size against rest: home (settled, at night) blended into the stack, leaning in or not, risen or not. */
   private pose() {
-    const s = this.settle.v, k = this.stack.k;
-    const rest = this.home - this.sink * s;
-    const zoom = this.stack.zoom * (1 - SETTLE.smaller * s) * (1 + LEAN.closer * this.lean.v);
+    const s = this.settle.v, k = this.stack.k, f = this.suited.v;
+    // suited, it stands where the whole figure fits (and does not sink on its pillow: its soles are on their line)
+    const rest = f > 0 ? this.home + (this.fitY - this.home) * f - this.sink * s * (1 - f) : this.home - this.sink * s;
+    const zoom = this.stack.zoom * (1 - SETTLE.smaller * s) * (1 + LEAN.closer * this.lean.v) * (f > 0 ? 1 + (this.fitZoom - 1) * f : 1);
     // risen, and taller about the head's centre: lifted by half of that too, so the chin stays put
     const risen = (RISE.share + RISE.long / 2) * this.pixel * HEAD_ART * zoom * this.risen.v;
     return { y: rest + (this.stack.y - rest) * k + risen, zoom };
@@ -293,10 +457,12 @@ export class RoomScene {
    */
   private placeUrchi(y: number) {
     const size = this.pixel * this.urchi.appear * this.urchi.zoom;
+    // the canvas's edges from the head's centre, in art pixels (the suit's frame is taller): half its width, and its top
+    const f = this.urchi.character.frame, halfW = -f.x / ART_CELL, frameTop = -f.y / ART_CELL;
     const snap = (v: number) => Math.round(v * this.ratio) / this.ratio;
-    const left = snap(this.width / 2 - FRAME_HALF_W * size);
-    const top = snap(this.height / 2 - y - FRAME_TOP * size);
-    this.urchi.mesh.position.set(left + FRAME_HALF_W * size - this.width / 2, this.height / 2 - top - FRAME_TOP * size, 0);
+    const left = snap(this.width / 2 - halfW * size);
+    const top = snap(this.height / 2 - y - frameTop * size);
+    this.urchi.mesh.position.set(left + halfW * size - this.width / 2, this.height / 2 - top - frameTop * size, 0);
   }
 
   // ---------------------------------------------------------------- frame
@@ -312,7 +478,23 @@ export class RoomScene {
       this.urchi.mesh.scale.y *= 1 + RISE.long * v;
       this.urchi.mesh.scale.x *= 1 - RISE.narrow * v;
     }
-    this.placeUrchi(y);
+    const d = this.drift;
+    if (d.amp > 0) {
+      d.t += dt;
+      const tall = (URCHI_FIGURE.bottom - URCHI_FIGURE.top) * this.unitNow;
+      d.bob = d.amp * DRIFT.bob * tall * Math.sin((2 * Math.PI * d.t) / DRIFT.periods[0]);
+      d.roll = ((d.amp * DRIFT.roll * Math.PI) / 180) * Math.sin((2 * Math.PI * d.t) / DRIFT.periods[1] + 1);
+    } else d.bob = d.roll = 0;
+    this.placeUrchi(y + d.bob);
+    const m = this.urchi.mesh;
+    m.rotation.z = d.roll;
+    if (d.roll) {
+      // about the figure's middle, so the helmet and the boots swing apart
+      const c = ((URCHI_FIGURE.top + URCHI_FIGURE.bottom) / 2) * this.unitNow;
+      m.position.x += c * Math.sin(d.roll);
+      m.position.y += c - c * Math.cos(d.roll);
+    }
+    this.afterHooks.forEach((fn) => fn(dt));
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -323,8 +505,11 @@ export class RoomScene {
     gsap.killTweensOf(this.settle);
     gsap.killTweensOf(this.lean);
     gsap.killTweensOf(this.risen);
+    gsap.killTweensOf(this.suited);
+    gsap.killTweensOf(this.drift);
     gsap.killTweensOf(this.urchi);
     this.hooks.clear();
+    this.afterHooks.clear();
     this.urchi.dispose();
     this.renderer.dispose();
   }

@@ -517,6 +517,113 @@ export function* lost(a: Attention): Act {
   }
 }
 
+// ------------------------------------------------------------------ the spacesuit (panel 2)
+
+/**
+ * Suiting up, the eyes' side of it (the room builds the suit and flies the helmet, Suit.ts): it
+ * looks at the peg and dips (anticipation, 0.2s), follows the helmet on its arc, and as it comes
+ * down over its head the eyes lock on it, the pupils up at the glass, the breath held; `sealed`,
+ * the visor clears onto them, wide. Then it looks out at you, and a deep, satisfied breath: on the
+ * way out it fogs the lower visor (`fog`) and it blinks, slowly. Under reduced motion (the suit
+ * simply fades on) only the look and the blink.
+ */
+export function* suitUp(a: Attention, o: { peg: Where; helmet: () => Point | null; landing: () => boolean; sealed: () => boolean; fog: () => void }): Act {
+  try {
+    a.steady(true);
+    a.look(o.peg, "quick");
+    if (!a.reduced) a.ch.pose(0, 5, 0, 14);
+    yield 0.2;
+    a.restPose(8);
+    if (a.reduced) {
+      yield* until(a, o.sealed, 2);
+      a.look(face(a));
+      yield 0.5;
+      a.ch.slowBlink();
+      yield 1;
+      return;
+    }
+    yield* until(a, () => o.helmet() !== null, 1.5);
+    a.look(() => o.helmet() ?? a.gazeNow);
+    yield* until(a, o.landing, 2.5);
+    a.look(face(a));
+    a.eyes(0, -0.75);
+    a.ch.pauseBreath(0.9);
+    yield* until(a, o.sealed, 1.5);
+    a.ch.widen(0.12, 1);
+    yield 0.45;
+    a.eyes(null);
+    a.look("you");
+    yield 0.25;
+    a.holdBlinks(1.6); // no quick blink of its own before the satisfied one
+    a.ch.deepBreath(0.7, 1.2, 1.25);
+    yield 0.75;
+    o.fog();
+    yield 0.3;
+    a.ch.slowBlink();
+    yield 1.1;
+  } finally {
+    a.steady(false);
+    a.eyes(null);
+    a.restPose();
+    a.look(null);
+  }
+}
+
+/**
+ * Leaving it home: facing out (so the helmet lifted off it is the one it wears), its eyes alone go
+ * to the tether reeling in to the peg; then it watches the helmet float back there, and looks back
+ * at you.
+ */
+export function* leaveHome(a: Attention, o: { peg: () => Point | null; helmet: () => Point | null; done: () => boolean }): Act {
+  try {
+    a.steady(true);
+    a.look(face(a));
+    const h = a.head(), peg = o.peg();
+    if (peg) a.eyes(clamp((peg.x - h.x) / (h.reach * 2), -1, 1), clamp((peg.y - h.y) / (h.reach * 2), -1, 1));
+    if (!a.reduced) {
+      yield* until(a, () => o.helmet() !== null, 1.6);
+      a.eyes(null);
+      a.look(() => o.helmet() ?? a.gazeNow);
+    } else yield 0.6;
+    yield* until(a, o.done, 3);
+    yield 0.2;
+    a.look("you");
+    yield 0.4;
+  } finally {
+    a.steady(false);
+    a.eyes(null);
+    a.look(null);
+  }
+}
+
+/**
+ * At his night the peg is pressed: it half wakes (the lids part to half, the pupils toward the
+ * peg), glances away from it, and sleeps on. It does not go along asleep.
+ */
+export function* decline(a: Attention, peg: Point | null): Act {
+  const h = a.head();
+  const side = peg && peg.x < h.x ? -1 : 1;
+  try {
+    a.ch.pauseBreath(0.5);
+    a.ch.setLids(0.55, 0.55, 0.35);
+    if (peg) a.eyes(side * 0.8, clamp((peg.y - h.y) / (h.reach * 2), -1, 1));
+    yield 0.7;
+    // and away from it, as if it had not seen
+    a.eyes(-side * 0.9, 0.2);
+    if (!a.reduced) a.ch.pose(-side * 6, 8, -side * 3, 3);
+    yield 0.6;
+    a.ch.setLids(1, 1, 0.5);
+    yield 0.6;
+    a.eyes(null);
+    a.restPose(2);
+    yield 1.2;
+  } finally {
+    a.eyes(null);
+    if (a.mood !== "awake") a.ch.setLids(1, 1, 0.3);
+    a.restPose();
+  }
+}
+
 // ------------------------------------------------------------------ caught in the act (panel 2, N3)
 
 /**

@@ -31,7 +31,7 @@ export type Where = Point | (() => Point | null);
 export type Act = Generator<number, void, void>;
 export type Mood = "awake" | "dozing" | "asleep";
 
-export type TargetKind = "pointer" | "pill" | "exit" | "mote";
+export type TargetKind = "pointer" | "pill" | "exit" | "mote" | "interest";
 export type TargetSpec = {
   id: string;
   kind: TargetKind;
@@ -56,8 +56,16 @@ export type AttentionOptions = {
   onMood?: (mood: Mood) => void;
 };
 
-/** What a target pulls with at no novelty at all. */
-const FLOOR: Record<TargetKind, number> = { pointer: 0.3, pill: 0.6, exit: 0.65, mote: 0.2 };
+/**
+ * What a target pulls with at no novelty at all. An interest (the peg on Space, with its low weight)
+ * never wins by itself: it takes a spike of novelty for it to be looked at, briefly.
+ */
+const FLOOR: Record<TargetKind, number> = { pointer: 0.3, pill: 0.6, exit: 0.65, mote: 0.2, interest: 0.6 };
+/**
+ * A hovered pill's weight: a pet watching you head for the door, and more so with its lead on
+ * (suited, the tabs are where it would go along to: panel 2).
+ */
+const PILL_WEIGHT = { home: 1.3, along: 1.8 };
 const NOVELTY = { halfLife: 5, wiggleHalfLife: 2, habituate: 0.45, recent: 6 };
 /** A challenger must pull this much harder, and the current look be this old, before the eyes move. */
 const HYSTERESIS = { ratio: 1.2, margin: 0.05, dwell: 0.35 };
@@ -156,6 +164,7 @@ export class Attention {
   private steadying = false;
   /** Soft-eyed until then (attention seconds). */
   private softUntil = -1;
+  private pillWeight = PILL_WEIGHT.home;
   private pointer = {
     x: 0, y: 0, has: false, touch: false, vx: 0, vy: 0, speed: 0,
     /** Last event of any kind, last move, when it left the window, when it last went fast. */
@@ -251,6 +260,12 @@ export class Attention {
    */
   rouse() {
     if (this.mood === "dozing" && this.canStir()) this.play("stir", 8, () => stir(this, true), { sleeping: true });
+  }
+
+  /** With its lead on (suited, true) the tab pills pull harder: 1.8 against 1.3. */
+  setAlong(on: boolean) {
+    this.pillWeight = on ? PILL_WEIGHT.along : PILL_WEIGHT.home;
+    for (const tg of this.targets.values()) if (tg.kind === "pill") tg.weight = this.pillWeight;
   }
 
   /** Soft eyes for `seconds` from now (see SOFT): it trusts you. */
@@ -542,7 +557,7 @@ export class Attention {
       const href = tab.getAttribute("href") ?? "";
       const id = `pill:${href}`;
       if (!this.targets.has(id)) {
-        this.add({ id, kind: "pill", weight: 1.3, at: () => pillAt(href) });
+        this.add({ id, kind: "pill", weight: this.pillWeight, at: () => pillAt(href) });
         this.spike(id, 1);
         if (href === this.nodPill) this.play("nod", 2, () => nod(this), { queue: 0.8 });
       }

@@ -96,6 +96,204 @@ export function preloadSuit(): Promise<void> {
   return suitLoad;
 }
 
+/**
+ * When each of the body's planes comes on as the suit builds itself, in how far the growth has
+ * travelled from the neck ring by then (the helmet's planes are left at 0: it rises whole). The
+ * growth runs along the body's surface (the edges of each part's triangles), never through the
+ * air, and onto another part it touches (within `link` of it) only from what of this part is
+ * showing by then, so nothing ever comes on apart from what is already there: a limb grows down
+ * from the shoulder, and a button or a pad never comes before the plate it sits on.
+ * - A plane shows once every corner of it is reached. A part of `whole` planes or fewer (a glove, a
+ *   boot, a hose's segment, the leg) shows all at once, when the last of them does: plane by plane
+ *   its long thin sides, seen edge on, stood alone for a moment and read as splinters.
+ * - A part under `sits` of the size of one it touches sits on it: it is reached no sooner than every
+ *   plane of that part it touches shows.
+ * By a plane's middle in plain distance, as before, a wide plate under the collar came first and
+ * floated, and the inner faces of the boots hung down in wedges. Worked out once, when the suit is
+ * first painted.
+ */
+const GROWTH = { link: 60, tie: 0.5, whole: 30, sits: 0.1 };
+/** The growth, once for every Urchi on the page (it depends on the model alone). */
+let grownOnce: Float64Array | null = null;
+function growthOf(D: Suit): Float64Array {
+  if (grownOnce) return grownOnce;
+  const V = D.v, nv = V.length / 3, nf = D.f.length / 3, np = Math.max(...D.g) + 1, nparts = D.parts.length;
+  const body = (i: number) => !D.parts[D.vp[i]].rigid;
+  const dist = (a: number, b: number) => Math.hypot(V[a * 3] - V[b * 3], V[a * 3 + 1] - V[b * 3 + 1], V[a * 3 + 2] - V[b * 3 + 2]);
+  const hidden = new Uint8Array(nf);
+  for (const i of D.hidden) hidden[i] = 1;
+  // each vertex's neighbours along its part's surface, [vertex, length, ...]; each plane's corners,
+  // each vertex's planes, each part's planes, and how many of them are ever seen
+  const adj: number[][] = Array.from({ length: nv }, () => []);
+  const facesOf: number[][] = D.parts.map(() => []);
+  const cornersOf: Set<number>[] = Array.from({ length: np }, () => new Set());
+  const partOf = new Int32Array(np).fill(-1), seen = new Uint8Array(np);
+  for (let i = 0; i < nf; i++) {
+    const a = D.f[i * 3], b = D.f[i * 3 + 1], c = D.f[i * 3 + 2], g = D.g[i];
+    if (!body(a)) continue;
+    adj[a].push(b, dist(a, b), c, dist(a, c)); adj[b].push(a, dist(a, b), c, dist(b, c)); adj[c].push(a, dist(a, c), b, dist(b, c));
+    facesOf[D.vp[a]].push(i);
+    cornersOf[g].add(a).add(b).add(c);
+    partOf[g] = D.vp[a];
+    if (!hidden[i]) seen[g] = 1;
+  }
+  const planesOf: number[][] = Array.from({ length: nv }, () => []), cornersLeft = new Int32Array(np);
+  const partPlanes: number[][] = D.parts.map(() => []), shown = new Int32Array(nparts);
+  cornersOf.forEach((s, g) => {
+    if (!s.size) return;
+    cornersLeft[g] = s.size;
+    s.forEach((v) => planesOf[v].push(g));
+    partPlanes[partOf[g]].push(g);
+    if (seen[g]) shown[partOf[g]]++;
+  });
+  const whole = shown.map((n) => (n <= GROWTH.whole ? 1 : 0)), partLeft = partPlanes.map((l) => l.length);
+  // across the parts: from a plane of one to each vertex of another within reach of it, [vertex,
+  // distance, ...] (the parts' boxes first, so far ones are never searched)
+  const across: number[][] = Array.from({ length: np }, () => []), touching = D.parts.map(() => new Set<number>());
+  const box = D.parts.map(() => [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]);
+  for (let i = 0; i < nv; i++) for (let k = 0; k < 3; k++) { const b = box[D.vp[i]]; b[k] = Math.min(b[k], V[i * 3 + k]); b[k + 3] = Math.max(b[k + 3], V[i * 3 + k]); }
+  const volume = box.map((b) => (b[3] - b[0]) * (b[4] - b[1]) * (b[5] - b[2]));
+  // each face's box, so a face farther than the nearest found so far is passed over unmeasured
+  const fbox = new Float64Array(nf * 6);
+  for (let f = 0; f < nf; f++) for (let k = 0; k < 3; k++) {
+    const a = V[D.f[f * 3] * 3 + k], b = V[D.f[f * 3 + 1] * 3 + k], c = V[D.f[f * 3 + 2] * 3 + k];
+    fbox[f * 6 + k] = Math.min(a, b, c); fbox[f * 6 + 3 + k] = Math.max(a, b, c);
+  }
+  const boxGap = (f: number, x: number, y: number, z: number) => {
+    const dx = Math.max(fbox[f * 6] - x, 0, x - fbox[f * 6 + 3]), dy = Math.max(fbox[f * 6 + 1] - y, 0, y - fbox[f * 6 + 4]), dz = Math.max(fbox[f * 6 + 2] - z, 0, z - fbox[f * 6 + 5]);
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  };
+  const near = (f: number, x: number, y: number, z: number) => closestOnTriangle(V, D.f[f * 3], D.f[f * 3 + 1], D.f[f * 3 + 2], x, y, z);
+  for (let i = 0; i < nv; i++) {
+    if (!body(i)) continue;
+    const pi = D.vp[i], x = V[i * 3], y = V[i * 3 + 1], z = V[i * 3 + 2], L = GROWTH.link;
+    D.parts.forEach((P, pj) => {
+      const b = box[pj];
+      if (pj === pi || P.rigid || x < b[0] - L || y < b[1] - L || z < b[2] - L || x > b[3] + L || y > b[4] + L || z > b[5] + L) return;
+      // the nearest of it, and every face as near as that but a hair (a tie broken one way on one
+      // side and the other way on the other would build the two halves differently)
+      let best = L;
+      for (const f of facesOf[pj]) if (boxGap(f, x, y, z) < best) best = Math.min(best, near(f, x, y, z));
+      if (best >= L) return;
+      const planes = new Set<number>();
+      for (const f of facesOf[pj]) if (boxGap(f, x, y, z) <= best + GROWTH.tie && near(f, x, y, z) <= best + GROWTH.tie) planes.add(D.g[f]);
+      for (const g of planes) { across[g].push(i, best); touching[pi].add(g); }
+    });
+  }
+  // what each part sits on: the planes it touches of parts many times its size (not the neck ring, where it starts)
+  const ring = D.parts.findIndex((p) => p.name === "neck ring"), [NX, NY, NZ] = D.neck;
+  const baseLeft = new Int32Array(nparts), entry = new Float64Array(nparts), sitsOn: number[][] = Array.from({ length: np }, () => []);
+  touching.forEach((planes, pi) => {
+    if (pi === ring) return;
+    for (const g of planes) if (volume[pi] < GROWTH.sits * volume[partOf[g]]) { sitsOn[g].push(pi); baseLeft[pi]++; }
+  });
+  const pending: number[][] = D.parts.map(() => []);
+  // out from the neck ring's own vertices (their distance from the neck), shortest paths first (a
+  // heap of [distance, vertex]; one reached again sooner is simply pushed again)
+  const out = new Float64Array(nv).fill(Infinity), done = new Uint8Array(nv), on = new Float64Array(np);
+  const heap: number[] = [];
+  const push = (d: number, v: number) => {
+    let k = heap.length / 2;
+    heap.push(d, v);
+    while (k > 0) {
+      const up = (k - 1) >> 1;
+      if (heap[up * 2] <= d) break;
+      heap[k * 2] = heap[up * 2]; heap[k * 2 + 1] = heap[up * 2 + 1];
+      heap[up * 2] = d; heap[up * 2 + 1] = v;
+      k = up;
+    }
+  };
+  const pop = (): number => {
+    const v = heap[1], d = heap.pop()!, w = heap.pop()!;
+    const n = heap.length / 2;
+    if (n) {
+      heap[0] = w; heap[1] = d;   // the last, sifted down from the top
+      let k = 0;
+      for (;;) {
+        const l = k * 2 + 1, r = l + 1;
+        let m = k;
+        if (l < n && heap[l * 2] < heap[m * 2]) m = l;
+        if (r < n && heap[r * 2] < heap[m * 2]) m = r;
+        if (m === k) break;
+        const md = heap[m * 2], mv = heap[m * 2 + 1];
+        heap[m * 2] = heap[k * 2]; heap[m * 2 + 1] = heap[k * 2 + 1];
+        heap[k * 2] = md; heap[k * 2 + 1] = mv;
+        k = m;
+      }
+    }
+    return v;
+  };
+  const lower = (v: number, d: number) => {
+    if (d < out[v]) { out[v] = d; push(d, v); }
+  };
+  for (let i = 0; i < nv; i++) {
+    if (!body(i)) { out[i] = 0; done[i] = 1; }
+    else if (D.vp[i] === ring) lower(i, Math.hypot(V[i * 3] - NX, V[i * 3 + 1] - NY, V[i * 3 + 2] - NZ));
+  }
+  const reach = (v: number, t: number) => {
+    const p = D.vp[v];
+    if (baseLeft[p] > 0) pending[p].push(v, t);
+    else lower(v, Math.max(t, entry[p]));
+  };
+  const flush = (p: number) => {
+    const list = pending[p];
+    pending[p] = [];
+    for (let k = 0; k < list.length; k += 2) reach(list[k], list[k + 1]);
+  };
+  const cross = (g: number, t: number) => { const x = across[g]; for (let k = 0; k < x.length; k += 2) reach(x[k], t + x[k + 1]); };
+  const shows = (g: number, t: number) => {
+    on[g] = t;
+    for (const p of sitsOn[g]) { entry[p] = Math.max(entry[p], t); if (--baseLeft[p] === 0) flush(p); }
+    cross(g, t);
+  };
+  for (;;) {
+    if (!heap.length) {
+      // something waits on a part the growth cannot reach without it (none should): let it go
+      const stuck = pending.findIndex((l, p) => l.length && baseLeft[p] > 0);
+      if (stuck < 0) break;
+      baseLeft[stuck] = 0;
+      flush(stuck);
+      continue;
+    }
+    const at = pop();
+    if (done[at]) continue;
+    done[at] = 1;
+    const d = out[at], n = adj[at];
+    for (let k = 0; k < n.length; k += 2) lower(n[k], d + n[k + 1]);
+    for (const g of planesOf[at]) {
+      if (--cornersLeft[g]) continue;
+      const p = partOf[g];
+      if (!whole[p]) shows(g, d);
+      else if (--partLeft[p] === 0) for (const h of partPlanes[p]) shows(h, d);
+    }
+  }
+  return (grownOnce = on);
+}
+
+/** The distance from a point to a triangle (corners a, b, c of the flat vertex list V). */
+function closestOnTriangle(V: number[], a: number, b: number, c: number, px: number, py: number, pz: number): number {
+  const ax = V[a * 3], ay = V[a * 3 + 1], az = V[a * 3 + 2];
+  const abx = V[b * 3] - ax, aby = V[b * 3 + 1] - ay, abz = V[b * 3 + 2] - az;
+  const acx = V[c * 3] - ax, acy = V[c * 3 + 1] - ay, acz = V[c * 3 + 2] - az;
+  const apx = px - ax, apy = py - ay, apz = pz - az;
+  const d1 = abx * apx + aby * apy + abz * apz, d2 = acx * apx + acy * apy + acz * apz;
+  const bpx = px - V[b * 3], bpy = py - V[b * 3 + 1], bpz = pz - V[b * 3 + 2];
+  const d3 = abx * bpx + aby * bpy + abz * bpz, d4 = acx * bpx + acy * bpy + acz * bpz;
+  const cpx = px - V[c * 3], cpy = py - V[c * 3 + 1], cpz = pz - V[c * 3 + 2];
+  const d5 = abx * cpx + aby * cpy + abz * cpz, d6 = acx * cpx + acy * cpy + acz * cpz;
+  const va = d3 * d6 - d5 * d4, vb = d5 * d2 - d1 * d6, vc = d1 * d4 - d3 * d2;
+  let s = 0, t = 0;   // the nearest point is a + s ab + t ac: a corner, along an edge, or inside
+  if (d1 <= 0 && d2 <= 0) { s = 0; t = 0; }
+  else if (d3 >= 0 && d4 <= d3) { s = 1; t = 0; }
+  else if (d6 >= 0 && d5 <= d6) { s = 0; t = 1; }
+  else if (vc <= 0 && d1 >= 0 && d3 <= 0) { s = d1 / (d1 - d3); t = 0; }
+  else if (vb <= 0 && d2 >= 0 && d6 <= 0) { s = 0; t = d2 / (d2 - d6); }
+  else if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) { const w = (d4 - d3) / (d4 - d3 + (d5 - d6)); s = 1 - w; t = w; }
+  else { const den = 1 / (va + vb + vc); s = vb * den; t = vc * den; }
+  const dx = px - (ax + abx * s + acx * t), dy = py - (ay + aby * s + acy * t), dz = pz - (az + abz * s + acz * t);
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
 /** The canvas's frame in mesh units (x right, y down): wider and taller than the box, so a tilted head fits. */
 export const URCHI_FRAME = { x: -701.25, y: -674, w: 1402.5, h: 1230 } as const;
 /** The frame with the suit on: the whole suited figure in any pose (and any turn), head's centre still at y 0 (baked beside the suit). */
@@ -283,7 +481,10 @@ export type UrchiOptions = {
   smooth?: boolean;
 };
 
-/** Knobs for the suit's preview sheet and its checks (/dev/suit) alone: no page of the site uses them. */
+/**
+ * Knobs for the suit's preview sheet and its checks (/dev/suit), and for the helmet that hangs on
+ * Space's peg (suitPart "helmet" with suitEmpty, still, facing you): no Urchi of the site uses them.
+ */
 export type UrchiDevOptions = {
   /**
    * The leak check's layers: paint one layer of the suited figure alone, flat white, instead of
@@ -295,6 +496,8 @@ export type UrchiDevOptions = {
   suitLayer?: "head" | "helmet" | "tucked" | "eyes" | "glass";
   /** The close-ups: "helmet" paints the suited figure's helmet alone, without the body. */
   suitPart?: "helmet";
+  /** The suit with nobody in it: behind the visor only the helmet's dark inside (the peg's helmet). */
+  suitEmpty?: boolean;
   /**
    * The whole figure turned about its vertical axis, in degrees (90 shows its left side, 180 its
    * back): a view, not a look, so the head's own turn still comes on top. The sheet's 3/4, side and back views.
@@ -368,6 +571,11 @@ export type UrchiCharacter = {
   setSuit(amount: number): void;
   /** The suit as set, 0..1 (whether or not its model has arrived). */
   readonly suit: number;
+  /**
+   * A breath fogging the visor: a soft white over the lower glass (8% at `amount` 1), clipped to
+   * the glass, that comes in over a quarter of a second and clears over 1.2s. Only with the suit on.
+   */
+  fog(amount?: number): void;
   /** The canvas's frame in mesh units: URCHI_FRAME, or URCHI_SUIT_FRAME while the suit is painted. */
   readonly frame: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
 
@@ -1145,12 +1353,12 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     for (const p of parts) for (let k = 0; k < 3; k++) p.mid[k] /= p.vn;
     const named = (n: string) => D.parts.findIndex((p) => p.name === n);
     const shell = named("helmet");
-    // when each of the body's planes switches on: by its distance from the neck ring (the helmet's all
-    // at once, as it starts to rise: see renderSuit)
-    const [NX, NY, NZ] = D.neck, reveal = new Float32Array(np);
-    let far = 0;
-    for (let g = 0; g < np; g++) if (!D.parts[planePart[g]].rigid) far = Math.max(far, (reveal[g] = Math.hypot(planeMid[g * 3] - NX, planeMid[g * 3 + 1] - NY, planeMid[g * 3 + 2] - NZ)));
-    for (let g = 0; g < np; g++) reveal[g] = D.parts[planePart[g]].rigid ? SUIT_BUILD.helmet : (SUIT_BUILD.helmet * reveal[g]) / far;
+    // when each of the body's planes switches on: as the growth from the neck ring reaches it (see
+    // growthOf), the first at once; the helmet's all at once, as it starts to rise (see renderSuit)
+    const grown = growthOf(D), reveal = new Float32Array(np);
+    let near = Infinity, far = 0;
+    for (let g = 0; g < np; g++) if (loops[g] && !D.parts[planePart[g]].rigid) { near = Math.min(near, grown[g]); far = Math.max(far, grown[g]); }
+    for (let g = 0; g < np; g++) reveal[g] = D.parts[planePart[g]].rigid ? SUIT_BUILD.helmet : SUIT_BUILD.helmet * Math.max(0, (grown[g] - near) / (far - near || 1));
     // the shell's facets: from one triangle of each of its planes (those behind the glass too, never drawn: the shell is convex)
     const shellPlanes: number[] = [], taken = new Uint8Array(np);
     for (let i = 0; i < nf; i++) {
@@ -1260,6 +1468,14 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   const SUIT_BUILD = { helmet: 0.5, over: 1.12, tuck: 0.16 };
   /** The body's share of a breath's rise (the chest lifts a hair with it) and its zero-g drift. */
   const SUIT_BODY = { rise: 0.5, drift: { roll: 0.7 * D2R, yaw: 1.1 * D2R, lift: 3, periods: [7.3, 9.1, 6.1] as Vec3 } };
+  /**
+   * A breath on the visor (fog): white at `alpha` over the lower glass, from nothing at `from` of
+   * the glass's height on screen to all of it at `full`, coming in over `rise` seconds and clearing
+   * over `clear`.
+   */
+  const FOG = { alpha: 0.08, from: 0.45, full: 0.78, rise: 0.25, clear: 1.2 };
+  /** The fog now (0..1), and the breath that made it: how much, and when (-1: none). */
+  const fogging = { v: 0, amount: 0, start: -1 };
   let suit = 0;
   const turn = (dev.turn ?? 0) * D2R;
   /** The suit is painted: wanted, and its model is here. */
@@ -1611,14 +1827,15 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       if (!SMOOTH) pixelFinish(null);
       return;
     }
-    const RIM = rimWidth();
+    const RIM = rimWidth(), empty = !!dev.suitEmpty;
     if (SMOOTH) {
       ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * (RIM + BASE);
       strokeOutline(true);
-      if (!whole) ctx.stroke(head);
+      if (!whole && !empty) ctx.stroke(head);
     }
     // the bare head under a suit still building itself (its own rim, drawn with the suit's)
     const headItems = () => {
+      if (empty) return;
       ctx.fillStyle = ctx.strokeStyle = COLOR.base; ctx.lineWidth = 2 * BASE; ctx.fill(head); ctx.stroke(head);
       ctx.lineWidth = CELL;
       for (const it of items) {
@@ -1650,6 +1867,16 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       headItems();
       ctx.globalAlpha = glass; ctx.fillStyle = VISOR.tint; ctx.fill(opening); ctx.globalAlpha = 1;
       sheen(R, front[R.glass], light, eyeAt);
+      if (fogging.v > 0 && glassOn) {
+        // a breath on the lower glass: from nothing part way down the opening (on screen) to all of it lower down
+        let top = Infinity, bottom = -Infinity;
+        for (let k = 1; k < OP.length; k += 3) { if (OP[k] < top) top = OP[k]; if (OP[k] > bottom) bottom = OP[k]; }
+        const fade = ctx.createLinearGradient(0, top + FOG.from * (bottom - top), 0, top + FOG.full * (bottom - top));
+        fade.addColorStop(0, "rgba(255, 255, 255, 0)");
+        fade.addColorStop(1, `rgba(255, 255, 255, ${(FOG.alpha * fogging.v).toFixed(4)})`);
+        ctx.fillStyle = fade;
+        ctx.fill(visor);
+      }
       ctx.restore();
       ctx.lineWidth = CELL;
     }
@@ -1765,7 +1992,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   const DRAWN_EPS = 1e-5;
   function paint(yaw: number, pitch: number, roll: number): boolean {
     const now = [yaw, pitch, roll, lidOf(0), lidOf(1), gaze.x.v, gaze.y.v, gaze.h.v, gaze.conv.v, wide.v, shift, rise, reveal, CELL, rimWidth()];
-    if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift);
+    if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift, fogging.v);
     const was = lastDrawn;
     if (was && was.length === now.length && now.every((v, i) => Math.abs(v - was[i]) < DRAWN_EPS)) return false;
     lastDrawn = now;
@@ -1823,6 +2050,11 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       drift.yaw = SUIT_BODY.drift.yaw * Math.sin((TAU * S.t) / p1 + 1.3);
       drift.lift = SUIT_BODY.drift.lift * Math.sin((TAU * S.t) / p2 + 0.6);
     } else drift.roll = drift.yaw = drift.lift = 0;
+    if (fogging.start >= 0) {
+      const e = S.t - fogging.start;
+      if (e >= FOG.rise + FOG.clear || suit <= 0) { fogging.v = 0; fogging.start = -1; }
+      else fogging.v = fogging.amount * (e < FOG.rise ? smooth01(0, FOG.rise, e) : 1 - smooth01(0, FOG.clear, e - FOG.rise));
+    }
     return paint(S.yaw.v + tilt.yaw.v + away.turn.v + extra.yaw, S.pitch.v + tilt.pitch.v + nod + extra.pitch, roll);
   }
   /** Until dispose: a suit model arriving after it has nothing to repaint. */
@@ -1901,6 +2133,10 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     },
     get suit() {
       return suit;
+    },
+    fog(amount = 1) {
+      if (suit <= 0) return;
+      fogging.amount = clamp(amount, 0, 1); fogging.start = S.t;
     },
     get frame() {
       return frameNow();
