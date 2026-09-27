@@ -124,8 +124,18 @@ type Slot = {
   reach: number;
   tumble: number;
   box: [number, number, number, number];
-  /** Its hover caption stands after its knot (to the right), before it, or under it. */
-  cap: "after" | "before" | "under";
+  /**
+   * Its hover caption: set after its knot (read from the left), before it
+   * (from the right), or centred under or over it; where it stands (its
+   * block's top, and its left, right or middle), px from the cover's centre as
+   * it drifts, or on the screen where it is `fixed` (in the room kept for it
+   * under the sheet); and how wide its line may run.
+   */
+  cap: "after" | "before" | "under" | "over";
+  capX: number;
+  capY: number;
+  fixed: boolean;
+  capW: number;
   /** Its year's numeral, if it is that year's first project. */
   year: Masked | null;
   /** Its place in date order: later work lies on top. */
@@ -523,6 +533,12 @@ const NOVA_CREEP_T = 6;
 const NOVA_DRIFT_TURN = 0.05;
 /** Under the hovered cover's own stretch of thread, the filament comes up to this. */
 const NOVA_FILAMENT_HL = 0.6;
+/**
+ * The filaments and the ring reach past the top edge, and the tab bar must
+ * not change: their ink is gone at the pills' foot (NAV_FOOT) and back in
+ * full NAV_FADE px under it, so no line runs between the pills.
+ */
+const NAV_FADE = 44;
 /** The pieces fly out along their beads' ways and settle into the field over NOVA_SETTLE s, grown to size by NOVA_GROW s. */
 const NOVA_SETTLE = 1.5;
 const NOVA_GROW = 0.45;
@@ -541,10 +557,15 @@ const FIELD_AREA = 0.45;
  * Covers show at FIELD_SCALE of their size on the ball, each with its pieces
  * as they hung beside it. Past MANY projects only the covers fly (the rest
  * go into the knot and wait for the return); past FIELD_ROWS_FROM, and on a
- * phone, covers show at 1.0x, and past FIELD_ROWS_FROM each year starts a row.
+ * phone, covers show at 1.0x, and past FIELD_ROWS_FROM they lie in year
+ * rows: each year starts a row of its own while the room holds that many,
+ * and past it the years run on in reading order, a new one starting on the
+ * row the last ended in when all of it fits there, FIELD_YEAR_GAP gaps along.
+ * Either way a year longer than a row runs on to the next.
  */
 const FIELD_SCALE = 1.3;
 const FIELD_ROWS_FROM = 30;
+const FIELD_YEAR_GAP = 2;
 /** The sheet's shape: the room's, this much wider, since it is read across in rows. */
 const FIELD_WIDE = 1.25;
 /** Between slots: FIELD_GAP of the cover's height plus FIELD_GAP_PX, and never less than FIELD_GAP_MIN. */
@@ -567,7 +588,11 @@ const FIELD_TUMBLE = 0.5;
 const YEAR_SIZE = 11;
 const YEAR_INK = 0.4;
 const YEAR_GAP = 6;
-/** The hover caption stands CAP_BESIDE px beside a cover's knot, where it has CAP_BESIDE_MIN px; otherwise under it (over it, near the foot). */
+/**
+ * The hover caption stands CAP_BESIDE px clear of its cover's knot, and of
+ * every other knot and numeral: beside it where it has CAP_BESIDE_MIN px
+ * (its line wrapping to fit), else under or over it (see fieldCaptions).
+ */
 const CAP_BESIDE = 16;
 const CAP_BESIDE_MIN = 200;
 /** The heading's tail while the covers are out. */
@@ -575,8 +600,10 @@ const NOVA_WAIT = "Give them a minute.";
 /**
  * The float ends by itself after NOVA_STILLNESS s with nothing moving on the
  * stage (NOVA_PHONE_FLOAT on a phone), and after NOVA_FLOAT_MAX s at most,
- * unless a cover is chosen: then it waits, and goes NOVA_FLOAT_GRACE s after
- * the choice is let go.
+ * unless the pointer or the keys have chosen a cover: then it waits, and goes
+ * NOVA_FLOAT_GRACE s after the choice is let go. A finger's choice is never
+ * let go, so it waits for nothing: the phone's float is NOVA_PHONE_FLOAT s
+ * from the last touch.
  */
 const NOVA_STILLNESS = 6;
 const NOVA_PHONE_FLOAT = 5;
@@ -619,6 +646,8 @@ const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
 const inOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 const outCubic = (t: number) => 1 - (1 - t) ** 3;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+/** The share of the supernova's ink kept at a height, px: none under the tab bar (see NAV_FADE). */
+const navFade = (y: number) => smooth(clamp01((y - NAV_FOOT) / NAV_FADE));
 /** The far side of the thread falls to a quarter of the ink: a wire ball, not a disc. A charging ball's far side brightens. */
 const depthInk = (z: number, back = BACK_INK) => back + (1 - back) * smooth(clamp01((z + 0.85) / 1.7));
 const blockBounds = (t: Text): [number, number, number, number] => t.textRenderInfo?.blockBounds ?? [0, 0, 0, 0];
@@ -1081,6 +1110,8 @@ export class ThreadScene {
   private capVeil = { x0: 0, y0: 0, x1: 0, y1: 0, k: 0 };
   /** And the heading's, while the supernova's filaments reach across it. */
   private headVeil = { x0: 0, y0: 0, x1: 0, y1: 0, k: 0 };
+  /** How far the filaments have gone from under the tab bar (0..1): see NAV_FADE. */
+  private navVeil = { k: 0 };
   /** The caption veil as the pieces' shader reads it: the uniforms every piece shares, the lines eased as the box is. */
   private pieceVeil = {
     uVeil: { value: new THREE.Vector4() },
@@ -1168,6 +1199,10 @@ export class ThreadScene {
     dockAt: 0,
     lastWheel: -Infinity,
     collapsedAt: Infinity,
+    /** The thread's lean at the collapse (see bend): a thread sampled afresh mid-supernova finds its ways out from it. */
+    bend0: 1,
+    /** Until when the bed's wall is still opening, on the supernova's clock (s): a hurried return opens it sooner. */
+    airUntil: -Infinity,
   };
   /** The heading's ink as an opened project leaves it (see dimHeading); a charge takes it down further. */
   private headInk = { v: 1 };
@@ -1445,6 +1480,9 @@ export class ThreadScene {
     if (this.M && step === this.arcStep) return;
     this.arcStep = step;
     this.wind();
+    // Out of the knot, or winding back into it (a window maximised, a tablet turned): the thread is
+    // sampled afresh, so each sample's way out is worked out again, from the ball as it collapsed.
+    if (this.novaActive) this.novaWays(this.nova.bend0);
     // The thread, the marks, the loose end and the joins; and the supernova's ring.
     const need = this.M + 256 + this.beads.length * 64 + NOVA_RING_POINTS + 8;
     if (this.back && this.front && this.back.capacity >= need) return;
@@ -3304,6 +3342,7 @@ export class ThreadScene {
     n.touched = 0;
     n.floatAt = 0;
     n.chosenAt = -Infinity;
+    n.airUntil = -Infinity;
     n.collapsedAt = performance.now();
     // The way it was spinning: its momentum goes out with the thread, as a swirl.
     n.spin = Math.sign(IDLE * this.idleK + this.vel) || n.sign;
@@ -3315,6 +3354,7 @@ export class ThreadScene {
     if (this.hovered) this.setHover(null);
     // No charge while it plays out; the cooldown proper starts when the ball is back (novaFinish).
     n.coolUntil = Infinity;
+    n.bend0 = this.bend;
     this.novaWays();
     this.beads.forEach((b) => {
       b.home = -1;
@@ -3413,11 +3453,14 @@ export class ThreadScene {
       return;
     }
     if (n.phase !== "float") return;
-    if (this.hovered) n.chosenAt = t;
     const still = this.vertical || n.finger ? NOVA_PHONE_FLOAT : NOVA_STILLNESS;
     const quiet = t - n.touched >= still;
+    // A pointer resting on a cover holds them all out. A finger's choice has no hover to end, so it
+    // holds nothing: the float goes on NOVA_PHONE_FLOAT from the last touch, chosen or not.
+    const held = !!this.hovered && !n.finger;
+    if (held) n.chosenAt = t;
     const long = t - n.floatAt >= NOVA_FLOAT_MAX && t - n.chosenAt >= NOVA_FLOAT_GRACE;
-    if (!this.hovered && (quiet || long)) this.novaReturn();
+    if (this.hovered ? !held && quiet : quiet || long) this.novaReturn();
   }
 
   /**
@@ -3466,8 +3509,10 @@ export class ThreadScene {
     this.swapTail(false);
     this.yearsRise(false);
     if (n.airShut) {
-      sfx.air(AIR_OPEN, quick ? NOVA_GATHER : NOVA_WIND + NOVA_OVER_BACK);
+      const over = quick ? NOVA_GATHER : NOVA_WIND + NOVA_OVER_BACK;
+      sfx.air(AIR_OPEN, over);
       n.airShut = false;
+      n.airUntil = n.t + over;
     }
     this.setPhase("return");
   }
@@ -3496,6 +3541,11 @@ export class ThreadScene {
       b.homeFor = Math.min(b.homeFor, home);
       b.home = n.t - e * b.homeFor;
     });
+    // The bed's wall opens with the ball, not on the slow return's clock.
+    if (n.airUntil > n.t + NOVA_HURRY) {
+      sfx.air(AIR_OPEN, NOVA_HURRY);
+      n.airUntil = n.t + NOVA_HURRY;
+    }
   }
 
   /** How far the winder has eased sample i back onto the ball (0..1). */
@@ -3612,7 +3662,7 @@ export class ThreadScene {
    * by noise along the thread, so the turns crumple into filaments while
    * neighbours stay together. Screen px for each px of blast radius.
    */
-  private novaWays() {
+  private novaWays(w = this.bend) {
     const M = this.M;
     if (this.BX.length !== M) {
       this.BX = new Float32Array(M);
@@ -3623,7 +3673,6 @@ export class ThreadScene {
     const ca = Math.cos(a);
     const sa = Math.sin(a);
     const { ct, st } = this.rot;
-    const w = this.bend;
     const P = this.P;
     const Q = this.P0;
     const swirl = NOVA_SWIRL * n.spin;
@@ -3665,31 +3714,43 @@ export class ThreadScene {
   /**
    * Where the covers settle: a loose contact sheet in reading order by date,
    * oldest at the top left, each cover with its pieces as they hung beside
-   * it on the ball (past MANY projects, the cover alone), in a grid of cells
-   * as wide as the widest knot, as many columns as fit the room's shape.
-   * Past FIELD_ROWS_FROM each year starts a row. Rows keep room for a year
-   * numeral where a year starts. What does not fit at FIELD_SCALE closes its
-   * gaps, then shrinks. Laid out at the collapse (and again on a resize while
-   * the covers are out); each hover caption's set follows once its words are
-   * measured.
+   * it on the ball (past MANY projects, the cover alone). Up to
+   * FIELD_ROWS_FROM projects, a grid whose columns are as wide as their
+   * widest knot; past it, year rows (see FIELD_ROWS_FROM). As many to a row
+   * as best give the room's shape, a little wider, inside the bounds and the
+   * area budget; rows keep room for a year numeral where a year starts. What
+   * does not fit closes its gaps, then shrinks. A phone keeps room under the
+   * sheet for the hover caption, and so does a screen too full to leave it
+   * anywhere else. Laid out at the collapse (and again on a
+   * resize while the covers are out); where each hover caption stands follows
+   * once its words are measured (see fieldCaptions).
    */
   private async layoutField() {
     const gen = ++this.fieldGen;
+    const beads = this.order.filter((b) => b.project && b.pieces.length);
+    if (!beads.length) return;
+    const laying = () => !this.disposed && gen === this.fieldGen && (this.fieldOn || this.nova.phase === "collapse");
+    // The captions are measured at the width they are set from: as the layout left them, unless a
+    // field before this one, on another screen, narrowed some.
+    const natW = this.vertical ? Math.min(WHY_MAX, this.width - 48) : WHY_MAX;
+    const stale = beads.filter((b) => b.cap.why.t.maxWidth !== natW);
+    if (stale.length) {
+      stale.forEach((b) => (b.cap.why.t.maxWidth = natW));
+      await Promise.all(stale.map((b) => syncText(b.cap.why.t)));
+      if (!laying()) return;
+    }
+    // Each sample's way out, worked out for the thread as it is wound now (see fitStep).
+    if (this.BX.length !== this.M) return;
     const W = this.width;
     const H = this.height;
     const v = this.vertical;
-    this.field.clear();
-    this.pieces.forEach((pc) => (pc.field = null));
-    const beads = this.order.filter((b) => b.project && b.pieces.length);
-    if (!beads.length || this.BX.length !== this.M) return;
     const count = this.projects.length;
     const onlyCovers = count > MANY;
     const rows = count > FIELD_ROWS_FROM;
     const edge = v ? FIELD_PHONE_EDGE : FIELD_EDGE;
     const top = this.headY + this.headingHalf + FIELD_TOP;
+    const capH = Math.max(...beads.map((b) => 50 + this.textHeight(b.cap.why)));
     const bw = W - 2 * edge;
-    const bh = H - edge - top;
-    this.fieldBox = { x0: edge, y0: top, x1: W - edge, y1: H - edge };
     const budget = FIELD_AREA * W * H;
     const numH = YEAR_SIZE + YEAR_GAP + 3;
     // Each knot at R_REF: its members' centres from its cover's, and its bounds round that centre.
@@ -3707,92 +3768,167 @@ export class ThreadScene {
       return { b, parts, box, coverH: cover.h, year: i === 0 || beads[i - 1].year !== b.year };
     });
     const coverMax = Math.max(...knots.map((k) => k.coverH));
-    // Rows in reading order; each column as wide as its widest knot, so the covers line up down it;
-    // and each row's reach over and under its covers' centres.
-    const arrange = (scale: number, cols: number, gap: number) => {
-      const list: number[][] = [];
-      let row: number[] = [];
-      knots.forEach((k, i) => {
-        if (row.length && (row.length >= cols || (rows && k.year))) {
-          list.push(row);
-          row = [];
-        }
-        row.push(i);
-      });
-      list.push(row);
-      const reach = list.map((r) => {
-        let up = 0;
-        let down = 0;
-        r.forEach((i) => {
+    // The knots of each year, in order.
+    const years: number[][] = [];
+    knots.forEach((k, i) => {
+      if (k.year || !years.length) years.push([i]);
+      else years[years.length - 1].push(i);
+    });
+    const widthOf = (i: number, scale: number) => (knots[i].box[2] - knots[i].box[0]) * scale;
+    type Sheet = { lines: { i: number; x: number }[][]; up: number[]; down: number[]; w: number; h: number; gap: number; scale: number };
+    // Rows in reading order, each knot at its x along its row (to its left edge), and each row's reach
+    // over and under its covers' centres.
+    const sheet = (lines: { i: number; x: number }[][], scale: number, gap: number): Sheet => {
+      const up: number[] = [];
+      const down: number[] = [];
+      let w = 0;
+      lines.forEach((line, r) => {
+        up[r] = 0;
+        down[r] = 0;
+        line.forEach(({ i, x }) => {
           const k = knots[i];
-          up = Math.max(up, -k.box[1] * scale, k.year ? (k.coverH * scale) / 2 + numH : 0);
-          down = Math.max(down, k.box[3] * scale);
+          up[r] = Math.max(up[r], -k.box[1] * scale, k.year ? (k.coverH * scale) / 2 + numH : 0);
+          down[r] = Math.max(down[r], k.box[3] * scale);
+          w = Math.max(w, x + widthOf(i, scale));
         });
-        return { up, down };
       });
-      const colW: number[] = [];
-      list.forEach((r) =>
-        r.forEach((i, c) => {
-          colW[c] = Math.max(colW[c] ?? 0, (knots[i].box[2] - knots[i].box[0]) * scale);
-        }),
-      );
-      const w = colW.reduce((sum, cw) => sum + cw, 0) + (colW.length - 1) * gap;
-      const h = reach.reduce((sum, r) => sum + r.up + r.down, 0) + (list.length - 1) * gap;
-      return { list, reach, colW, w, h, gap, scale };
+      const h = up.reduce((s, u, r) => s + u + down[r], 0) + (lines.length - 1) * gap;
+      return { lines, up, down, w, h, gap, scale };
     };
-    let scale = (v || rows ? 1 : FIELD_SCALE) * Math.min(this.R / R_REF, PIECE_MAX);
-    let chosen: ReturnType<typeof arrange> | null = null;
-    for (let pass = 0; pass < 12 && !chosen; pass++, scale *= 0.9) {
-      const gap0 = Math.max(FIELD_GAP_MIN, FIELD_GAP * coverMax * scale + FIELD_GAP_PX);
-      for (const share of [1, 0.75, 0.5, 0.25]) {
-        let best: { f: ReturnType<typeof arrange>; score: number } | null = null;
-        for (let cols = 1; cols <= knots.length; cols++) {
-          const f = arrange(scale, cols, Math.max(FIELD_GAP_MIN, gap0 * share));
-          if (f.w > bw || f.h > bh || f.w * f.h > budget) continue;
-          // The sheet takes the room's shape, a little wider: it is read across, in rows.
-          const score = Math.abs(Math.log(f.w / f.h / ((FIELD_WIDE * bw) / bh)));
-          if (!best || score < best.score) best = { f, score };
-        }
-        if (best) {
-          chosen = best.f;
-          break;
+    // A grid, `n` to a row, each column as wide as its widest knot, so the covers line up down it.
+    const grid = (scale: number, n: number, gap: number) => {
+      const list: number[][] = [];
+      for (let i = 0; i < knots.length; i += n) list.push(knots.slice(i, i + n).map((_, j) => i + j));
+      const colW: number[] = [];
+      list.forEach((r) => r.forEach((i, c) => (colW[c] = Math.max(colW[c] ?? 0, widthOf(i, scale)))));
+      const lines = list.map((r) => {
+        let x = 0;
+        return r.map((i, c) => {
+          const at = x;
+          x += colW[c] + gap;
+          return { i, x: at };
+        });
+      });
+      return sheet(lines, scale, gap);
+    };
+    // Year rows about `n` knots long (see FIELD_ROWS_FROM). `share`: a year may start on the row the
+    // last one ended in, if all of it fits there.
+    const unit = knots.reduce((s, _, i) => s + widthOf(i, 1), 0) / knots.length;
+    const yearRows = (share: boolean) => (scale: number, n: number, gap: number) => {
+      const most = Math.min(bw, n * (unit * scale + gap) - gap);
+      const apart = gap * FIELD_YEAR_GAP;
+      const lines: { i: number; x: number }[][] = [];
+      let line: { i: number; x: number }[] = [];
+      let x = 0;
+      const next = () => {
+        if (line.length) lines.push(line);
+        line = [];
+        x = 0;
+      };
+      years.forEach((g) => {
+        const run = g.reduce((s, i) => s + widthOf(i, scale), 0) + (g.length - 1) * gap;
+        if (line.length && (!share || x + apart + run > most)) next();
+        g.forEach((i, j) => {
+          const w = widthOf(i, scale);
+          let lead = line.length ? (j ? gap : apart) : 0;
+          // A year longer than a row runs on to the next.
+          if (line.length && x + lead + w > most) {
+            next();
+            lead = 0;
+          }
+          line.push({ i, x: x + lead });
+          x += lead + w;
+        });
+      });
+      next();
+      return sheet(lines, scale, gap);
+    };
+    // Year rows of their own first, while the room holds that many; then years sharing rows.
+    const modes = rows ? [yearRows(false), yearRows(true)] : [grid];
+    const base = (v || rows ? 1 : FIELD_SCALE) * Math.min(this.R / R_REF, PIECE_MAX);
+    // Where the knots round a cover leave its caption nowhere, it goes past them (see fieldCaptions):
+    // so a sheet that leaves a margin at its sides, or room over or under it, is chosen over one
+    // that fills the room. With the caption's room kept under the sheet (`foot`), any will do.
+    const loose = CAP_BESIDE + CAP_CLEAR + FIELD_DRIFT + FIELD_JITTER;
+    const pick = (bh: number, foot: boolean, passes = 12) => {
+      const fits = (f: Sheet) => f.w <= bw && f.h <= bh && f.w * f.h <= budget;
+      // The sheet takes the room's shape, a little wider: it is read across, in rows.
+      const shape = (FIELD_WIDE * bw) / Math.max(1, bh);
+      const score = (f: Sheet) => Math.abs(Math.log(f.w / f.h / shape));
+      const legible = (f: Sheet) => {
+        if (foot) return true;
+        const y0 = THREE.MathUtils.clamp(this.cy - f.h / 2, top, Math.max(top, top + bh - f.h));
+        return (bw - f.w) / 2 >= CAP_BESIDE_MIN + loose || Math.max(y0 - top, H - FIELD_PHONE_EDGE - (y0 + f.h)) >= capH + loose;
+      };
+      let scale = base;
+      for (let pass = 0; pass < passes; pass++, scale *= 0.9) {
+        const gap0 = Math.max(FIELD_GAP_MIN, FIELD_GAP * coverMax * scale + FIELD_GAP_PX);
+        // Each layout at each gap, the widest first, and the sheets it makes that fit.
+        const tries = modes.flatMap((mode) =>
+          [1, 0.75, 0.5, 0.25].map((share) => {
+            const out: Sheet[] = [];
+            for (let n = 1; n <= knots.length; n++) {
+              const f = mode(scale, n, Math.max(FIELD_GAP_MIN, gap0 * share));
+              if (fits(f)) out.push(f);
+            }
+            return out;
+          }),
+        );
+        // The first that makes a sheet leaving its captions somewhere to go, else the first that
+        // fits at all; of its sheets, the one nearest the room's shape.
+        for (const strict of [true, false]) {
+          for (const list of tries) {
+            const ok = strict ? list.filter(legible) : list;
+            if (ok.length) {
+              const sheet = ok.reduce((a, c) => (score(c) < score(a) ? c : a));
+              return { sheet, bh, foot, pass, clear: legible(sheet) };
+            }
+          }
         }
       }
-    }
+      return null;
+    };
+    // A phone's caption stands under the sheet, as it stands under the ball, and the room for it is
+    // kept; so is it on a screen where no sheet leaves its captions anywhere else, if the sheet
+    // still fits as large.
+    const kept = H - FIELD_PHONE_EDGE - top - CAP_BESIDE - capH;
+    let got = v ? pick(kept, true) : pick(H - edge - top, false);
+    if (got && !got.clear) got = pick(kept, true, got.pass + 1) ?? got;
     // Nothing fits (a screen too small for anything): a sheet as small as it gets, as wide as the room.
-    if (!chosen) {
+    if (!got) {
+      const scale = base * 0.9 ** 12;
       const cellW = Math.max(...knots.map((kn) => kn.box[2] - kn.box[0])) * scale;
-      chosen = arrange(scale, Math.max(1, Math.floor((bw + FIELD_GAP_MIN) / (cellW + FIELD_GAP_MIN))), FIELD_GAP_MIN);
+      const n = Math.max(1, Math.floor((bw + FIELD_GAP_MIN) / (cellW + FIELD_GAP_MIN)));
+      const sheet = rows ? yearRows(true)(scale, n, FIELD_GAP_MIN) : grid(scale, n, FIELD_GAP_MIN);
+      got = { sheet, bh: v ? kept : H - edge - top, foot: v, pass: 12, clear: false };
     }
-    const { list, reach, colW, w, h, gap } = chosen;
+    const { bh, foot } = got;
+    const chosen = got.sheet;
+    this.fieldBox = { x0: edge, y0: top, x1: W - edge, y1: Math.max(top, top + bh) };
+    const { lines, up, down, w, h, gap } = chosen;
     const k = chosen.scale;
     const x0 = (W - w) / 2;
-    let y = THREE.MathUtils.clamp(this.cy - h / 2, top, Math.max(top, H - edge - h));
+    let y = THREE.MathUtils.clamp(this.cy - h / 2, top, Math.max(top, top + bh - h));
     // A tight sheet lies straighter and drifts less: its covers would only cover each other.
     const room = Math.min(1, gap / 48);
     const jitter = Math.min(FIELD_JITTER, gap * 0.25);
     const amp = Math.min(FIELD_DRIFT, Math.max(2, gap * 0.12));
-    let rank = 0;
-    list.forEach((r, ri) => {
-      const cy = y + reach[ri].up;
-      r.forEach((i, c) => {
+    this.field.clear();
+    this.pieces.forEach((pc) => (pc.field = null));
+    lines.forEach((line, r) => {
+      const cy = y + up[r];
+      line.forEach(({ i, x: along }) => {
         const kn = knots[i];
         const b = kn.b;
         const rnd = seeded(b.project!.slug);
-        const x = x0 + colW.slice(0, c).reduce((sum, cw) => sum + cw + gap, 0) - kn.box[0] * k;
+        const x = x0 + along - kn.box[0] * k;
         // Its way out: its mark's sample's, so its pieces leave with their stretch of thread.
         const m = Math.max(0, Math.min(this.M - 1, Math.round(b.i)));
         const dl = Math.hypot(this.BX[m], this.BY[m]) || 1;
-        const dirX = this.BX[m] / dl;
-        const dirY = this.BY[m] / dl;
         // A drift of so many px/s: a Lissajous figure's mean speed is about 0.9·amp·ω.
         const speed = lerp(FIELD_DRIFT_SPEED[0], FIELD_DRIFT_SPEED[1], rnd()) * (amp / FIELD_DRIFT);
         const om = speed / (0.9 * amp);
         const box: [number, number, number, number] = [kn.box[0] * k, kn.box[1] * k, kn.box[2] * k, kn.box[3] * k];
-        // Its caption: after the knot where there is room, else before it, else under it.
-        const after = W - edge - (x + box[2] + CAP_BESIDE);
-        const before = x + box[0] - CAP_BESIDE - edge;
-        const cap = after >= CAP_BESIDE_MIN ? "after" : before >= CAP_BESIDE_MIN ? "before" : "under";
         const slot: Slot = {
           x,
           y: cy,
@@ -3804,26 +3940,24 @@ export class ThreadScene {
           w2: om * lerp(0.85, 1.15, rnd()),
           p1: rnd() * Math.PI * 2,
           p2: rnd() * Math.PI * 2,
-          dirX,
-          dirY,
+          dirX: this.BX[m] / dl,
+          dirY: this.BY[m] / dl,
           reach: 0.5 * Math.hypot(x - this.cx, cy - this.cy) + 0.2 * Math.min(W, H),
           tumble: this.nova.spin * FIELD_TUMBLE * lerp(0.7, 1.3, rnd()),
           box,
-          cap,
+          // Where its caption stands is fieldCaptions' to say, once every knot has its place.
+          cap: "under",
+          capX: (box[0] + box[2]) / 2,
+          capY: box[3] + CAP_BESIDE,
+          fixed: false,
+          capW: natW,
           year: kn.year ? (this.years.find((yr) => yr.year === b.year)?.m ?? null) : null,
-          rank: rank++,
+          rank: i,
         };
         this.field.set(b, slot);
         kn.parts.forEach((q) => (q.pc.field = { x: q.x * k, y: q.y * k, w: q.w * k, h: q.h * k }));
-        const width = Math.min(WHY_MAX, cap === "after" ? after : cap === "before" ? before : W - 2 * edge);
-        const anchor = cap === "after" ? "left" : cap === "before" ? "right" : "center";
-        [b.cap.name, b.cap.status, b.cap.why].forEach((mk) => {
-          mk.t.anchorX = anchor;
-        });
-        b.cap.why.t.textAlign = anchor;
-        b.cap.why.t.maxWidth = width;
       });
-      y += reach[ri].up + reach[ri].down + gap;
+      y += up[r] + down[r] + gap;
     });
     // The numerals start out of sight, to rise as the covers settle.
     this.field.forEach((slot) => {
@@ -3831,9 +3965,142 @@ export class ThreadScene {
       slot.year.t.visible = true;
       slot.year.offset = this.nova.yearsUp ? 0 : 1e3;
     });
+    // The caption in its kept room stands under the sheet's last row (y has gone a gap past it).
+    this.fieldCaptions(natW, foot ? y - gap + amp + CAP_BESIDE : null);
     await Promise.all(beads.flatMap((b) => [b.cap.name.t, b.cap.status.t, b.cap.why.t]).map((t) => syncText(t)));
     if (this.disposed || gen !== this.fieldGen || !this.fieldOn) return;
     if (this.hovered) this.placeFieldCaption(this.hovered);
+  }
+
+  /** A knot as it lies in the field at rest, turned and jittered, padded by `pad` px: x0, y0, x1, y1 on the screen. */
+  private knotRect(f: Slot, pad: number): [number, number, number, number] {
+    const c = Math.cos(f.rot);
+    const s = Math.sin(f.rot);
+    const [a, b, d, e] = f.box;
+    const xs = [a * c - b * s, d * c - b * s, a * c - e * s, d * c - e * s];
+    const ys = [a * s + b * c, d * s + b * c, a * s + e * c, d * s + e * c];
+    const x = f.x + f.jx;
+    const y = f.y + f.jy;
+    return [x + Math.min(...xs) - pad, y + Math.min(...ys) - pad, x + Math.max(...xs) + pad, y + Math.max(...ys) + pad];
+  }
+
+  /**
+   * Where each cover's hover caption stands, from its words as measured at
+   * `natW` and the knots as they lie (turned, jittered, with room for their
+   * drift): beside its knot, after it or else before it, where it has
+   * CAP_BESIDE_MIN px clear of every other knot and numeral, its line
+   * wrapping to fit; else under or over it; else past the other knots on its
+   * row, or under or over the whole sheet, whichever is nearest; and where
+   * nothing is clear (a crowded sheet on a small screen), under or over it
+   * where it covers least, which the veil then thins. Where room was kept for
+   * it under the sheet (see layoutField), it stands there, at `foot`.
+   */
+  private fieldCaptions(natW: number, foot: number | null) {
+    type Rect = [number, number, number, number];
+    type Try = { cap: Slot["cap"]; r: Rect; w: number; ok: boolean };
+    const W = this.width;
+    const edge = this.vertical ? FIELD_PHONE_EDGE : FIELD_EDGE;
+    const top = this.fieldBox.y0;
+    const bottom = this.height - FIELD_PHONE_EDGE;
+    const widthOf = (m: Masked) => blockBounds(m.t)[2] - blockBounds(m.t)[0];
+    // Every knot, with room for its drift and a little air, and every year's numeral over its first cover.
+    const blocks: { b: Bead; knot: boolean; r: Rect }[] = [];
+    this.field.forEach((f, b) => {
+      blocks.push({ b, knot: true, r: this.knotRect(f, f.amp + CAP_CLEAR) });
+      const cover = b.pieces[0]?.field;
+      if (!f.year || !cover) return;
+      const x = f.x + f.jx - cover.w / 2;
+      const y = f.y + f.jy - cover.h / 2 - YEAR_GAP;
+      const pad = f.amp + CAP_CLEAR / 2;
+      blocks.push({ b, knot: false, r: [x - pad, y - this.textHeight(f.year) - pad, x + widthOf(f.year) + pad, y + pad] });
+    });
+    const overlap = (r: Rect, o: Rect) => Math.max(0, Math.min(r[2], o[2]) - Math.max(r[0], o[0])) * Math.max(0, Math.min(r[3], o[3]) - Math.max(r[1], o[1]));
+    this.field.forEach((f, b) => {
+      const { name, status, why } = b.cap;
+      const anchor = (to: "left" | "right" | "center") => {
+        [name, status, why].forEach((m) => (m.t.anchorX = to));
+        why.t.textAlign = to;
+      };
+      if (foot !== null) {
+        // In its room, centred under the sheet.
+        Object.assign(f, { cap: "under", capX: W / 2, capY: foot, fixed: true, capW: natW });
+        anchor("center");
+        why.t.maxWidth = natW;
+        return;
+      }
+      const whyW = widthOf(why);
+      const whyH = this.textHeight(why);
+      const lineH = WHY_SIZE * 1.3;
+      const lines = Math.max(1, Math.round(whyH / lineH));
+      const heads = Math.max(widthOf(name), widthOf(status));
+      const natural = Math.max(heads, whyW);
+      // Its size set `w` wide: narrower than it was measured, its line wraps into about as many more.
+      const size = (w: number) => {
+        const n = whyW <= w + 0.5 ? lines : Math.max(lines + 1, Math.ceil((whyW * lines) / (0.9 * w)));
+        return { w: Math.max(heads, Math.min(w, whyW)), h: 50 + (n === lines ? whyH : n * lineH) };
+      };
+      const K = this.knotRect(f, f.amp);
+      const cx = f.x + f.jx;
+      const cy = f.y + f.jy;
+      const others = blocks.filter((o) => !(o.b === b && o.knot));
+      const covers = (r: Rect, all = false) => (all ? blocks : others).reduce((s, o) => s + overlap(r, o.r), 0);
+      const inside = (r: Rect) => r[1] >= top && r[3] <= bottom;
+      // Beside it, after (1) or before (-1): up to whatever is in the way, or past all of it on its row (`far`).
+      const beside = (dir: 1 | -1, far: boolean): Try => {
+        let w = natural;
+        let r: Rect = [0, 0, 0, 0];
+        for (let pass = 0; pass < 3; pass++) {
+          const s = size(w);
+          const y0 = Math.max(top, Math.min(K[1], bottom - s.h));
+          const row = others.filter((o) => o.r[3] > y0 && o.r[1] < y0 + s.h);
+          let from = dir > 0 ? K[2] + CAP_BESIDE : K[0] - CAP_BESIDE;
+          if (far) row.forEach((o) => (from = dir > 0 ? Math.max(from, o.r[2] + CAP_BESIDE) : Math.min(from, o.r[0] - CAP_BESIDE)));
+          let to = dir > 0 ? W - edge : edge;
+          row.forEach((o) => {
+            if (dir > 0 && o.r[2] > from) to = Math.min(to, o.r[0]);
+            if (dir < 0 && o.r[0] < from) to = Math.max(to, o.r[2]);
+          });
+          const fit = Math.min(w, (to - from) * dir);
+          const t = size(Math.max(1, fit));
+          r = dir > 0 ? [from, y0, from + t.w, y0 + t.h] : [from - t.w, y0, from, y0 + t.h];
+          const done = fit >= w - 0.5;
+          w = fit;
+          if (done) break;
+        }
+        return { cap: dir > 0 ? "after" : "before", r, w, ok: w >= Math.min(CAP_BESIDE_MIN, natural) && inside(r) && covers(r) === 0 };
+      };
+      // Under (1) or over (-1) it, centred on it and kept inside the edges: right by it, or past all of it (`far`).
+      const stack = (dir: 1 | -1, far: boolean): Try => {
+        const s = size(natural);
+        const mid = THREE.MathUtils.clamp((K[0] + K[2]) / 2, edge + s.w / 2, Math.max(edge + s.w / 2, W - edge - s.w / 2));
+        const x0 = mid - s.w / 2;
+        const x1 = mid + s.w / 2;
+        let from = dir > 0 ? K[3] + CAP_BESIDE : K[1] - CAP_BESIDE;
+        if (far) {
+          others.forEach((o) => {
+            if (o.r[2] > x0 && o.r[0] < x1) from = dir > 0 ? Math.max(from, o.r[3] + CAP_BESIDE) : Math.min(from, o.r[1] - CAP_BESIDE);
+          });
+        }
+        const r: Rect = dir > 0 ? [x0, from, x1, from + s.h] : [x0, from - s.h, x1, from];
+        return { cap: dir > 0 ? "under" : "over", r, w: natW, ok: inside(r) && covers(r) === 0 };
+      };
+      const away = (r: Rect) => Math.hypot(Math.max(r[0] - cx, 0, cx - r[2]), Math.max(r[1] - cy, 0, cy - r[3]));
+      let pick = [beside(1, false), beside(-1, false), stack(1, false), stack(-1, false)].find((t) => t.ok);
+      pick ??= [beside(1, true), beside(-1, true), stack(1, true), stack(-1, true)].filter((t) => t.ok).sort((p, q) => away(p.r) - away(q.r))[0];
+      if (!pick) {
+        // Nowhere clear: under or over it, kept on the screen, wherever it covers least.
+        const kept = [stack(1, false), stack(-1, false)].map((t) => {
+          const dy = t.r[3] > bottom ? bottom - t.r[3] : t.r[1] < top ? top - t.r[1] : 0;
+          return { ...t, r: [t.r[0], t.r[1] + dy, t.r[2], t.r[3] + dy] as Rect };
+        });
+        pick = kept.sort((p, q) => covers(p.r, true) - covers(q.r, true))[0];
+      }
+      const beside1 = pick.cap === "after" || pick.cap === "before";
+      const at = pick.cap === "after" ? pick.r[0] : pick.cap === "before" ? pick.r[2] : (pick.r[0] + pick.r[2]) / 2;
+      Object.assign(f, { cap: pick.cap, capX: at - cx, capY: pick.r[1] - cy, fixed: false, capW: beside1 && pick.w < whyW - 0.5 ? Math.max(1, pick.w) : natW });
+      anchor(pick.cap === "after" ? "left" : pick.cap === "before" ? "right" : "center");
+      why.t.maxWidth = f.capW;
+    });
   }
 
   /**
@@ -3877,33 +4144,19 @@ export class ThreadScene {
     return true;
   }
 
-  /** The chosen project's caption beside its cover's knot, following it as it drifts; under it where there is no room beside. */
+  /** The chosen project's caption where fieldCaptions set it, following its cover as it drifts; in its kept room it stays put. */
   private placeFieldCaption(b: Bead) {
     const f = this.field.get(b);
     const cover = b.pieces[0];
     if (!f || !cover || !this.fieldPose(cover, this.burstT, this.pose)) return;
-    const { x, y } = this.pose;
     const { name, status, why } = b.cap;
     const h = 50 + this.textHeight(why);
-    const [bx0, by0, bx1, by1] = f.box;
-    const top = this.headY + this.headingHalf + FIELD_TOP;
-    const edge = this.vertical ? FIELD_PHONE_EDGE : FIELD_EDGE;
-    let cx: number;
-    let cy: number;
-    if (f.cap === "under") {
-      const half = Math.max(...[name, status, why].map((m) => blockBounds(m.t)[2] - blockBounds(m.t)[0])) / 2;
-      cx = THREE.MathUtils.clamp(x + (bx0 + bx1) / 2, edge + half, Math.max(edge + half, this.width - edge - half));
-      cy = y + by1 + CAP_BESIDE;
-      // Near the foot it stands over the knot instead.
-      if (cy + h > this.height - FIELD_PHONE_EDGE) cy = y + by0 - CAP_BESIDE - h;
-    } else {
-      cx = f.cap === "after" ? x + bx1 + CAP_BESIDE : x + bx0 - CAP_BESIDE;
-      cy = y + by0;
-    }
-    cy = Math.max(top, Math.min(cy, this.height - FIELD_PHONE_EDGE - h));
-    this.setBase(name, cx, cy);
-    this.setBase(status, cx, cy + 30);
-    this.setBase(why, cx, cy + 50);
+    const top = this.fieldBox.y0;
+    const x = f.fixed ? f.capX : this.pose.x + f.capX;
+    const y = THREE.MathUtils.clamp(f.fixed ? f.capY : this.pose.y + f.capY, top, Math.max(top, this.height - FIELD_PHONE_EDGE - h));
+    this.setBase(name, x, y);
+    this.setBase(status, x, y + 30);
+    this.setBase(why, x, y + 50);
   }
 
   /** Each year's numeral over its first project's cover, drifting with it. */
@@ -4072,6 +4325,10 @@ export class ThreadScene {
     }
     hv.k += ((out ? 1 : 0) - hv.k) * k;
     if (hv.k < 0.001) hv.k = 0;
+    // And they keep out from under the tab bar, which stays as it is.
+    const nv = this.navVeil;
+    nv.k += ((this.fieldOn || this.nova.phase === "return" ? 1 : 0) - nv.k) * k;
+    if (nv.k < 0.001) nv.k = 0;
 
     const v = this.veil;
     const o = this.opened?.open;
@@ -4097,9 +4354,16 @@ export class ThreadScene {
     v.y1 = y1 + VEIL_PAD;
   }
 
-  /** The share of its ink the ball keeps at a point: all of it, except under a caption, the opened project's words, or the heading while the supernova's filaments cross it. */
+  /**
+   * The share of its ink the ball keeps at a point: all of it, except under a
+   * caption, the opened project's words, or the heading while the
+   * supernova's filaments cross it; and none under the tab bar while they
+   * reach up there.
+   */
   private veilAt(x: number, y: number) {
+    const nav = this.navVeil.k > 0 ? 1 - this.navVeil.k * (1 - navFade(y)) : 1;
     return (
+      nav *
       this.veilOf(this.veil, 0, VEIL_FEATHER, x, y) *
       this.veilOf(this.capVeil, CAP_VEIL_PAD, CAP_VEIL_FEATHER, x, y) *
       this.veilOf(this.headVeil, CAP_VEIL_PAD, CAP_VEIL_FEATHER, x, y)
@@ -4331,7 +4595,9 @@ export class ThreadScene {
     sc.reset();
     for (let k = 0; k <= NOVA_RING_POINTS; k++) {
       const a = (k / NOVA_RING_POINTS) * Math.PI * 2;
-      sc.push(this.cx + Math.cos(a) * r, this.cy + Math.sin(a) * r, ink);
+      const y = this.cy + Math.sin(a) * r;
+      // Past the corners, but never through the tab bar.
+      sc.push(this.cx + Math.cos(a) * r, y, ink * navFade(y));
     }
     sc.normals(true);
     front.strip(sc.x, sc.y, sc.a, sc.nx, sc.ny, 0, sc.n - 1);
