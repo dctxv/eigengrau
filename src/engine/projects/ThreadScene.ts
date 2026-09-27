@@ -1002,6 +1002,8 @@ export class ThreadScene {
   /** The supernova's field: each project's slot, and the year numerals that head each year's first. */
   private field = new Map<Bead, Slot>();
   private fieldGen = 0;
+  /** The field's bounds, px: no knot lies or drifts past them. */
+  private fieldBox = { x0: 0, y0: 0, x1: 1, y1: 1 };
   private years: { year: number; m: Masked }[] = [];
   /** A piece's place in the field this frame (see fieldPose): scratch. */
   private pose: Pose = { x: 0, y: 0, w: 0, h: 0, rot: 0, ink: 0, rank: 0 };
@@ -1158,7 +1160,7 @@ export class ThreadScene {
     yearsUp: false,
     touched: 0,
     floatAt: 0,
-    chosenAt: 0,
+    chosenAt: -Infinity,
     wind: { at: 0, span: NOVA_WIND, home: NOVA_HOME, over: true, pos: -Infinity, to: null as Bead | null, hurried: false },
     pendingTo: null as Bead | null,
     bloom: null as (() => void) | null,
@@ -3298,6 +3300,10 @@ export class ThreadScene {
     n.yearsUp = false;
     n.shape = 1;
     n.pendingTo = null;
+    // The float's clocks run on the supernova's own, which starts again now.
+    n.touched = 0;
+    n.floatAt = 0;
+    n.chosenAt = -Infinity;
     n.collapsedAt = performance.now();
     // The way it was spinning: its momentum goes out with the thread, as a swirl.
     n.spin = Math.sign(IDLE * this.idleK + this.vel) || n.sign;
@@ -3683,6 +3689,7 @@ export class ThreadScene {
     const top = this.headY + this.headingHalf + FIELD_TOP;
     const bw = W - 2 * edge;
     const bh = H - edge - top;
+    this.fieldBox = { x0: edge, y0: top, x1: W - edge, y1: H - edge };
     const budget = FIELD_AREA * W * H;
     const numH = YEAR_SIZE + YEAR_GAP + 3;
     // Each knot at R_REF: its members' centres from its cover's, and its bounds round that centre.
@@ -3841,9 +3848,11 @@ export class ThreadScene {
     const pf = pc.field;
     if (!f || !pf) return false;
     const t = Math.max(0, tau);
-    // Where its cover lies now: its slot, as it fell there, drifting.
-    const sx = f.x + f.jx + f.amp * Math.sin(f.w1 * t + f.p1);
-    const sy = f.y + f.jy + f.amp * Math.sin(f.w2 * t + f.p2);
+    // Where its cover lies now: its slot, as it fell there, drifting; never past the field's bounds.
+    const fb = this.fieldBox;
+    const [bx0, by0, bx1, by1] = f.box;
+    const sx = THREE.MathUtils.clamp(f.x + f.jx + f.amp * Math.sin(f.w1 * t + f.p1), fb.x0 - bx0, Math.max(fb.x0 - bx0, fb.x1 - bx1));
+    const sy = THREE.MathUtils.clamp(f.y + f.jy + f.amp * Math.sin(f.w2 * t + f.p2), fb.y0 - by0, Math.max(fb.y0 - by0, fb.y1 - by1));
     // Out along its way, then round into its slot: a curve whose first leg is its way out.
     const u = outCubic(clamp01(t / NOVA_SETTLE));
     const a = (1 - u) * (1 - u);
