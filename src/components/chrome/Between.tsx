@@ -27,17 +27,17 @@ const DEPTH = 0.35;
 const STARS = { count: 60, area: 1440 * 900, curve: 0.7, min: 16, max: 90 };
 /**
  * How far above eigengrau each star lifts the pixel it is on, in levels of 255, with their
- * weights: most at the edge of what a screen shows, a sparse brightest few at about 9, the
- * least an ordinary LCD shows, so the field is faint but there.
+ * weights. About 9 is the least an ordinary LCD shows, so most sit either side of it and a thin
+ * tail goes fainter for depth: on a good screen all of them, on a plain one still a field of
+ * stars rather than a stray few. Nothing above 10, so it stays faint.
  */
 const LEVELS: readonly (readonly [level: number, weight: number])[] = [
-  [4, 2],
-  [5, 2.5],
-  [6, 2.5],
+  [5, 0.5],
+  [6, 1],
   [7, 2],
-  [8, 1.5],
-  [9, 1.2],
-  [10, 0.8],
+  [8, 2.5],
+  [9, 2.5],
+  [10, 1.5],
 ];
 /**
  * A star is white at the alpha that lifts eigengrau by exactly its level. At alphas this small,
@@ -80,6 +80,8 @@ type Run = {
   size: number;
   /** What the last frame drew: the view's offset (device px) and the fade, so a frame that changes nothing draws nothing. */
   drawn: { off: number; fade: number };
+  /** Stops listening for a resized window or a new screen: the stars were laid out for the old ones. */
+  unwatch: () => void;
 };
 
 /** The visit's number: when the last visit ended, which stays put for the whole visit, reloads included. */
@@ -160,12 +162,16 @@ export function Between({ ref }: { ref: Ref<BetweenHandle> }) {
   useImperativeHandle(ref, () => {
     const end = () => {
       const canvas = canvasRef.current;
+      const r = runRef.current;
       runRef.current = null;
+      r?.unwatch();
       if (!canvas) return;
       canvas.removeAttribute("data-on");
       // give the pixels back: at rest there is nothing here at all
       canvas.width = 0;
       canvas.height = 0;
+      canvas.style.width = "";
+      canvas.style.height = "";
     };
 
     const begin = (from: number, to: number, travel: number) => {
@@ -184,13 +190,21 @@ export function Between({ ref }: { ref: Ref<BetweenHandle> }) {
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
+      // Shown at exactly its backing's size from the viewport's corner, so each of its pixels is one
+      // of the screen's. Stretched to the box instead, 899 CSS px at 150% (1348.5 device px) would
+      // resample the whole canvas and smear every star across two rows at mixed levels.
+      canvas.style.width = `${canvas.width / dpr}px`;
+      canvas.style.height = `${canvas.height / dpr}px`;
       const ctx = canvas.getContext("2d");
       if (!ctx) return end();
       ctx.fillStyle = "#fff";
 
-      // Each star on whole device pixels once, so the field moves as one and stays crisp.
+      // Each star on whole device pixels once, so the field moves as one and stays crisp; none on
+      // the last row when the screen covers only part of it (899 CSS px at 150% ends mid-pixel).
+      const size = Math.max(1, Math.round(dpr));
+      const floor = Math.floor(h * dpr) - size;
       const order = Array.from(sky.level.keys())
-        .filter((i) => sky.y[i] >= top)
+        .filter((i) => sky.y[i] >= top && Math.round(sky.y[i] * dpr) <= floor)
         .sort((a, b) => sky.level[a] - sky.level[b]);
       const x = new Int32Array(order.length);
       const y = new Int32Array(order.length);
@@ -208,6 +222,16 @@ export function Between({ ref }: { ref: Ref<BetweenHandle> }) {
       // strip: next door, it ends where the next slide on starts; further, it passes the middle.
       const mid = ((from + to) / 2) * DEPTH * w;
       const dir = Math.sign(to - from);
+      // Resized, zoomed or dragged to another screen mid-slide, the field no longer fits (its size,
+      // the tab bar's clearance, the device pixels): that slide finishes without it. Rare, so no
+      // relayout. A new screen changes the pixel ratio without a resize, hence the media query.
+      const moved = () => {
+        const now = box.getBoundingClientRect();
+        if (now.width !== w || now.height !== h || (window.devicePixelRatio || 1) !== dpr) end();
+      };
+      const ratio = window.matchMedia(`(resolution: ${dpr}dppx)`);
+      window.addEventListener("resize", moved);
+      ratio.addEventListener("change", moved);
       runRef.current = {
         ctx,
         x,
@@ -216,8 +240,12 @@ export function Between({ ref }: { ref: Ref<BetweenHandle> }) {
         start: mid - (dir * DEPTH * travel) / 2,
         travel,
         dpr,
-        size: Math.max(1, Math.round(dpr)),
+        size,
         drawn: { off: NaN, fade: -1 },
+        unwatch: () => {
+          window.removeEventListener("resize", moved);
+          ratio.removeEventListener("change", moved);
+        },
       };
       canvas.setAttribute("data-on", "");
     };
