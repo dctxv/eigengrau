@@ -257,7 +257,8 @@ export class Suit {
       const s = this.glintCanvas.getContext("2d")!, W = c.width, H = c.height;
       s.globalCompositeOperation = "source-over";
       s.clearRect(0, 0, W, H);
-      const at = -GLINT.width + glint * (1 + 2 * GLINT.width), a = GLINT.alpha * Math.sin(Math.PI * glint);
+      // (under reduced motion it does not sweep: it brightens where it is and fades)
+      const at = this.reduced ? 0.45 : -GLINT.width + glint * (1 + 2 * GLINT.width), a = GLINT.alpha * Math.sin(Math.PI * glint);
       const band = s.createLinearGradient(W * (at - GLINT.width), H * (at - GLINT.width) * 0.6, W * (at + GLINT.width), H * (at + GLINT.width) * 0.6);
       band.addColorStop(0, "rgba(233, 233, 226, 0)");
       band.addColorStop(0.5, `rgba(233, 233, 226, ${a.toFixed(3)})`);
@@ -353,7 +354,8 @@ export class Suit {
       suitUp(this.att, {
         peg: () => this.helmetAt(),
         helmet: () => (f.p > 0 ? this.helmetAt() : null),
-        landing: () => f.p > 0.8,
+        coming: () => f.p > 0.45,
+        landing: () => f.p > 0.85,
         sealed: () => this.sealed,
         fog: () => room.urchi.character.fog(1),
       });

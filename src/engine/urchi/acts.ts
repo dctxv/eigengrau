@@ -527,7 +527,7 @@ export function* lost(a: Attention): Act {
  * way out it fogs the lower visor (`fog`) and it blinks, slowly. Under reduced motion (the suit
  * simply fades on) only the look and the blink.
  */
-export function* suitUp(a: Attention, o: { peg: Where; helmet: () => Point | null; landing: () => boolean; sealed: () => boolean; fog: () => void }): Act {
+export function* suitUp(a: Attention, o: { peg: Where; helmet: () => Point | null; coming: () => boolean; landing: () => boolean; sealed: () => boolean; fog: () => void }): Act {
   try {
     a.steady(true);
     a.look(o.peg, "quick");
@@ -544,8 +544,16 @@ export function* suitUp(a: Attention, o: { peg: Where; helmet: () => Point | nul
     }
     yield* until(a, () => o.helmet() !== null, 1.5);
     a.look(() => o.helmet() ?? a.gazeNow);
-    yield* until(a, o.landing, 2.5);
+    // over the top of its arc the head turns to face out and holds still for it (so the helmet it
+    // wears lands where the flying one does), and the eyes alone follow it down
+    yield* until(a, o.coming, 2.5);
     a.look(face(a));
+    const h = a.head(), end = a.t + 1.5;
+    while (!o.landing() && a.t < end) {
+      const p = o.helmet();
+      if (p) a.eyes(clamp((p.x - h.x) / h.reach, -1, 1), clamp((p.y - h.y) / h.reach, -1, 1));
+      yield 0;
+    }
     a.eyes(0, -0.75);
     a.ch.pauseBreath(0.9);
     yield* until(a, o.sealed, 1.5);
