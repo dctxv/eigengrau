@@ -1192,6 +1192,14 @@ export class ThreadScene {
     touched: 0,
     floatAt: 0,
     chosenAt: -Infinity,
+    /**
+     * Whether the pointer has moved since the covers came out and the deaf
+     * moment passed. A pointer left where the spin ended would otherwise
+     * choose whichever cover settled under it, and a chosen cover holds the
+     * float, so the stillness would never run out: until it moves, it
+     * chooses nothing. The arrows and a tap choose as ever.
+     */
+    pointed: false,
     wind: { at: 0, span: NOVA_WIND, home: NOVA_HOME, over: true, pos: -Infinity, to: null as Bead | null, hurried: false },
     pendingTo: null as Bead | null,
     bloom: null as (() => void) | null,
@@ -2341,6 +2349,13 @@ export class ThreadScene {
     const d = this.drag;
     this.drag = null;
     if (!d) return false;
+    // A drag never moves the pointer the scene knows (see pointer): with the covers out, where the
+    // hand let go is where it now rests, so letting go without moving is not a move onto a cover.
+    // A finger has no pointer to rest.
+    if (d.moved && this.novaActive && !this.nova.finger) {
+      const rect = this.canvas.getBoundingClientRect();
+      this.pointerAt = { x: d.x - rect.left, y: d.y - rect.top };
+    }
     if (d.moved && performance.now() - d.t > 90 && !this.novaBound) this.vel = 0; // held still before letting go
     return !d.moved;
   }
@@ -2438,7 +2453,10 @@ export class ThreadScene {
     if (this.pointerAt && moved) this.steer(x - this.pointerAt.x, y - this.pointerAt.y);
     this.pointerAt = { x, y };
     this.keyHold = false;
-    if (moved) this.novaTouch();
+    if (moved) {
+      this.novaTouch();
+      if (this.fieldOn && !this.novaDeaf) this.nova.pointed = true;
+    }
     if (!this.ready || this.drag?.moved) return;
     // The ball leans after the pointer, except while the supernova has it: it comes back as it went.
     if (!this.opened && !this.novaActive) this.targetYaw = this.opts.reducedMotion ? 0 : (this.pointerAt.x / this.width - 0.5) * 0.45;
@@ -2462,9 +2480,10 @@ export class ThreadScene {
       this.setCoverHot(pc && pc.index === 0 ? pc : null);
       return;
     }
-    // The covers out: the ball's grammar, on the table. Over its caption a choice holds.
+    // The covers out: the ball's grammar, on the table. Over its caption a choice holds. A pointer
+    // that has not moved since they came out chooses nothing (see nova.pointed).
     if (this.novaActive) {
-      if (!this.fieldOn || this.novaDeaf) return;
+      if (!this.fieldOn || this.novaDeaf || !this.nova.pointed) return;
       const b = this.onCaption(at.x, at.y) ? this.hovered : this.beadAt(at.x, at.y);
       if (b !== this.hovered) this.setHover(b?.project ? b : null, true);
       return;
@@ -3342,6 +3361,7 @@ export class ThreadScene {
     n.touched = 0;
     n.floatAt = 0;
     n.chosenAt = -Infinity;
+    n.pointed = false;
     n.airUntil = -Infinity;
     n.collapsedAt = performance.now();
     // The way it was spinning: its momentum goes out with the thread, as a swirl.
