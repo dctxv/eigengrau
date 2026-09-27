@@ -145,6 +145,19 @@ type Slot = {
 /** A piece's place in the supernova's field this frame: centre, size and turn (px, radians), ink, and its project's rank. */
 type Pose = { x: number; y: number; w: number; h: number; rot: number; ink: number; rank: number };
 
+/** A cover's knot in the field at R_REF: its members' centres from its cover's, its bounds round that centre, its cover's height, and whether its year starts there. */
+type Knot = { b: Bead; parts: { pc: Piece; x: number; y: number; w: number; h: number }[]; box: [number, number, number, number]; coverH: number; year: boolean };
+
+/**
+ * A contact sheet: its rows in reading order, each knot (by its place in date
+ * order) at its x along its row, to its left edge; each row's reach over and
+ * under its covers' centres; its size, gap and scale.
+ */
+type Sheet = { lines: { i: number; x: number }[][]; up: number[]; down: number[]; w: number; h: number; gap: number; scale: number };
+
+/** The field chosen for a screen: its sheet, the height it was fitted into, and whether the caption's room is kept under it. */
+type FieldChoice = { sheet: Sheet; bh: number; foot: boolean };
+
 /** Where an opened project lies: along is x on a wide screen, y on a phone. */
 type Layout = {
   vertical: boolean;
@@ -586,6 +599,18 @@ const FIELD_DRIFT = 8;
 const FIELD_DRIFT_SPEED = [3, 6] as const;
 /** The tumble a piece has left as it leaves the knot, radians, gone by the time it settles. */
 const FIELD_TUMBLE = 0.5;
+/**
+ * Choosing the sheet tries every layout, which with a lot of work is too
+ * slow for the collapse's first frames: so it is worked out ahead, at most
+ * FIELD_SLICE ms a frame while the ball is itself (see planAhead), and kept
+ * for each screen (its size, the work's count and the layout they give), up
+ * to FIELD_KEEP of them, past the scene, which is built afresh after every
+ * slide. Where the captions stand is worked out the same way, over the
+ * frames after the collapse (see placeCaptions).
+ */
+const FIELD_SLICE = 2;
+const FIELD_KEEP = 16;
+const fieldChoices = new Map<string, FieldChoice>();
 /** A faint grotesk year numeral at each year's first project, YEAR_GAP px over its cover. */
 const YEAR_SIZE = 11;
 const YEAR_INK = 0.4;
@@ -1035,6 +1060,13 @@ export class ThreadScene {
   private fieldGen = 0;
   /** The field's bounds, px: no knot lies or drifts past them. */
   private fieldBox = { x0: 0, y0: 0, x1: 1, y1: 1 };
+  /** The tallest cover caption at the width the field sets them (see layout), which the sheet keeps room for. */
+  private fieldCapH = 0;
+  /** The sheet being worked out ahead, for the screen `key` names (see planAhead); and the layout it was last done for. */
+  private fieldSearch: { key: string; run: Generator<void, FieldChoice> } | null = null;
+  private planned = 0;
+  /** Where the captions stand in the field, still being worked out (see placeCaptions). */
+  private captionsRun: Generator<void, void> | null = null;
   private years: { year: number; m: Masked }[] = [];
   /** A piece's place in the field this frame (see fieldPose): scratch. */
   private pose: Pose = { x: 0, y: 0, w: 0, h: 0, rot: 0, ink: 0, rank: 0 };
@@ -1055,6 +1087,8 @@ export class ThreadScene {
   private capX = 0;
   /** A resize can start a layout while the last one waits on its texts: only the newest places anything. */
   private layoutGen = 0;
+  /** The last layout to finish placing everything. */
+  private laidOut = 0;
 
   // Motion.
   private angle = 0;
@@ -1768,6 +1802,9 @@ export class ThreadScene {
     });
     await Promise.all(this.texts.map((t) => syncText(t)));
     if (this.disposed || gen !== this.layoutGen) return;
+    // The covers' captions as the supernova's field sets them, before a screen that stands them
+    // beside the ball narrows them: the sheet is worked out ahead of the collapse (see planAhead).
+    this.fieldCapH = Math.max(0, ...this.beads.filter((b) => b.project && b.pieces.length).map((b) => 50 + this.textHeight(b.cap.why)));
 
     // The heading: on a phone where the horizon had it (higher on a short screen). A wide screen
     // sets it once to measure its ink, then again where the balance below puts it.
@@ -1853,6 +1890,7 @@ export class ThreadScene {
       }
     });
     if (this.opened) this.layoutOpen(this.opened);
+    this.laidOut = gen;
     // The supernova's covers, out on the table, find their places again on the new screen.
     if (this.fieldOn || this.nova.phase === "collapse") void this.layoutField();
   }
@@ -3630,6 +3668,7 @@ export class ThreadScene {
     n.collapsedAt = Infinity;
     n.coolUntil = performance.now() + NOVA_COOL;
     this.field.clear();
+    this.captionsRun = null;
     this.pieces.forEach((pc) => (pc.field = null));
     this.years.forEach(({ m }) => {
       gsap.killTweensOf(m);
@@ -3728,50 +3767,11 @@ export class ThreadScene {
     return { r, c: Math.cos(turn), s: Math.sin(turn), ink };
   }
 
-  /**
-   * Where the covers settle: a loose contact sheet in reading order by date,
-   * oldest at the top left, each cover with its pieces as they hung beside
-   * it on the ball (past MANY projects, the cover alone). Up to
-   * FIELD_ROWS_FROM projects, a grid whose columns are as wide as their
-   * widest knot; past it, year rows (see FIELD_ROWS_FROM). As many to a row
-   * as best give the room's shape, a little wider, inside the bounds and the
-   * area budget; rows keep room for a year numeral where a year starts. What
-   * does not fit closes its gaps, then shrinks. A phone keeps room under the
-   * sheet for the hover caption, and so does a screen too full to leave it
-   * anywhere else. Laid out at the collapse (and again on a
-   * resize while the covers are out); where each hover caption stands follows
-   * once its words are measured (see fieldCaptions).
-   */
-  private async layoutField() {
-    const gen = ++this.fieldGen;
+  /** Each cover's knot at R_REF, in date order: the cover with its pieces as they hung beside it on the ball (past MANY projects, the cover alone). */
+  private fieldKnots(): Knot[] {
     const beads = this.order.filter((b) => b.project && b.pieces.length);
-    if (!beads.length) return;
-    const laying = () => !this.disposed && gen === this.fieldGen && (this.fieldOn || this.nova.phase === "collapse");
-    // The captions are measured at the width they are set from: as the layout left them, unless a
-    // field before this one, on another screen, narrowed some.
-    const natW = this.vertical ? Math.min(WHY_MAX, this.width - 48) : WHY_MAX;
-    const stale = beads.filter((b) => b.cap.why.t.maxWidth !== natW);
-    if (stale.length) {
-      stale.forEach((b) => (b.cap.why.t.maxWidth = natW));
-      await Promise.all(stale.map((b) => syncText(b.cap.why.t)));
-      if (!laying()) return;
-    }
-    // Each sample's way out, worked out for the thread as it is wound now (see fitStep).
-    if (this.BX.length !== this.M) return;
-    const W = this.width;
-    const H = this.height;
-    const v = this.vertical;
-    const count = this.projects.length;
-    const onlyCovers = count > MANY;
-    const rows = count > FIELD_ROWS_FROM;
-    const edge = v ? FIELD_PHONE_EDGE : FIELD_EDGE;
-    const top = this.headY + this.headingHalf + FIELD_TOP;
-    const capH = Math.max(...beads.map((b) => 50 + this.textHeight(b.cap.why)));
-    const bw = W - 2 * edge;
-    const budget = FIELD_AREA * W * H;
-    const numH = YEAR_SIZE + YEAR_GAP + 3;
-    // Each knot at R_REF: its members' centres from its cover's, and its bounds round that centre.
-    const knots = beads.map((b, i) => {
+    const onlyCovers = this.projects.length > MANY;
+    return beads.map((b, i) => {
       const cover = b.pieces[0];
       const members = onlyCovers ? [cover] : b.pieces.filter((pc) => pc.onBall);
       const parts = members.map((pc) => ({ pc, x: pc.along - cover.along, y: -(pc.up - cover.up), w: pc.h * pc.aspect, h: pc.h }));
@@ -3784,6 +3784,38 @@ export class ThreadScene {
       });
       return { b, parts, box, coverH: cover.h, year: i === 0 || beads[i - 1].year !== b.year };
     });
+  }
+
+  /** What the sheet depends on: the screen, the work's count, and the layout they give it (see fieldChoices). */
+  private get fieldKey() {
+    return [this.width, this.height, this.projects.length, this.headY, this.headingHalf, this.R, this.cy, this.fieldCapH].join(" ");
+  }
+
+  /**
+   * Where the covers settle: a loose contact sheet in reading order by date,
+   * oldest at the top left. Up to FIELD_ROWS_FROM projects, a grid whose
+   * columns are as wide as their widest knot; past it, year rows (see
+   * FIELD_ROWS_FROM). As many to a row as best give the room's shape, a
+   * little wider, inside the bounds and the area budget; rows keep room for
+   * a year numeral where a year starts. What does not fit closes its gaps,
+   * then shrinks. A phone keeps room under the sheet for the hover caption,
+   * and so does a screen too full to leave it anywhere else. It tries every
+   * sheet, pausing after each, so it can be worked out a slice at a time
+   * (see planAhead); layoutField deals the covers into what it chooses.
+   */
+  private *searchField(): Generator<void, FieldChoice> {
+    const knots = this.fieldKnots();
+    const W = this.width;
+    const H = this.height;
+    const v = this.vertical;
+    const rows = this.projects.length > FIELD_ROWS_FROM;
+    const edge = v ? FIELD_PHONE_EDGE : FIELD_EDGE;
+    const top = this.headY + this.headingHalf + FIELD_TOP;
+    const capH = this.fieldCapH;
+    const cy = this.cy;
+    const bw = W - 2 * edge;
+    const budget = FIELD_AREA * W * H;
+    const numH = YEAR_SIZE + YEAR_GAP + 3;
     const coverMax = Math.max(...knots.map((k) => k.coverH));
     // The knots of each year, in order.
     const years: number[][] = [];
@@ -3792,7 +3824,6 @@ export class ThreadScene {
       else years[years.length - 1].push(i);
     });
     const widthOf = (i: number, scale: number) => (knots[i].box[2] - knots[i].box[0]) * scale;
-    type Sheet = { lines: { i: number; x: number }[][]; up: number[]; down: number[]; w: number; h: number; gap: number; scale: number };
     // Rows in reading order, each knot at its x along its row (to its left edge), and each row's reach
     // over and under its covers' centres.
     const sheet = (lines: { i: number; x: number }[][], scale: number, gap: number): Sheet => {
@@ -3867,30 +3898,33 @@ export class ThreadScene {
     // so a sheet that leaves a margin at its sides, or room over or under it, is chosen over one
     // that fills the room. With the caption's room kept under the sheet (`foot`), any will do.
     const loose = CAP_BESIDE + CAP_CLEAR + FIELD_DRIFT + FIELD_JITTER;
-    const pick = (bh: number, foot: boolean, passes = 12) => {
+    type Got = FieldChoice & { pass: number; clear: boolean };
+    const pick = function* (bh: number, foot: boolean, passes = 12): Generator<void, Got | null> {
       const fits = (f: Sheet) => f.w <= bw && f.h <= bh && f.w * f.h <= budget;
       // The sheet takes the room's shape, a little wider: it is read across, in rows.
       const shape = (FIELD_WIDE * bw) / Math.max(1, bh);
       const score = (f: Sheet) => Math.abs(Math.log(f.w / f.h / shape));
       const legible = (f: Sheet) => {
         if (foot) return true;
-        const y0 = THREE.MathUtils.clamp(this.cy - f.h / 2, top, Math.max(top, top + bh - f.h));
+        const y0 = THREE.MathUtils.clamp(cy - f.h / 2, top, Math.max(top, top + bh - f.h));
         return (bw - f.w) / 2 >= CAP_BESIDE_MIN + loose || Math.max(y0 - top, H - FIELD_PHONE_EDGE - (y0 + f.h)) >= capH + loose;
       };
       let scale = base;
       for (let pass = 0; pass < passes; pass++, scale *= 0.9) {
         const gap0 = Math.max(FIELD_GAP_MIN, FIELD_GAP * coverMax * scale + FIELD_GAP_PX);
         // Each layout at each gap, the widest first, and the sheets it makes that fit.
-        const tries = modes.flatMap((mode) =>
-          [1, 0.75, 0.5, 0.25].map((share) => {
+        const tries: Sheet[][] = [];
+        for (const mode of modes) {
+          for (const share of [1, 0.75, 0.5, 0.25]) {
             const out: Sheet[] = [];
             for (let n = 1; n <= knots.length; n++) {
               const f = mode(scale, n, Math.max(FIELD_GAP_MIN, gap0 * share));
               if (fits(f)) out.push(f);
+              yield;
             }
-            return out;
-          }),
-        );
+            tries.push(out);
+          }
+        }
         // The first that makes a sheet leaving its captions somewhere to go, else the first that
         // fits at all; of its sheets, the one nearest the room's shape.
         for (const strict of [true, false]) {
@@ -3909,8 +3943,10 @@ export class ThreadScene {
     // kept; so is it on a screen where no sheet leaves its captions anywhere else, if the sheet
     // still fits as large.
     const kept = H - FIELD_PHONE_EDGE - top - CAP_BESIDE - capH;
-    let got = v ? pick(kept, true) : pick(H - edge - top, false);
-    if (got && !got.clear) got = pick(kept, true, got.pass + 1) ?? got;
+    let got: Got | null;
+    if (v) got = yield* pick(kept, true);
+    else got = yield* pick(H - edge - top, false);
+    if (got && !got.clear) got = (yield* pick(kept, true, got.pass + 1)) ?? got;
     // Nothing fits (a screen too small for anything): a sheet as small as it gets, as wide as the room.
     if (!got) {
       const scale = base * 0.9 ** 12;
@@ -3919,8 +3955,79 @@ export class ThreadScene {
       const sheet = rows ? yearRows(true)(scale, n, FIELD_GAP_MIN) : grid(scale, n, FIELD_GAP_MIN);
       got = { sheet, bh: v ? kept : H - edge - top, foot: v, pass: 12, clear: false };
     }
-    const { bh, foot } = got;
-    const chosen = got.sheet;
+    return { sheet: got.sheet, bh: got.bh, foot: got.foot };
+  }
+
+  /** The sheet for the screen as it is: kept from before, or the search worked out ahead finished now (see planAhead). */
+  private fieldChoice(): FieldChoice {
+    const key = this.fieldKey;
+    const kept = fieldChoices.get(key);
+    if (kept) return kept;
+    const run = this.fieldSearch?.key === key ? this.fieldSearch.run : this.searchField();
+    this.fieldSearch = null;
+    let r = run.next();
+    while (!r.done) r = run.next();
+    return this.keepChoice(key, r.value);
+  }
+
+  private keepChoice(key: string, choice: FieldChoice) {
+    fieldChoices.set(key, choice);
+    const oldest = fieldChoices.keys().next();
+    if (fieldChoices.size > FIELD_KEEP && !oldest.done) fieldChoices.delete(oldest.value);
+    return choice;
+  }
+
+  /**
+   * The sheet worked out ahead of the collapse, FIELD_SLICE ms a frame at
+   * most, once each layout has placed everything: at the collapse there is
+   * then only the dealing to do (see layoutField). Not with reduced motion,
+   * where the ball never charges, nor while the covers are out.
+   */
+  private planAhead() {
+    if (this.planned === this.laidOut || this.opts.reducedMotion || this.novaActive) return;
+    const key = this.fieldKey;
+    if (!fieldChoices.has(key)) {
+      if (this.fieldSearch?.key !== key) this.fieldSearch = { key, run: this.searchField() };
+      const run = this.fieldSearch.run;
+      const until = performance.now() + FIELD_SLICE;
+      let r = run.next();
+      while (!r.done && performance.now() < until) r = run.next();
+      if (!r.done) return;
+      this.keepChoice(key, r.value);
+    }
+    this.fieldSearch = null;
+    this.planned = this.laidOut;
+  }
+
+  /**
+   * Deals the covers into their sheet (see searchField), each with its
+   * pieces as they hung beside it, lying a little off its slot: at the
+   * collapse, and again on a resize while the covers are out. The sheet was
+   * worked out ahead for the screen; where each hover caption stands follows
+   * once its words are measured (see fieldCaptions).
+   */
+  private async layoutField() {
+    const gen = ++this.fieldGen;
+    const beads = this.order.filter((b) => b.project && b.pieces.length);
+    if (!beads.length) return;
+    const laying = () => !this.disposed && gen === this.fieldGen && (this.fieldOn || this.nova.phase === "collapse");
+    // The captions are measured at the width they are set from: as the layout left them, unless a
+    // field before this one, on another screen, narrowed some.
+    const natW = this.vertical ? Math.min(WHY_MAX, this.width - 48) : WHY_MAX;
+    const stale = beads.filter((b) => b.cap.why.t.maxWidth !== natW);
+    if (stale.length) {
+      stale.forEach((b) => (b.cap.why.t.maxWidth = natW));
+      await Promise.all(stale.map((b) => syncText(b.cap.why.t)));
+      if (!laying()) return;
+    }
+    // Each sample's way out, worked out for the thread as it is wound now (see fitStep).
+    if (this.BX.length !== this.M) return;
+    const W = this.width;
+    const H = this.height;
+    const edge = this.vertical ? FIELD_PHONE_EDGE : FIELD_EDGE;
+    const top = this.headY + this.headingHalf + FIELD_TOP;
+    const knots = this.fieldKnots();
+    const { sheet: chosen, bh, foot } = this.fieldChoice();
     this.fieldBox = { x0: edge, y0: top, x1: W - edge, y1: Math.max(top, top + bh) };
     const { lines, up, down, w, h, gap } = chosen;
     const k = chosen.scale;
@@ -3983,10 +4090,31 @@ export class ThreadScene {
       slot.year.offset = this.nova.yearsUp ? 0 : 1e3;
     });
     // The caption in its kept room stands under the sheet's last row (y has gone a gap past it).
-    this.fieldCaptions(natW, foot ? y - gap + amp + CAP_BESIDE : null);
-    await Promise.all(beads.flatMap((b) => [b.cap.name.t, b.cap.status.t, b.cap.why.t]).map((t) => syncText(t)));
-    if (this.disposed || gen !== this.fieldGen || !this.fieldOn) return;
-    if (this.hovered) this.placeFieldCaption(this.hovered);
+    this.captionsRun = this.fieldCaptions(natW, foot ? y - gap + amp + CAP_BESIDE : null);
+    // At the collapse nothing can be chosen until the deaf moment has passed: the captions find
+    // their places over the frames of the drop, a slice at a time (see frame). On a resize, at once.
+    if (this.nova.phase !== "collapse") this.placeCaptions();
+  }
+
+  /**
+   * Works on where the captions stand (see fieldCaptions), for `budget` ms
+   * at most, or to the end; once they all have their places, their words are
+   * set again and the chosen one's follows its cover.
+   */
+  private placeCaptions(budget = Infinity) {
+    const run = this.captionsRun;
+    if (!run) return;
+    const until = performance.now() + budget;
+    let r = run.next();
+    while (!r.done && performance.now() < until) r = run.next();
+    if (!r.done) return;
+    this.captionsRun = null;
+    const gen = this.fieldGen;
+    const texts = [...this.field.keys()].flatMap((b) => [b.cap.name.t, b.cap.status.t, b.cap.why.t]);
+    void Promise.all(texts.map((t) => syncText(t))).then(() => {
+      if (this.disposed || gen !== this.fieldGen || !this.fieldOn) return;
+      if (this.hovered) this.placeFieldCaption(this.hovered);
+    });
   }
 
   /** A knot as it lies in the field at rest, turned and jittered, padded by `pad` px: x0, y0, x1, y1 on the screen. */
@@ -4010,9 +4138,11 @@ export class ThreadScene {
    * row, or under or over the whole sheet, whichever is nearest; and where
    * nothing is clear (a crowded sheet on a small screen), under or over it
    * where it covers least, which the veil then thins. Where room was kept for
-   * it under the sheet (see layoutField), it stands there, at `foot`.
+   * it under the sheet (see layoutField), it stands there, at `foot`. It
+   * pauses after each, so it can be worked out a slice at a time (see
+   * placeCaptions).
    */
-  private fieldCaptions(natW: number, foot: number | null) {
+  private *fieldCaptions(natW: number, foot: number | null): Generator<void, void> {
     type Rect = [number, number, number, number];
     type Try = { cap: Slot["cap"]; r: Rect; w: number; ok: boolean };
     const W = this.width;
@@ -4032,7 +4162,7 @@ export class ThreadScene {
       blocks.push({ b, knot: false, r: [x - pad, y - this.textHeight(f.year) - pad, x + widthOf(f.year) + pad, y + pad] });
     });
     const overlap = (r: Rect, o: Rect) => Math.max(0, Math.min(r[2], o[2]) - Math.max(r[0], o[0])) * Math.max(0, Math.min(r[3], o[3]) - Math.max(r[1], o[1]));
-    this.field.forEach((f, b) => {
+    for (const [b, f] of this.field) {
       const { name, status, why } = b.cap;
       const anchor = (to: "left" | "right" | "center") => {
         [name, status, why].forEach((m) => (m.t.anchorX = to));
@@ -4043,7 +4173,7 @@ export class ThreadScene {
         Object.assign(f, { cap: "under", capX: W / 2, capY: foot, fixed: true, capW: natW });
         anchor("center");
         why.t.maxWidth = natW;
-        return;
+        continue;
       }
       const whyW = widthOf(why);
       const whyH = this.textHeight(why);
@@ -4117,7 +4247,8 @@ export class ThreadScene {
       Object.assign(f, { cap: pick.cap, capX: at - cx, capY: pick.r[1] - cy, fixed: false, capW: beside1 && pick.w < whyW - 0.5 ? Math.max(1, pick.w) : natW });
       anchor(pick.cap === "after" ? "left" : pick.cap === "before" ? "right" : "center");
       why.t.maxWidth = f.capW;
-    });
+      yield;
+    }
   }
 
   /**
@@ -4163,6 +4294,8 @@ export class ThreadScene {
 
   /** The chosen project's caption where fieldCaptions set it, following its cover as it drifts; in its kept room it stays put. */
   private placeFieldCaption(b: Bead) {
+    // Chosen before every caption had its place (only a slow frame lets that happen): the rest now.
+    this.placeCaptions();
     const f = this.field.get(b);
     const cover = b.pieces[0];
     if (!f || !cover || !this.fieldPose(cover, this.burstT, this.pose)) return;
@@ -4267,6 +4400,10 @@ export class ThreadScene {
     this.lastScroll = this.scroll.cur;
     this.glass.enabled = this.glassOn;
     this.glass.render(this.scene, this.camera);
+    // What is left of the frame goes on working out the supernova's field, ahead of any collapse,
+    // and where its captions stand, from the frame after one.
+    this.planAhead();
+    if (this.captionsRun && (this.fieldOn || (this.nova.phase === "collapse" && this.nova.t > 0))) this.placeCaptions(FIELD_SLICE);
   }
 
   /** How far the ball has gone back behind an opened line. */
