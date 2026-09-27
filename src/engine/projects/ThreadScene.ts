@@ -614,10 +614,11 @@ const FIELD_TUMBLE = 0.5;
  * Choosing the sheet tries every layout, which with a lot of work is too
  * slow for the collapse's first frames: so it is worked out ahead, at most
  * FIELD_SLICE ms a frame while the ball is itself (see planAhead), and kept
- * for each screen (its size, the work's count and the layout they give), up
- * to FIELD_KEEP of them, past the scene, which is built afresh after every
- * slide. Where the captions stand is worked out the same way, over the
- * frames after the collapse (see placeCaptions).
+ * for each screen (its size, the work's count, the layout they give and
+ * each cover's knot, as the pictures that loaded make it), up to FIELD_KEEP
+ * of them, past the scene, which is built afresh after every slide. Where
+ * the captions stand is worked out the same way, over the frames after the
+ * collapse (see placeCaptions).
  */
 const FIELD_SLICE = 2;
 const FIELD_KEEP = 16;
@@ -3832,9 +3833,14 @@ export class ThreadScene {
     });
   }
 
-  /** What the sheet depends on: the screen, the work's count, and the layout they give it (see fieldChoices). */
+  /**
+   * What the sheet depends on: the screen, the work's count, the layout they
+   * give it, and each cover's knot (see fieldChoices). A picture that failed
+   * to load in one scene and not the next makes another knot, or none.
+   */
   private get fieldKey() {
-    return [this.width, this.height, this.projects.length, this.headY, this.headingHalf, this.R, this.cy, this.fieldCapH].join(" ");
+    const knots = this.fieldKnots().map((k) => `${k.box.map((v) => v.toFixed(1)).join(",")},${k.coverH.toFixed(1)}${k.year ? "y" : ""}`);
+    return [this.width, this.height, this.projects.length, this.headY, this.headingHalf, this.R, this.cy, this.fieldCapH, ...knots].join(" ");
   }
 
   /**
