@@ -300,6 +300,25 @@ button {
   width: 100%;
   height: 100%;
 }
+/*
+ * The space between the tabs: stars over the row while it slides, because
+ * every stage paints its own ground; under the tab bar, and gone at rest.
+ * Between.tsx sizes it to its backing in device pixels; should the screen
+ * still scale it, nearest pixels keep each star one crisp level.
+ */
+.between {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+  display: none;
+  image-rendering: pixelated;
+}
+.between[data-on] {
+  display: block;
+}
 .stage-projects {
   touch-action: none;
   overscroll-behavior: none;

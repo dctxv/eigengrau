@@ -12,6 +12,7 @@ import { isTab, tabIndex } from "@/lib/routes";
 import { installViewportVars } from "@/lib/viewport";
 import { noteVisit } from "@/lib/visits";
 import { arrive } from "@/lib/where";
+import { Between, type BetweenHandle } from "./chrome/Between";
 import { FloatingLogo, measureLogoSlot } from "./chrome/FloatingLogo";
 import { LiveIcon } from "./chrome/LiveIcon";
 import { Nav } from "./chrome/Nav";
@@ -48,7 +49,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const keyRef = useRef(0);
   const prevPath = useRef(pathname);
   const tweenRef = useRef<gsap.core.Tween | null>(null);
-  const pendingRef = useRef<{ dir: 1 | -1; next: Panel } | null>(null);
+  const pendingRef = useRef<{ dir: 1 | -1; from: string; next: Panel } | null>(null);
+  const betweenRef = useRef<BetweenHandle>(null);
   const [panels, setPanels] = useState<Panel[]>(() => [{ key: 0, path: pathname, intro: pathname === "/" }]);
   const [chromePlaced, setChromePlaced] = useState(false);
 
@@ -109,13 +111,14 @@ export function Shell({ children }: { children: ReactNode }) {
       tweenRef.current?.kill();
       tweenRef.current = null;
       pendingRef.current = null;
+      betweenRef.current?.end();
       if (rowRef.current) gsap.set(rowRef.current, { x: 0 });
       arrive(pathname, prev);
       setPanels([next]);
       return;
     }
     const dir: 1 | -1 = tabIndex(pathname) > tabIndex(prev) ? 1 : -1;
-    pendingRef.current = { dir, next };
+    pendingRef.current = { dir, from: prev, next };
     arrive(pathname, prev, DUR.slideDelay * 1000, DUR.slide * 1000);
     setPanels(dir > 0 ? [current, next] : [next, current]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -131,14 +134,21 @@ export function Shell({ children }: { children: ReactNode }) {
     const from = p.dir > 0 ? 0 : -w;
     const to = p.dir > 0 ? -w : 0;
     setFlag("transitioning", true);
+    betweenRef.current?.begin(tabIndex(p.from), tabIndex(p.next.path), w);
     tweenRef.current = gsap.fromTo(row, { x: from }, {
       x: to,
       duration: DUR.slide,
       ease: EASE.slide,
       delay: DUR.slideDelay,
       onStart: () => sfx.play("slide"),
+      // The stars between the tabs ride the same frames, told how far the row has gone.
+      onUpdate: () => {
+        const tween = tweenRef.current;
+        if (tween) betweenRef.current?.step((to - from) * tween.ratio);
+      },
       onComplete: () => {
         tweenRef.current = null;
+        betweenRef.current?.end();
         setFlag("transitioning", false);
         // Drop the old panel and reset the row in one synchronous commit: no visible jump.
         flushSync(() => setPanels([p.next]));
@@ -172,6 +182,7 @@ export function Shell({ children }: { children: ReactNode }) {
             </div>
           ))}
         </div>
+        <Between ref={betweenRef} />
       </div>
     </>
   );

@@ -1,9 +1,11 @@
 /**
  * Sound (spec 11). Two sampled files in public/audio: a click for opening a
  * project and an ambient bed that loops with a crossfade at the seam. The
- * other cues are synthesised (Urchi's pats, its helmet's seal and the Projects
- * horizon's pluck among them), and ticks can come as a train placed on the audio clock. The
- * bed has its own air, a lowpass that can put it through a wall. Music adds a
+ * other cues are synthesised (Urchi's pats, its helmet's seal, the Projects
+ * horizon's pluck and the supernova's bloom among them), and ticks can come
+ * as a train placed on the audio clock (Notes' riffle, and the Projects ball's
+ * whirr as it charges). The bed has its own air, a lowpass that can put it
+ * through a wall (the supernova's float does). Music adds a
  * third voice: a song's preview heard through the wall, with the bed ducking
  * under it. Once its door has opened the song stays in Music's room when the
  * visitor leaves, and plays on to its end, heard through the other tabs'
@@ -789,8 +791,9 @@ const trains = new Set<() => void>();
  * The Projects tick, once at each offset (seconds from now), on the audio clock. play() drops a
  * tick within TICK_THROTTLE_MS of the last so a flung ball cannot clatter, and a setTimeout would
  * smear 14ms into whatever the main thread allows. A train is placed on purpose, so every tick in
- * it is scheduled on ctx.currentTime and none is dropped. Notes' riffle uses it; the supernova's
- * whirr will, with `rate` lifting the pitch.
+ * it is scheduled on ctx.currentTime and none is dropped. Notes' riffle uses it, and so does the
+ * supernova's whirr, a few ticks at a time just ahead of the spinning ball, with `rate` lifting the
+ * pitch.
  */
 function train(offsets: readonly number[], gain: number, rate: number): () => void {
   if (!enabled || !offsets.length) return QUIET;
@@ -952,6 +955,105 @@ function seal(on: boolean) {
   noise.start(t);
   noise.stop(t + SEAL.hiss + 0.02);
   duck();
+}
+
+// ---------------------------------------------------------------- the supernova's bloom
+
+/**
+ * The Projects ball bursting: one soft bloom, not a boom. A sine falling from
+ * C3 to F2 (131 to 87 Hz, both in the bed's F G A C D) over 0.15s, at -12 dB,
+ * dying away over 2.2s (60 dB down by then); under it, noise at -20 dB whose
+ * lowpass closes from 1.2 kHz to 180 Hz over 1.6s as it fades, the air
+ * rushing out and settling. Both round in over a few ms so the burst has no
+ * click, and nothing else: no crack, no sub drop, no tail of reverb.
+ */
+const BLOOM = {
+  from: 131,
+  to: 87,
+  fall: 0.15,
+  decay: 2.2,
+  level: 10 ** (-12 / 20),
+  attack: 0.012,
+  noise: { from: 1200, to: 180, over: 1.6, level: 10 ** (-20 / 20), attack: 0.03 },
+};
+/** How far each voice falls by the end of its decay: -60 dB, gone to the ear. */
+const BLOOM_FLOOR = 1e-3;
+/** A bloom taken back (the page left before the burst) fades this fast rather than clicking off. */
+const BLOOM_CUT = 0.03;
+/** White noise enough for the bloom's air, made once per context. */
+let bloomNoise: AudioBuffer | null = null;
+/** Blooms scheduled and not over yet: turning the sound off takes them back too. */
+const bloomsDue = new Set<() => void>();
+
+/** Schedules the bloom `delay` seconds from now on the audio clock; returns how to take it back. See sfx.bloom. */
+function bloom(delay: number): () => void {
+  if (!enabled || !ctx || ctx.state !== "running") return QUIET;
+  const c = ensure();
+  if (!c || !master) return QUIET;
+  const t = c.currentTime + Math.max(0, delay);
+  const out = c.createGain();
+  out.connect(master);
+  // The sine: a quick fall in pitch, then a long exponential decay.
+  const osc = c.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(BLOOM.from, t);
+  osc.frequency.exponentialRampToValueAtTime(BLOOM.to, t + BLOOM.fall);
+  const tone = c.createGain();
+  tone.gain.setValueAtTime(0, t);
+  tone.gain.linearRampToValueAtTime(BLOOM.level, t + BLOOM.attack);
+  tone.gain.exponentialRampToValueAtTime(BLOOM.level * BLOOM_FLOOR, t + BLOOM.decay);
+  osc.connect(tone).connect(out);
+  // The air: noise through a closing lowpass (Butterworth, as the bed's air is).
+  const nz = BLOOM.noise;
+  const len = Math.ceil(c.sampleRate * (nz.over + 0.05));
+  if (!bloomNoise || bloomNoise.sampleRate !== c.sampleRate || bloomNoise.length < len) {
+    bloomNoise = c.createBuffer(1, len, c.sampleRate);
+    const d = bloomNoise.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const src = c.createBufferSource();
+  src.buffer = bloomNoise;
+  const lp = c.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.Q.value = AIR_Q;
+  lp.frequency.setValueAtTime(nz.from, t);
+  lp.frequency.exponentialRampToValueAtTime(nz.to, t + nz.over);
+  const rush = c.createGain();
+  rush.gain.setValueAtTime(0, t);
+  rush.gain.linearRampToValueAtTime(nz.level, t + nz.attack);
+  rush.gain.exponentialRampToValueAtTime(nz.level * BLOOM_FLOOR, t + nz.over);
+  src.connect(lp).connect(rush).connect(out);
+  const end = t + Math.max(BLOOM.decay, nz.over) + 0.02;
+  osc.start(t);
+  src.start(t);
+  osc.stop(end);
+  src.stop(end);
+  let over = false;
+  const takeBack = () => {
+    if (over) return;
+    over = true;
+    bloomsDue.delete(takeBack);
+    const now = c.currentTime;
+    hold(out.gain, now);
+    out.gain.linearRampToValueAtTime(0, now + BLOOM_CUT);
+    // A source stopped before its start never sounds.
+    [osc, src].forEach((s) => {
+      try {
+        s.stop(now + BLOOM_CUT);
+      } catch {
+        /* already stopped */
+      }
+    });
+  };
+  osc.onended = () => {
+    over = true;
+    bloomsDue.delete(takeBack);
+    out.disconnect();
+  };
+  bloomsDue.add(takeBack);
+  if (delay <= 0) duck();
+  else window.setTimeout(duck, delay * 1000);
+  return takeBack;
 }
 
 // ---------------------------------------------------------------- the horizon's pluck
@@ -1186,6 +1288,24 @@ export const sfx = {
   get enabled() {
     return enabled;
   },
+  /**
+   * Sound is on and its clock is running: a gesture has woken it. A train
+   * placed a few ticks at a time as something moves (the supernova's whirr)
+   * waits for this, since on a sleeping clock its ticks would only pile up
+   * and all sound at once when it wakes. A wheel is not a gesture.
+   */
+  get awake() {
+    return enabled && !!ctx && ctx.state === "running";
+  },
+  /**
+   * The audio clock (s), 0 before there is one: a train's offsets count from
+   * it, and a cue played now sounds on it now. The whirr keeps its ticks
+   * apart on this clock rather than the page's, which it only roughly
+   * follows.
+   */
+  get clock() {
+    return ctx ? ctx.currentTime : 0;
+  },
   set(on: boolean) {
     enabled = on;
     try {
@@ -1200,6 +1320,7 @@ export const sfx = {
       ambientStop();
       [...trains].forEach((cancel) => cancel());
       patsDue.forEach((takeBack) => takeBack());
+      bloomsDue.forEach((takeBack) => takeBack());
     }
     setFlag("soundEnabled", on);
     listeners.forEach((l) => l(on));
@@ -1246,6 +1367,16 @@ export const sfx = {
     seal(on);
   },
   /**
+   * The supernova's bloom (see BLOOM), `delay` seconds from now on the audio
+   * clock, so it lands with the ring whatever the frame rate. Returns how to
+   * take it back: one not yet sounding never does, one sounding fades out in
+   * 30ms. Nothing plays with sound off, or before a gesture has woken the
+   * clock (a wheel is not one): a burst is a moment, not something to hold.
+   */
+  bloom(delay = 0): () => void {
+    return bloom(delay);
+  },
+  /**
    * Puts the bed through a wall, or takes the wall away: the bed's lowpass
    * moves to `hz` over `overSeconds`, on a log scale as the ear hears it.
    * `sfx.air(700, 0.6)` is the next room's wall; `sfx.air(AIR_OPEN, 4)` opens
@@ -1272,7 +1403,12 @@ export const sfx = {
       listeners.delete(l);
     };
   },
-  play(name: Name, volume = 1) {
+  /**
+   * One cue, at `volume`. `rate` is its playbackRate, so pitch and speed rise
+   * together: the supernova's charge lifts the Projects tick from 1 to 1.25,
+   * and at rest the tick plays exactly as it always has.
+   */
+  play(name: Name, volume = 1, rate = 1) {
     if (!enabled) return;
     if (name === "tick") {
       const now = performance.now();
@@ -1288,6 +1424,7 @@ export const sfx = {
     }
     const src = c.createBufferSource();
     src.buffer = buf;
+    if (rate !== 1) src.playbackRate.value = rate;
     const g = c.createGain();
     g.gain.value = volume;
     src.connect(g).connect(master);
