@@ -11,7 +11,7 @@ import { Suit } from "@/engine/space/Suit";
 import { runIntro } from "@/engine/space/intro";
 import { caught, comeBack, glanceAt, glanceDown, read, tug, type Caught } from "@/engine/urchi/acts";
 import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
-import { preloadSuit } from "@/engine/urchi/character";
+import { warmSuitIdle } from "@/engine/urchi/character";
 import { clock } from "@/engine/urchi/hours";
 import { CursorLabel } from "@/components/CursorLabel";
 import { MaskedChars, MaskedWords } from "@/components/Mask";
@@ -202,19 +202,36 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     room.attention = att;
     const motes = new Motes(room, att, { reducedMotion });
     const call = new Call(room, att, motes, { reducedMotion });
-    // ---- the peg and the suit: its word follows along (the button's name, and the cursor's word under the pointer)
+    // ---- the peg and the suit: its word follows along (the button's name, and the cursor's word
+    // under the pointer), saying where it will end up, a press made mid-way included (see Suit.press)
     const pegEl = peg.current!;
     let overPeg = false;
+    /** The pointer is on Urchi (the cursor label follows at once)... */
+    let overUrchi = false;
+    /**
+     * What a click on Urchi does, as the cursor says it: wakes it, opens the game, or nothing while
+     * the suit goes on or comes off (the game's stack is laid out for one or the other), so the
+     * word never promises what the click will not do.
+     */
+    const urchiWord = () => (att.asleep ? "Wake" : suit.busy ? null : "Threshold");
     const pegLabel = (on: boolean) => {
       pegEl.setAttribute("aria-pressed", String(on));
       pegEl.setAttribute("aria-label", pegWord(on));
       if (overPeg) cursor.set(pegWord(on));
     };
-    const suit = new Suit({ room, att, panel: panel.current!, wall: wall.current!, peg: pegEl, helmet: pegHelmet.current!, reducedMotion, onChange: pegLabel });
+    const suit = new Suit({
+      room, att, panel: panel.current!, wall: wall.current!, peg: pegEl, helmet: pegHelmet.current!, reducedMotion,
+      onChange: pegLabel,
+      onBusy: () => {
+        if (overUrchi) cursor.set(urchiWord());
+      },
+    });
     pegLabel(along);
     Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __suit: suit }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
     let stopArrive: (() => void) | null = null;
+    /** Until the panel unmounts: anything that lands later (the suit's model) finds nothing to act on. */
+    let alive = true;
     let openTimer: gsap.core.Tween | null = null;
 
     // ---- the caption: Urchi's name over one of his lines, a state, what's new, or the game's result
@@ -237,9 +254,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     // dwell; then it goes back to the hover caption if the pointer rests on Urchi, or sinks.
     let slot: Slot | null = null;
     let slotTimer: gsap.core.Tween | null = null;
-    /** The pointer is on Urchi (the cursor label follows at once)... */
-    let overUrchi = false;
-    /** ...and has rested there HOVER_REST: the hover caption is up, or waits for a timed one. */
+    /** The pointer on Urchi (overUrchi, above) has rested there HOVER_REST: the hover caption is up, or waits for a timed one. */
     let hovering = false;
     let restTimer: gsap.core.Tween | null = null;
     const release = () => {
@@ -309,7 +324,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       // Dozing, the pointer arriving stirs it first, so its caption is decided awake.
       if (on) att.rouse();
       overUrchi = on;
-      cursor.set(on ? (att.asleep ? "Wake" : "Threshold") : null);
+      cursor.set(on ? urchiWord() : null);
       restTimer?.kill();
       restTimer = on ? gsap.delayedCall(HOVER_REST, settleHover) : null;
       if (on || !hovering) return;
@@ -325,7 +340,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       // Asleep for the night, the head settles onto its pillow as the lids close (already there
       // when it is found asleep), and rises as it wakes.
       room.settleUrchi(att.mood === "asleep", arriving);
-      if (overUrchi) cursor.set(att.asleep ? "Wake" : "Threshold");
+      if (overUrchi) cursor.set(urchiWord());
       // The phone's one caption follows too: a tap that wakes it at night must not leave it
       // saying "asleep" with its eyes open. Awake, the line is his, and it reads it.
       if (slot === "auto") {
@@ -602,14 +617,18 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
           dressed = true;
           ready();
         };
-        preloadSuit().then(
+        // (its rig built too, in idle moments, so the frame that first shows it suited does not pay
+        // for it; left before it lands, the room, the suit and the attention are gone: it does nothing)
+        warmSuitIdle().then(
           () => {
+            if (!alive) return;
             suitReady = true;
             if (!arrived) dress();
             else if (gameOpen) resumeSuit = true;
             else suit.resume();
           },
           () => {
+            if (!alive) return;
             along = false; // no model to wear: it stays home
             dress();
           },
@@ -698,11 +717,11 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const onPegOver = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
       overPeg = true;
-      cursor.set(pegWord(suit.along));
+      cursor.set(pegWord(suit.target));
     };
     const onPegOut = () => {
       overPeg = false;
-      cursor.set(overUrchi ? (att.asleep ? "Wake" : "Threshold") : null);
+      cursor.set(overUrchi ? urchiWord() : null);
     };
     pegEl.addEventListener("click", onPeg);
     pegEl.addEventListener("pointerenter", onPegOver);
@@ -723,6 +742,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     window.addEventListener("resize", onResize);
 
     return () => {
+      alive = false;
       stopIntro?.();
       stopArrive?.();
       openTimer?.kill();

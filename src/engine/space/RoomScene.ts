@@ -2,7 +2,7 @@ import * as THREE from "three";
 import gsap from "gsap";
 import { makeRenderer } from "@/engine/common/loader";
 import type { Attention } from "@/engine/urchi/attention";
-import { URCHI_BOX, URCHI_EYES, URCHI_HEAD, type UrchiCharacter } from "@/engine/urchi/character";
+import { URCHI_BOX, URCHI_EYES, URCHI_HEAD, urchiLeft, type UrchiCharacter } from "@/engine/urchi/character";
 import { Urchi } from "@/engine/urchi/Urchi";
 
 export type RoomOptions = {
@@ -366,6 +366,25 @@ export class RoomScene {
     const my = c.reduce((s, p) => s + p[1], 0) / (c.length || 1);
     const reach = Math.max(0, ...c.map(([x, y]) => Math.hypot(x - mx, y - my))) + URCHI_EYES.reach;
     return { x: mx * unit, y: (suited ? this.fitY : this.home) - my * unit, reach: reach * unit };
+  }
+
+  /**
+   * How far a client rect on the head's left is from the head as drawn at rest (wave 1's size and
+   * place, awake, facing out), in CSS px to the outside of its rim, at its widest: 0 or less where
+   * they touch. Space's peg keeps its button clear of it (Suit.layout).
+   */
+  clearOfHead(left: number, top: number, right: number, bottom: number) {
+    const c = this.canvas.getBoundingClientRect(), u = this.unitAt(false), R = urchiLeft();
+    const cx = c.left + c.width / 2, cy = c.top + c.height / 2 - this.home;
+    let near = Infinity;
+    for (let i = 0; i < R.left.length; i++) {
+      const x = R.left[i];
+      if (x === Infinity) continue;
+      // the head on this row runs from here rightward
+      const px = cx + x * u, py = cy + (R.top + i * R.step) * u;
+      near = Math.min(near, Math.hypot(Math.max(0, px - right), Math.max(0, top - py, py - bottom)));
+    }
+    return near - (this.urchi.rimFor(u) ?? ART_CELL) * u;
   }
 
   /** Whether a room point (px, y up) falls within the suited figure's box, `margin` px round it; never unsuited. */

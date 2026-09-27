@@ -61,7 +61,9 @@ const MESH = MESH_DATA as unknown as Mesh;
  * vertices it tucks in; the visor's window on the shell (as seen from the helmet's middle,
  * `hub`: each point's x and y over its z from there, flat); and the visor's opening, the z of
  * each of the glass's points were it not held back to its cap (the glass as it would follow the
- * helmet's surface), which says what of the rim is seen across the opening.
+ * helmet's surface), which says what of the rim is seen across the opening; and per plane how far
+ * the growth out from the neck ring has travelled when it comes on as the suit builds itself (baked
+ * by the build, see its growthOf: a page would take tens of milliseconds to work it out).
  */
 type Suit = {
   v: number[];
@@ -79,6 +81,7 @@ type Suit = {
   hub: Vec3;
   window: number[];
   opening: number[];
+  grow: number[];
 };
 /** The suit's model, once loaded (it is not part of the page until the suit is first wanted). */
 let SUIT: Suit | null = null;
@@ -96,202 +99,219 @@ export function preloadSuit(): Promise<void> {
   return suitLoad;
 }
 
+// ------------------------------------------------------------------ the suit's rig
+// Built the first time a suit is painted (nothing of it exists before), from suit.json, once for
+// every painter on the page (the room's Urchi, and the peg's helmet and its glass): the painter works
+// a flat plane at a time, and each plane's outline (its loops of vertices, from the triangles that
+// can be seen) is found once here, so a frame walks each plane's corners once. What a frame fills in
+// is each painter's own (see suitRig in createUrchi).
+
 /**
- * When each of the body's planes comes on as the suit builds itself, in how far the growth has
- * travelled from the neck ring by then (the helmet's planes are left at 0: it rises whole). The
- * growth runs along the body's surface (the edges of each part's triangles), never through the
- * air, and onto another part it touches (within `link` of it) only from what of this part is
- * showing by then, so nothing ever comes on apart from what is already there: a limb grows down
- * from the shoulder, and a button or a pad never comes before the plate it sits on.
- * - A plane shows once every corner of it is reached. A part of `whole` planes or fewer (a glove, a
- *   boot, a hose's segment, the leg) shows all at once, when the last of them does: plane by plane
- *   its long thin sides, seen edge on, stood alone for a moment and read as splinters.
- * - A part under `sits` of the size of one it touches sits on it: it is reached no sooner than every
- *   plane of that part it touches shows.
- * By a plane's middle in plain distance, as before, a wide plate under the collar came first and
- * floated, and the inner faces of the boots hung down in wedges. Worked out once, when the suit is
- * first painted.
+ * The suit's colours, per material: the flat shade of a plane runs from `dark` (turned from
+ * the light) to `lit` (square on to it) on the head's own curve. The fabric tops out at the
+ * site's ink, never white; its shadows are warm light greys. The backpack is a grey of its own,
+ * a step darker than the fabric, so it reads as a separate box from behind. The glass is not
+ * filled: it is the head behind a smoked tint, with a soft sheen on the facets that face the light.
  */
-const GROWTH = { link: 60, tie: 0.5, whole: 30, sits: 0.1 };
-/** The growth, once for every Urchi on the page (it depends on the model alone). */
-let grownOnce: Float64Array | null = null;
-function growthOf(D: Suit): Float64Array {
-  if (grownOnce) return grownOnce;
-  const V = D.v, nv = V.length / 3, nf = D.f.length / 3, np = Math.max(...D.g) + 1, nparts = D.parts.length;
-  const body = (i: number) => !D.parts[D.vp[i]].rigid;
-  const dist = (a: number, b: number) => Math.hypot(V[a * 3] - V[b * 3], V[a * 3 + 1] - V[b * 3 + 1], V[a * 3 + 2] - V[b * 3 + 2]);
+const SUIT_COLOUR: Record<string, { dark: Vec3; lit: Vec3 }> = {
+  fabric: { dark: [150, 145, 136], lit: [233, 233, 226] },
+  pack: { dark: [112, 110, 104], lit: [198, 197, 190] },
+  grey: { dark: [92, 92, 90], lit: [172, 171, 166] },
+  dark: { dark: [34, 34, 37], lit: [88, 88, 92] },
+  accent: { dark: [176, 104, 40], lit: [246, 172, 76] },
+  glass: { dark: [0, 0, 0], lit: [0, 0, 0] },
+};
+/**
+ * How the suit builds itself (setSuit between 0 and 1): the body's facets switch on over the
+ * first `helmet` of the way, a facet once the suit is past its turn over `over` (so the last is
+ * on a little before the suit is whole); then the helmet rises over the head, whole, from the
+ * collar to the crown, its top edge a level line with the rim along it (no facet of it ever
+ * stands up alone, like an ear or a horn). The ears and spikes fold in over the `tuck` just
+ * before it starts: never while any of it is there to be poked through.
+ */
+const SUIT_BUILD = { helmet: 0.5, over: 1.12, tuck: 0.16 };
+/**
+ * A part's planes, its vertices (first and count), its middle; `decal`: 1 on the shell plane by
+ * plane (the rim), 2 as a whole (a disc); `convex`: its outline on screen is the hull of its points.
+ */
+type SuitPart = { planes: Int32Array; v0: number; vn: number; mid: Vec3; decal: number; rigid: boolean; convex: boolean; material: number };
+type SuitModel = {
+  data: Suit;
+  sv: Float64Array; rigid: Uint8Array;
+  /** Per plane: its material, its part, its loops (loop0 .. loop0 + loops in loopAt) and its middle. */
+  planeMat: Uint8Array; planePart: Int32Array; loop0: Int32Array; loops: Int32Array; planeMid: Float64Array;
+  /** Per loop: where its corners start in `corner` and how many; per corner, the plane across the edge to the next corner (-1: none that is ever drawn). */
+  loopAt: Int32Array; loopLen: Int32Array; corner: Int32Array; across: Int32Array;
+  /** Per plane: when it switches on as the suit builds itself, 0..1 (see SUIT_BUILD; the helmet's rise is apart). */
+  reveal: Float32Array;
+  /**
+   * The shell's facets, as planes (outward normal, offset: it is convex); the visor's opening (the
+   * glass uncapped: its points) and its facets (three corners each, into those points); the visor's
+   * window, seen from `hub`.
+   */
+  shellPlanes: Float64Array; open: Float64Array; glassTris: Int32Array; window: Float64Array; hub: Vec3;
+  parts: SuitPart[];
+  /** The helmet's shell, glass and rim, its decals (the rim, the discs), and the body's parts. */
+  shell: number; glass: number; rim: number; decals: number[]; body: number[];
+  /** The planes between the body's parts: [a, b, nx, ny, nz, d] each, part a on the side n.p < d. */
+  sep: Float64Array;
+  tucked: Vec3[];
+  /** The head's planes with a tucked corner: once folded in, painted before the rest of the head, so they never cover an eye. */
+  tuckPlanes: Set<number>;
+  /** Per material, its shade from turned away to square on to the light, and its underlay (the middle shade). */
+  mats: { dark: Vec3; lit: Vec3; under: string }[];
+};
+let modelOnce: SuitModel | null = null;
+let modelBuild: Generator<void, SuitModel, void> | null = null;
+/**
+ * Builds the page's suit rig ahead of the first suited paint, a slice at a time: for about `budget`
+ * ms, then it stops where it is, for the host to carry on in a moment of its own (the peg's first
+ * appearance does, in idle time). True once it is built; false if not yet, or if the model is not
+ * here. With no budget, all of it now.
+ */
+export function warmSuit(budget = Infinity): boolean {
+  if (modelOnce) return true;
+  if (!SUIT) return false;
+  modelBuild ??= buildModel(SUIT);
+  const end = performance.now() + budget;
+  for (;;) {
+    const r = modelBuild.next();
+    if (r.done) {
+      modelOnce = r.value;
+      modelBuild = null;
+      return true;
+    }
+    if (performance.now() >= end) return false;
+  }
+}
+/**
+ * `fn` in a moment of its own: an idle callback where the browser has them (within `wait` ms at
+ * most), else a task soon after this frame. The suit's rig is built in such moments, `slice` ms of
+ * it in each, and Space's peg makes its helmet in them too, so none of it holds up a frame.
+ */
+const IDLE = { wait: 250, fallback: 16, slice: 6 };
+export function whenIdle(fn: () => void): void {
+  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(() => fn(), { timeout: IDLE.wait });
+  else window.setTimeout(fn, IDLE.fallback);
+}
+let warming: Promise<void> | null = null;
+/**
+ * The suit's model loaded (preloadSuit) and its rig built in idle moments (see whenIdle), resolving
+ * once both are done: a host that will paint the suit soon awaits this rather than preloadSuit, so
+ * the frame that first shows it is not the one that pays for it.
+ */
+export function warmSuitIdle(): Promise<void> {
+  warming ??= preloadSuit().then(
+    () => new Promise<void>((done) => {
+      const slice = () => whenIdle(() => (warmSuit(IDLE.slice) ? done() : slice()));
+      slice();
+    }),
+    (e) => { warming = null; throw e; },   // no model: it may be tried again
+  );
+  return warming;
+}
+/** The page's suit rig, built now if it is not yet (the rest of it, if it was begun). */
+function suitModel(): SuitModel {
+  warmSuit();
+  return modelOnce!;
+}
+/** How many planes' outlines a slice of the rig's build finds before it lets the host stop (see warmSuit). */
+const MODEL_SLICE = 96;
+function* buildModel(D: Suit): Generator<void, SuitModel, void> {
+  const nv = D.v.length / 3, nf = D.f.length / 3, np = Math.max(...D.g) + 1;
+  const sv = Float64Array.from(D.v), rigid = new Uint8Array(nv);
+  for (let i = 0; i < nv; i++) rigid[i] = D.parts[D.vp[i]].rigid;
   const hidden = new Uint8Array(nf);
   for (const i of D.hidden) hidden[i] = 1;
-  // each vertex's neighbours along its part's surface, [vertex, length, ...]; each plane's corners,
-  // each vertex's planes, each part's planes, and how many of them are ever seen
-  const adj: number[][] = Array.from({ length: nv }, () => []);
-  const facesOf: number[][] = D.parts.map(() => []);
-  const cornersOf: Set<number>[] = Array.from({ length: np }, () => new Set());
-  const partOf = new Int32Array(np).fill(-1), seen = new Uint8Array(np);
+  const planeMat = new Uint8Array(np), planePart = new Int32Array(np), planeMid = new Float64Array(np * 3);
+  const facesOf: number[][] = Array.from({ length: np }, () => []);
   for (let i = 0; i < nf; i++) {
-    const a = D.f[i * 3], b = D.f[i * 3 + 1], c = D.f[i * 3 + 2], g = D.g[i];
-    if (!body(a)) continue;
-    adj[a].push(b, dist(a, b), c, dist(a, c)); adj[b].push(a, dist(a, b), c, dist(b, c)); adj[c].push(a, dist(a, c), b, dist(b, c));
-    facesOf[D.vp[a]].push(i);
-    cornersOf[g].add(a).add(b).add(c);
-    partOf[g] = D.vp[a];
-    if (!hidden[i]) seen[g] = 1;
+    const g = D.g[i], pi = D.vp[D.f[i * 3]];
+    planePart[g] = pi; planeMat[g] = D.parts[pi].material;
+    if (!hidden[i]) facesOf[g].push(i);
   }
-  const planesOf: number[][] = Array.from({ length: nv }, () => []), cornersLeft = new Int32Array(np);
-  const partPlanes: number[][] = D.parts.map(() => []), shown = new Int32Array(nparts);
-  cornersOf.forEach((s, g) => {
-    if (!s.size) return;
-    cornersLeft[g] = s.size;
-    s.forEach((v) => planesOf[v].push(g));
-    partPlanes[partOf[g]].push(g);
-    if (seen[g]) shown[partOf[g]]++;
-  });
-  const whole = shown.map((n) => (n <= GROWTH.whole ? 1 : 0)), partLeft = partPlanes.map((l) => l.length);
-  // across the parts: from a plane of one to each vertex of another within reach of it, [vertex,
-  // distance, ...] (the parts' boxes first, so far ones are never searched)
-  const across: number[][] = Array.from({ length: np }, () => []), touching = D.parts.map(() => new Set<number>());
-  const box = D.parts.map(() => [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]);
-  for (let i = 0; i < nv; i++) for (let k = 0; k < 3; k++) { const b = box[D.vp[i]]; b[k] = Math.min(b[k], V[i * 3 + k]); b[k + 3] = Math.max(b[k + 3], V[i * 3 + k]); }
-  const volume = box.map((b) => (b[3] - b[0]) * (b[4] - b[1]) * (b[5] - b[2]));
-  // each face's box, so a face farther than the nearest found so far is passed over unmeasured
-  const fbox = new Float64Array(nf * 6);
-  for (let f = 0; f < nf; f++) for (let k = 0; k < 3; k++) {
-    const a = V[D.f[f * 3] * 3 + k], b = V[D.f[f * 3 + 1] * 3 + k], c = V[D.f[f * 3 + 2] * 3 + k];
-    fbox[f * 6 + k] = Math.min(a, b, c); fbox[f * 6 + 3 + k] = Math.max(a, b, c);
-  }
-  const boxGap = (f: number, x: number, y: number, z: number) => {
-    const dx = Math.max(fbox[f * 6] - x, 0, x - fbox[f * 6 + 3]), dy = Math.max(fbox[f * 6 + 1] - y, 0, y - fbox[f * 6 + 4]), dz = Math.max(fbox[f * 6 + 2] - z, 0, z - fbox[f * 6 + 5]);
-    return Math.sqrt(dx * dx + dy * dy + dz * dz);
-  };
-  const near = (f: number, x: number, y: number, z: number) => closestOnTriangle(V, D.f[f * 3], D.f[f * 3 + 1], D.f[f * 3 + 2], x, y, z);
-  for (let i = 0; i < nv; i++) {
-    if (!body(i)) continue;
-    const pi = D.vp[i], x = V[i * 3], y = V[i * 3 + 1], z = V[i * 3 + 2], L = GROWTH.link;
-    D.parts.forEach((P, pj) => {
-      const b = box[pj];
-      if (pj === pi || P.rigid || x < b[0] - L || y < b[1] - L || z < b[2] - L || x > b[3] + L || y > b[4] + L || z > b[5] + L) return;
-      // the nearest of it, and every face as near as that but a hair (a tie broken one way on one
-      // side and the other way on the other would build the two halves differently)
-      let best = L;
-      for (const f of facesOf[pj]) if (boxGap(f, x, y, z) < best) best = Math.min(best, near(f, x, y, z));
-      if (best >= L) return;
-      const planes = new Set<number>();
-      for (const f of facesOf[pj]) if (boxGap(f, x, y, z) <= best + GROWTH.tie && near(f, x, y, z) <= best + GROWTH.tie) planes.add(D.g[f]);
-      for (const g of planes) { across[g].push(i, best); touching[pi].add(g); }
-    });
-  }
-  // what each part sits on: the planes it touches of parts many times its size (not the neck ring, where it starts)
-  const ring = D.parts.findIndex((p) => p.name === "neck ring"), [NX, NY, NZ] = D.neck;
-  const baseLeft = new Int32Array(nparts), entry = new Float64Array(nparts), sitsOn: number[][] = Array.from({ length: np }, () => []);
-  touching.forEach((planes, pi) => {
-    if (pi === ring) return;
-    for (const g of planes) if (volume[pi] < GROWTH.sits * volume[partOf[g]]) { sitsOn[g].push(pi); baseLeft[pi]++; }
-  });
-  const pending: number[][] = D.parts.map(() => []);
-  // out from the neck ring's own vertices (their distance from the neck), shortest paths first (a
-  // heap of [distance, vertex]; one reached again sooner is simply pushed again)
-  const out = new Float64Array(nv).fill(Infinity), done = new Uint8Array(nv), on = new Float64Array(np);
-  const heap: number[] = [];
-  const push = (d: number, v: number) => {
-    let k = heap.length / 2;
-    heap.push(d, v);
-    while (k > 0) {
-      const up = (k - 1) >> 1;
-      if (heap[up * 2] <= d) break;
-      heap[k * 2] = heap[up * 2]; heap[k * 2 + 1] = heap[up * 2 + 1];
-      heap[up * 2] = d; heap[up * 2 + 1] = v;
-      k = up;
-    }
-  };
-  const pop = (): number => {
-    const v = heap[1], d = heap.pop()!, w = heap.pop()!;
-    const n = heap.length / 2;
-    if (n) {
-      heap[0] = w; heap[1] = d;   // the last, sifted down from the top
-      let k = 0;
-      for (;;) {
-        const l = k * 2 + 1, r = l + 1;
-        let m = k;
-        if (l < n && heap[l * 2] < heap[m * 2]) m = l;
-        if (r < n && heap[r * 2] < heap[m * 2]) m = r;
-        if (m === k) break;
-        const md = heap[m * 2], mv = heap[m * 2 + 1];
-        heap[m * 2] = heap[k * 2]; heap[m * 2 + 1] = heap[k * 2 + 1];
-        heap[k * 2] = md; heap[k * 2 + 1] = mv;
-        k = m;
-      }
-    }
-    return v;
-  };
-  const lower = (v: number, d: number) => {
-    if (d < out[v]) { out[v] = d; push(d, v); }
-  };
-  for (let i = 0; i < nv; i++) {
-    if (!body(i)) { out[i] = 0; done[i] = 1; }
-    else if (D.vp[i] === ring) lower(i, Math.hypot(V[i * 3] - NX, V[i * 3 + 1] - NY, V[i * 3 + 2] - NZ));
-  }
-  const reach = (v: number, t: number) => {
-    const p = D.vp[v];
-    if (baseLeft[p] > 0) pending[p].push(v, t);
-    else lower(v, Math.max(t, entry[p]));
-  };
-  const flush = (p: number) => {
-    const list = pending[p];
-    pending[p] = [];
-    for (let k = 0; k < list.length; k += 2) reach(list[k], list[k + 1]);
-  };
-  const cross = (g: number, t: number) => { const x = across[g]; for (let k = 0; k < x.length; k += 2) reach(x[k], t + x[k + 1]); };
-  const shows = (g: number, t: number) => {
-    on[g] = t;
-    for (const p of sitsOn[g]) { entry[p] = Math.max(entry[p], t); if (--baseLeft[p] === 0) flush(p); }
-    cross(g, t);
-  };
-  for (;;) {
-    if (!heap.length) {
-      // something waits on a part the growth cannot reach without it (none should): let it go
-      const stuck = pending.findIndex((l, p) => l.length && baseLeft[p] > 0);
-      if (stuck < 0) break;
-      baseLeft[stuck] = 0;
-      flush(stuck);
-      continue;
-    }
-    const at = pop();
-    if (done[at]) continue;
-    done[at] = 1;
-    const d = out[at], n = adj[at];
-    for (let k = 0; k < n.length; k += 2) lower(n[k], d + n[k + 1]);
-    for (const g of planesOf[at]) {
-      if (--cornersLeft[g]) continue;
-      const p = partOf[g];
-      if (!whole[p]) shows(g, d);
-      else if (--partLeft[p] === 0) for (const h of partPlanes[p]) shows(h, d);
+  // each directed edge's face, to find the plane across a plane's outline
+  const edgeFace = new Map<number, number>();
+  const corner = (i: number, k: number) => D.f[i * 3 + (k % 3)];
+  for (let i = 0; i < nf; i++) for (let k = 0; k < 3; k++) edgeFace.set(corner(i, k) * nv + corner(i, k + 1), i);
+  const loop0 = new Int32Array(np), loops = new Int32Array(np), loopAt: number[] = [], loopLen: number[] = [], corners: number[] = [], across: number[] = [];
+  yield;
+  for (let g = 0; g < np; g++) {
+    if (g % MODEL_SLICE === MODEL_SLICE - 1) yield;
+    loop0[g] = loopAt.length;
+    const fs = facesOf[g];
+    if (!fs.length) continue;
+    // the middle: the mean of its triangles' middles
+    for (const i of fs) for (let k = 0; k < 3; k++) for (let c = 0; c < 3; c++) planeMid[g * 3 + c] += sv[corner(i, k) * 3 + c] / (3 * fs.length);
+    // its outline: the edges of its triangles that no other of them shares, chained into loops
+    const own = new Set<number>(), next = new Map<number, number[]>();
+    for (const i of fs) for (let k = 0; k < 3; k++) own.add(corner(i, k) * nv + corner(i, k + 1));
+    for (const e of own) { const a = Math.floor(e / nv), b = e % nv; if (!own.has(b * nv + a)) (next.get(a) || next.set(a, []).get(a)!).push(b); }
+    while (next.size) {
+      const start = next.keys().next().value as number;
+      loopAt.push(corners.length);
+      let a = start, n = 0;
+      do {
+        const out = next.get(a)!, b = out.pop()!;
+        if (!out.length) next.delete(a);
+        corners.push(a);
+        const f = edgeFace.get(b * nv + a);
+        across.push(f === undefined || hidden[f] ? -1 : D.g[f]);
+        a = b; n++;
+      } while (a !== start && next.has(a));
+      loopLen.push(n);
+      loops[g]++;
     }
   }
-  return (grownOnce = on);
-}
-
-/** The distance from a point to a triangle (corners a, b, c of the flat vertex list V). */
-function closestOnTriangle(V: number[], a: number, b: number, c: number, px: number, py: number, pz: number): number {
-  const ax = V[a * 3], ay = V[a * 3 + 1], az = V[a * 3 + 2];
-  const abx = V[b * 3] - ax, aby = V[b * 3 + 1] - ay, abz = V[b * 3 + 2] - az;
-  const acx = V[c * 3] - ax, acy = V[c * 3 + 1] - ay, acz = V[c * 3 + 2] - az;
-  const apx = px - ax, apy = py - ay, apz = pz - az;
-  const d1 = abx * apx + aby * apy + abz * apz, d2 = acx * apx + acy * apy + acz * apz;
-  const bpx = px - V[b * 3], bpy = py - V[b * 3 + 1], bpz = pz - V[b * 3 + 2];
-  const d3 = abx * bpx + aby * bpy + abz * bpz, d4 = acx * bpx + acy * bpy + acz * bpz;
-  const cpx = px - V[c * 3], cpy = py - V[c * 3 + 1], cpz = pz - V[c * 3 + 2];
-  const d5 = abx * cpx + aby * cpy + abz * cpz, d6 = acx * cpx + acy * cpy + acz * cpz;
-  const va = d3 * d6 - d5 * d4, vb = d5 * d2 - d1 * d6, vc = d1 * d4 - d3 * d2;
-  let s = 0, t = 0;   // the nearest point is a + s ab + t ac: a corner, along an edge, or inside
-  if (d1 <= 0 && d2 <= 0) { s = 0; t = 0; }
-  else if (d3 >= 0 && d4 <= d3) { s = 1; t = 0; }
-  else if (d6 >= 0 && d5 <= d6) { s = 0; t = 1; }
-  else if (vc <= 0 && d1 >= 0 && d3 <= 0) { s = d1 / (d1 - d3); t = 0; }
-  else if (vb <= 0 && d2 >= 0 && d6 <= 0) { s = 0; t = d2 / (d2 - d6); }
-  else if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) { const w = (d4 - d3) / (d4 - d3 + (d5 - d6)); s = 1 - w; t = w; }
-  else { const den = 1 / (va + vb + vc); s = vb * den; t = vc * den; }
-  const dx = px - (ax + abx * s + acx * t), dy = py - (ay + aby * s + acy * t), dz = pz - (az + abz * s + acz * t);
-  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  yield;
+  const parts: SuitPart[] = D.parts.map((p) => ({ planes: new Int32Array(0), v0: nv, vn: 0, mid: [0, 0, 0], decal: p.decal, rigid: !!p.rigid, convex: !!p.convex, material: p.material }));
+  const lists: number[][] = D.parts.map(() => []);
+  for (let g = 0; g < np; g++) if (loops[g]) lists[planePart[g]].push(g);
+  lists.forEach((l, pi) => { parts[pi].planes = Int32Array.from(l); });
+  for (let i = 0; i < nv; i++) { const p = parts[D.vp[i]]; p.v0 = Math.min(p.v0, i); p.vn++; for (let k = 0; k < 3; k++) p.mid[k] += sv[i * 3 + k]; }
+  for (const p of parts) for (let k = 0; k < 3; k++) p.mid[k] /= p.vn;
+  const named = (n: string) => D.parts.findIndex((p) => p.name === n);
+  const shell = named("helmet");
+  // when each of the body's planes switches on: as the growth from the neck ring reaches it (see
+  // Suit's grow, baked), the first at once; the helmet's all at once, as it starts to rise (see renderSuit)
+  const grown = D.grow, reveal = new Float32Array(np);
+  let near = Infinity, far = 0;
+  for (let g = 0; g < np; g++) if (loops[g] && !D.parts[planePart[g]].rigid) { near = Math.min(near, grown[g]); far = Math.max(far, grown[g]); }
+  for (let g = 0; g < np; g++) reveal[g] = D.parts[planePart[g]].rigid ? SUIT_BUILD.helmet : SUIT_BUILD.helmet * Math.max(0, (grown[g] - near) / (far - near || 1));
+  // the shell's facets: from one triangle of each of its planes (those behind the glass too, never drawn: the shell is convex)
+  const shellPlanes: number[] = [], taken = new Uint8Array(np);
+  for (let i = 0; i < nf; i++) {
+    if (planePart[D.g[i]] !== shell || taken[D.g[i]]) continue;
+    taken[D.g[i]] = 1;
+    const A = corner(i, 0) * 3, B = corner(i, 1) * 3, C = corner(i, 2) * 3;
+    const ux = sv[B] - sv[A], uy = sv[B + 1] - sv[A + 1], uz = sv[B + 2] - sv[A + 2], vx = sv[C] - sv[A], vy = sv[C + 1] - sv[A + 1], vz = sv[C + 2] - sv[A + 2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nx /= l; ny /= l; nz /= l;   // outward: wound as the head, by the right hand
+    shellPlanes.push(nx, ny, nz, nx * sv[A] + ny * sv[A + 1] + nz * sv[A + 2]);
+  }
+  // the visor's opening, for the "through the glass" test: the glass's points uncapped, and its
+  // own facets (its back is never seen), into those points
+  const visor = named("visor"), gp = parts[visor], open = new Float64Array(gp.vn * 3), glassTris: number[] = [];
+  for (let k = 0; k < gp.vn; k++) { open[k * 3] = sv[(gp.v0 + k) * 3]; open[k * 3 + 1] = sv[(gp.v0 + k) * 3 + 1]; open[k * 3 + 2] = D.opening[k]; }
+  for (let i = 0; i < nf; i++) if (planePart[D.g[i]] === visor && !hidden[i]) glassTris.push(corner(i, 0) - gp.v0, corner(i, 1) - gp.v0, corner(i, 2) - gp.v0);
+  const V = MESH.v, F = MESH.f, G = MESH.g;   // the head's, for its tucked vertices and the planes they touch
+  const tucked = V.slice(), tuckPlanes = new Set<number>(), moved = new Set<number>();
+  for (const [i, x, y, z] of D.tuck) { tucked[i] = [x, y, z]; moved.add(i); }
+  F.forEach((f, fi) => { if (moved.has(f[0]) || moved.has(f[1]) || moved.has(f[2])) tuckPlanes.add(G[fi]); });
+  return {
+    data: D, sv, rigid, planeMat, planePart, loop0, loops, planeMid,
+    loopAt: Int32Array.from(loopAt), loopLen: Int32Array.from(loopLen), corner: Int32Array.from(corners), across: Int32Array.from(across),
+    reveal, shellPlanes: Float64Array.from(shellPlanes), open, glassTris: Int32Array.from(glassTris), window: Float64Array.from(D.window), hub: D.hub, parts,
+    shell, glass: visor, rim: named("rim"),
+    decals: D.parts.flatMap((p, i) => (p.rigid && p.decal ? [i] : [])),
+    body: D.parts.flatMap((p, i) => (p.rigid ? [] : [i])),
+    sep: Float64Array.from(D.sep.flat()), tucked, tuckPlanes,
+    mats: D.materials.map((m) => {
+      const { dark, lit } = SUIT_COLOUR[m];
+      return { dark, lit, under: `rgb(${dark.map((c, k) => Math.round((c + lit[k]) / 2)).join(",")})` };
+    }),
+  };
 }
 
 /** The canvas's frame in mesh units (x right, y down): wider and taller than the box, so a tilted head fits. */
@@ -326,6 +346,33 @@ export const URCHI_EYES: { centres: [number, number][]; reach: number } = (() =>
   });
   return { centres, reach };
 })();
+
+/**
+ * The head's left side as drawn at rest (facing front, in perspective, rim not included), by rows:
+ * for each height in mesh units (y down, every `step` from `top`), how far left of the centre the
+ * head reaches there, or Infinity where it does not reach. Whatever sits beside it on the left
+ * (Space's peg on the wall) keeps clear of this. Worked out the first time it is asked for.
+ */
+let leftOnce: { top: number; step: number; left: Float32Array } | null = null;
+export function urchiLeft(): { top: number; step: number; left: Float32Array } {
+  if (leftOnce) return leftOnce;
+  const top = URCHI_HEAD.top - 8, step = 4, n = Math.ceil((URCHI_HEAD.bottom - top) / step) + 3, left = new Float32Array(n).fill(Infinity);
+  const nv = MESH.v.length, X = new Float64Array(nv), Y = new Float64Array(nv);
+  for (let i = 0; i < nv; i++) {
+    const [x, y, z] = MESH.v[i], s = PERSPECTIVE_AT_REST / (PERSPECTIVE_AT_REST - z);
+    X[i] = x * s; Y[i] = y * s;
+  }
+  // each triangle's edges across the rows they span: the leftmost crossing on each row
+  for (const f of MESH.f) for (let e = 0; e < 3; e++) {
+    const p = f[e], q = f[(e + 1) % 3], a = Y[p] <= Y[q] ? p : q, b = a === p ? q : p;
+    const ya = Y[a], yb = Y[b], xa = X[a], xb = X[b];
+    for (let r = Math.max(0, Math.ceil((ya - top) / step)); r < n && top + r * step <= yb; r++) {
+      const x = yb === ya ? Math.min(xa, xb) : xa + ((top + r * step - ya) / (yb - ya)) * (xb - xa);
+      if (x < left[r]) left[r] = x;
+    }
+  }
+  return (leftOnce = { top, step, left });
+}
 
 // ------------------------------------------------------------------ eye colours
 // One colourway is drawn at random on every page load, weighted exactly as the LilGuy eyes
@@ -576,6 +623,14 @@ export type UrchiCharacter = {
    * the glass, that comes in over a quarter of a second and clears over 1.2s. Only with the suit on.
    */
   fog(amount?: number): void;
+  /**
+   * The empty helmet's glass (suitEmpty only): its dark inside and the far side of its rim across
+   * it (as it hangs on Space's peg) wiped away by `all` (0..1) over the whole glass, and by `head`
+   * where a head would be, the head's own outline in this pose, rim not included: what is behind
+   * the canvas shows through there, under the smoke and the sheen. Lowered over the head, the eyes
+   * show through it; sat on it (`head` 1 alone) it looks exactly as the worn helmet does.
+   */
+  clearGlass(all: number, head?: number): void;
   /** The head's pose as it was last painted: what another painter holds to paint a helmet exactly over it (holdPose). */
   readonly headPose: HeadPose;
   /**
@@ -1262,42 +1317,13 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   }
 
   // ------------------------------------------------------------------ the suit
-  // Built the first time the suit is painted (nothing of it exists before), from suit.json. The
-  // painter works a flat plane at a time: each plane's outline (its loops of vertices, from the
-  // triangles that can be seen) is found once here, so a frame walks each plane's corners once.
-  // What a frame fills in (the points, the planes drawn, the lists, its scratch) is kept between
-  // frames, so a suited frame makes next to nothing new.
-  /**
-   * A part's planes, its vertices (first and count), its middle; `decal`: 1 on the shell plane by
-   * plane (the rim), 2 as a whole (a disc); `convex`: its outline on screen is the hull of its points.
-   */
-  type SuitPart = { planes: Int32Array; v0: number; vn: number; mid: Vec3; decal: number; rigid: boolean; convex: boolean; material: number };
-  type SuitRig = {
-    data: Suit;
-    sv: Float64Array; rigid: Uint8Array;
-    /** Per plane: its material, its part, its loops (loop0 .. loop0 + loops in loopAt) and its middle. */
-    planeMat: Uint8Array; planePart: Int32Array; loop0: Int32Array; loops: Int32Array; planeMid: Float64Array;
-    /** Per loop: where its corners start in `corner` and how many; per corner, the plane across the edge to the next corner (-1: none that is ever drawn). */
-    loopAt: Int32Array; loopLen: Int32Array; corner: Int32Array; across: Int32Array;
-    /** Per plane: when it switches on as the suit builds itself, 0..1 (see SUIT_BUILD; the helmet's rise is apart). */
-    reveal: Float32Array;
-    /**
-     * The shell's facets, as planes (outward normal, offset: it is convex); the visor's opening (the
-     * glass uncapped: its points, and per frame where they are on screen), its facets (three corners
-     * each, into those points) and, per frame, their boxes on screen; the visor's window, seen from `hub`.
-     */
-    shellPlanes: Float64Array; open: Float64Array; openPost: Float64Array; glassTris: Int32Array; glassBox: Float64Array; window: Float64Array; hub: Vec3;
-    parts: SuitPart[];
-    /** The helmet's shell, glass and rim, its decals (the rim, the discs), and the body's parts. */
-    shell: number; glass: number; rim: number; decals: number[]; body: number[];
-    /** The planes between the body's parts: [a, b, nx, ny, nz, d] each, part a on the side n.p < d. */
-    sep: Float64Array;
-    tucked: Vec3[];
-    /** The head's planes with a tucked corner: once folded in, painted before the rest of the head, so they never cover an eye. */
-    tuckPlanes: Set<number>;
-    /** Per material, its shade from turned away to square on to the light, and its underlay (the middle shade). */
-    mats: { dark: Vec3; lit: Vec3; under: string }[];
-    // per frame
+  // The page's suit model is shared (suitModel); what a frame fills in (the points, the planes
+  // drawn, the lists, its scratch) is this painter's, kept between frames, so a suited frame makes
+  // next to nothing new.
+  /** This painter's rig: the page's suit model (suitModel) and what its frames fill in, kept between them. */
+  type SuitRig = SuitModel & {
+    /** Per frame: where the visor's opening is on screen, and its facets' boxes there; the points, the planes' normals and depths, and which are drawn. */
+    openPost: Float64Array; glassBox: Float64Array;
     post: Float64Array; normals: Float64Array; planeZ: Float64Array; on: Uint8Array;
     /** The planes drawn this frame; per part those in front and behind (a disc turned away, the rim behind the shell); the rim seen through the glass. */
     drawn: number[]; front: number[][]; behind: number[][]; through: number[];
@@ -1311,96 +1337,10 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   let rig: SuitRig | null = null;
   function suitRig(): SuitRig {
     if (rig) return rig;
-    const D = SUIT!;
-    const nv = D.v.length / 3, nf = D.f.length / 3, np = Math.max(...D.g) + 1;
-    const sv = Float64Array.from(D.v), rigid = new Uint8Array(nv);
-    for (let i = 0; i < nv; i++) rigid[i] = D.parts[D.vp[i]].rigid;
-    const hidden = new Uint8Array(nf);
-    for (const i of D.hidden) hidden[i] = 1;
-    const planeMat = new Uint8Array(np), planePart = new Int32Array(np), planeMid = new Float64Array(np * 3);
-    const facesOf: number[][] = Array.from({ length: np }, () => []);
-    for (let i = 0; i < nf; i++) {
-      const g = D.g[i], pi = D.vp[D.f[i * 3]];
-      planePart[g] = pi; planeMat[g] = D.parts[pi].material;
-      if (!hidden[i]) facesOf[g].push(i);
-    }
-    // each directed edge's face, to find the plane across a plane's outline
-    const edgeFace = new Map<number, number>();
-    const corner = (i: number, k: number) => D.f[i * 3 + (k % 3)];
-    for (let i = 0; i < nf; i++) for (let k = 0; k < 3; k++) edgeFace.set(corner(i, k) * nv + corner(i, k + 1), i);
-    const loop0 = new Int32Array(np), loops = new Int32Array(np), loopAt: number[] = [], loopLen: number[] = [], corners: number[] = [], across: number[] = [];
-    for (let g = 0; g < np; g++) {
-      loop0[g] = loopAt.length;
-      const fs = facesOf[g];
-      if (!fs.length) continue;
-      // the middle: the mean of its triangles' middles
-      for (const i of fs) for (let k = 0; k < 3; k++) for (let c = 0; c < 3; c++) planeMid[g * 3 + c] += sv[corner(i, k) * 3 + c] / (3 * fs.length);
-      // its outline: the edges of its triangles that no other of them shares, chained into loops
-      const own = new Set<number>(), next = new Map<number, number[]>();
-      for (const i of fs) for (let k = 0; k < 3; k++) own.add(corner(i, k) * nv + corner(i, k + 1));
-      for (const e of own) { const a = Math.floor(e / nv), b = e % nv; if (!own.has(b * nv + a)) (next.get(a) || next.set(a, []).get(a)!).push(b); }
-      while (next.size) {
-        const start = next.keys().next().value as number;
-        loopAt.push(corners.length);
-        let a = start, n = 0;
-        do {
-          const out = next.get(a)!, b = out.pop()!;
-          if (!out.length) next.delete(a);
-          corners.push(a);
-          const f = edgeFace.get(b * nv + a);
-          across.push(f === undefined || hidden[f] ? -1 : D.g[f]);
-          a = b; n++;
-        } while (a !== start && next.has(a));
-        loopLen.push(n);
-        loops[g]++;
-      }
-    }
-    const parts: SuitPart[] = D.parts.map((p) => ({ planes: new Int32Array(0), v0: nv, vn: 0, mid: [0, 0, 0], decal: p.decal, rigid: !!p.rigid, convex: !!p.convex, material: p.material }));
-    const lists: number[][] = D.parts.map(() => []);
-    for (let g = 0; g < np; g++) if (loops[g]) lists[planePart[g]].push(g);
-    lists.forEach((l, pi) => { parts[pi].planes = Int32Array.from(l); });
-    for (let i = 0; i < nv; i++) { const p = parts[D.vp[i]]; p.v0 = Math.min(p.v0, i); p.vn++; for (let k = 0; k < 3; k++) p.mid[k] += sv[i * 3 + k]; }
-    for (const p of parts) for (let k = 0; k < 3; k++) p.mid[k] /= p.vn;
-    const named = (n: string) => D.parts.findIndex((p) => p.name === n);
-    const shell = named("helmet");
-    // when each of the body's planes switches on: as the growth from the neck ring reaches it (see
-    // growthOf), the first at once; the helmet's all at once, as it starts to rise (see renderSuit)
-    const grown = growthOf(D), reveal = new Float32Array(np);
-    let near = Infinity, far = 0;
-    for (let g = 0; g < np; g++) if (loops[g] && !D.parts[planePart[g]].rigid) { near = Math.min(near, grown[g]); far = Math.max(far, grown[g]); }
-    for (let g = 0; g < np; g++) reveal[g] = D.parts[planePart[g]].rigid ? SUIT_BUILD.helmet : SUIT_BUILD.helmet * Math.max(0, (grown[g] - near) / (far - near || 1));
-    // the shell's facets: from one triangle of each of its planes (those behind the glass too, never drawn: the shell is convex)
-    const shellPlanes: number[] = [], taken = new Uint8Array(np);
-    for (let i = 0; i < nf; i++) {
-      if (planePart[D.g[i]] !== shell || taken[D.g[i]]) continue;
-      taken[D.g[i]] = 1;
-      const A = corner(i, 0) * 3, B = corner(i, 1) * 3, C = corner(i, 2) * 3;
-      const ux = sv[B] - sv[A], uy = sv[B + 1] - sv[A + 1], uz = sv[B + 2] - sv[A + 2], vx = sv[C] - sv[A], vy = sv[C + 1] - sv[A + 1], vz = sv[C + 2] - sv[A + 2];
-      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      const l = Math.hypot(nx, ny, nz) || 1;
-      nx /= l; ny /= l; nz /= l;   // outward: wound as the head, by the right hand
-      shellPlanes.push(nx, ny, nz, nx * sv[A] + ny * sv[A + 1] + nz * sv[A + 2]);
-    }
-    // the visor's opening, for the "through the glass" test: the glass's points uncapped, and its
-    // own facets (its back is never seen), into those points
-    const gp = parts[named("visor")], open = new Float64Array(gp.vn * 3), glassTris: number[] = [];
-    for (let k = 0; k < gp.vn; k++) { open[k * 3] = sv[(gp.v0 + k) * 3]; open[k * 3 + 1] = sv[(gp.v0 + k) * 3 + 1]; open[k * 3 + 2] = D.opening[k]; }
-    for (let i = 0; i < nf; i++) if (planePart[D.g[i]] === named("visor") && !hidden[i]) glassTris.push(corner(i, 0) - gp.v0, corner(i, 1) - gp.v0, corner(i, 2) - gp.v0);
-    const tucked = V.slice(), tuckPlanes = new Set<number>(), moved = new Set<number>();
-    for (const [i, x, y, z] of D.tuck) { tucked[i] = [x, y, z]; moved.add(i); }
-    F.forEach((f, fi) => { if (moved.has(f[0]) || moved.has(f[1]) || moved.has(f[2])) tuckPlanes.add(G[fi]); });
+    const M = suitModel(), D = M.data, nv = M.sv.length / 3, np = M.planeMat.length;
     rig = {
-      data: D, sv, rigid, planeMat, planePart, loop0, loops, planeMid,
-      loopAt: Int32Array.from(loopAt), loopLen: Int32Array.from(loopLen), corner: Int32Array.from(corners), across: Int32Array.from(across),
-      reveal, shellPlanes: Float64Array.from(shellPlanes), open, openPost: new Float64Array(open.length), glassTris: Int32Array.from(glassTris), glassBox: new Float64Array((glassTris.length / 3) * 4), window: Float64Array.from(D.window), hub: D.hub, parts,
-      shell, glass: named("visor"), rim: named("rim"),
-      decals: D.parts.flatMap((p, i) => (p.rigid && p.decal ? [i] : [])),
-      body: D.parts.flatMap((p, i) => (p.rigid ? [] : [i])),
-      sep: Float64Array.from(D.sep.flat()), tucked, tuckPlanes,
-      mats: D.materials.map((m) => {
-        const { dark, lit } = SUIT_COLOUR[m];
-        return { dark, lit, under: `rgb(${dark.map((c, k) => Math.round((c + lit[k]) / 2)).join(",")})` };
-      }),
+      ...M,
+      openPost: new Float64Array(M.open.length), glassBox: new Float64Array((M.glassTris.length / 3) * 4),
       post: new Float64Array(nv * 3), normals: new Float64Array(np * 3), planeZ: new Float64Array(np), on: new Uint8Array(np),
       drawn: [], front: D.parts.map(() => []), behind: D.parts.map(() => []), through: [],
       box: new Float64Array(D.parts.length * 4), colours: new Map(), seen: new Uint8Array(nv), hint: new Int32Array(nv),
@@ -1446,36 +1386,12 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   }
 
   /**
-   * The suit's colours, per material: the flat shade of a plane runs from `dark` (turned from
-   * the light) to `lit` (square on to it) on the head's own curve. The fabric tops out at the
-   * site's ink, never white; its shadows are warm light greys. The backpack is a grey of its own,
-   * a step darker than the fabric, so it reads as a separate box from behind. The glass is not
-   * filled: it is the head behind a smoked tint, with a soft sheen on the facets that face the light.
-   */
-  const SUIT_COLOUR: Record<string, { dark: Vec3; lit: Vec3 }> = {
-    fabric: { dark: [150, 145, 136], lit: [233, 233, 226] },
-    pack: { dark: [112, 110, 104], lit: [198, 197, 190] },
-    grey: { dark: [92, 92, 90], lit: [172, 171, 166] },
-    dark: { dark: [34, 34, 37], lit: [88, 88, 92] },
-    accent: { dark: [176, 104, 40], lit: [246, 172, 76] },
-    glass: { dark: [0, 0, 0], lit: [0, 0, 0] },
-  };
-  /**
    * The visor: the helmet's dark inside, a smoke over the head, and per facet a sheen that grows
    * with its light (so the glass reads as faceted glass); on the facets most square to the light,
    * one soft highlight, which is kept off any facet that comes within `clear` of an eye's reach of
    * an eye's centre on screen, so it never washes the eyes out. The sheen goes in steps of `step`.
    */
   const VISOR = { inside: "#060608", tint: "rgba(18, 20, 30, 0.1)", sheen: "205, 212, 228", base: 0.025, grow: 0.07, glint: [0.4, 0.72, 0.36] as Vec3, clear: 1.2, step: 0.012 };
-  /**
-   * How the suit builds itself (setSuit between 0 and 1): the body's facets switch on over the
-   * first `helmet` of the way, a facet once the suit is past its turn over `over` (so the last is
-   * on a little before the suit is whole); then the helmet rises over the head, whole, from the
-   * collar to the crown, its top edge a level line with the rim along it (no facet of it ever
-   * stands up alone, like an ear or a horn). The ears and spikes fold in over the `tuck` just
-   * before it starts: never while any of it is there to be poked through.
-   */
-  const SUIT_BUILD = { helmet: 0.5, over: 1.12, tuck: 0.16 };
   /** The body's share of a breath's rise (the chest lifts a hair with it) and its zero-g drift. */
   const SUIT_BODY = { rise: 0.5, drift: { roll: 0.7 * D2R, yaw: 1.1 * D2R, lift: 3, periods: [7.3, 9.1, 6.1] as Vec3 } };
   /**
@@ -1486,6 +1402,13 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   const FOG = { alpha: 0.08, from: 0.45, full: 0.78, rise: 0.25, clear: 1.2 };
   /** The fog now (0..1), and the breath that made it: how much, and when (-1: none). */
   const fogging = { v: 0, amount: 0, start: -1 };
+  /** How clear an empty helmet's glass is, all of it and where the head would be (see clearGlass). */
+  const clearness = { all: 0, head: 0 };
+  /**
+   * Where the head would be, the glass clears this many canvas px inside its outline, measured where
+   * the tucked head's outline crosses the glass, about `r` mesh units from its middle (its crown).
+   */
+  const GLASS_CUT = { px: 2.5, r: 300 };
   let suit = 0;
   const turn = (dev.turn ?? 0) * D2R;
   /** The suit is painted: wanted, and its model is here. */
@@ -1874,6 +1797,18 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       underlay(R.rim, through);
       for (const g of through.sort(byDepth)) fillPlane(g);
       ctx.save(); ctx.clip(opening);
+      if (empty && (clearness.all > 0 || clearness.head > 0)) {
+        // an empty helmet's glass cleared (see clearGlass): its inside wiped away, so what is behind the canvas shows through the smoke
+        ctx.globalCompositeOperation = "destination-out";
+        if (clearness.all > 0) { ctx.globalAlpha = clearness.all; ctx.fill(opening); }
+        if (clearness.head > 0) {
+          // a hair inside the head's outline (GLASS_CUT canvas px where it crosses the glass, about
+          // `r` from the middle), so a head under it drawn a pixel off never shows its rim at the edge
+          const k = 1 - (GLASS_CUT.px * CELL) / GLASS_CUT.r;
+          ctx.globalAlpha = clearness.head; ctx.save(); ctx.transform(k, 0, 0, k, 0, 0); ctx.fill(head); ctx.restore();
+        }
+        ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
+      }
       headItems();
       ctx.globalAlpha = glass; ctx.fillStyle = VISOR.tint; ctx.fill(opening); ctx.globalAlpha = 1;
       sheen(R, front[R.glass], light, eyeAt);
@@ -2006,7 +1941,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   function paint(yaw: number, pitch: number, roll: number): boolean {
     Object.assign(posed, { yaw, pitch, roll, shift, rise });
     const now = [yaw, pitch, roll, lidOf(0), lidOf(1), gaze.x.v, gaze.y.v, gaze.h.v, gaze.conv.v, wide.v, shift, rise, reveal, CELL, rimWidth()];
-    if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift, fogging.v);
+    if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift, fogging.v, clearness.all, clearness.head);
     const was = lastDrawn;
     if (was && was.length === now.length && now.every((v, i) => Math.abs(v - was[i]) < DRAWN_EPS)) return false;
     lastDrawn = now;
@@ -2155,6 +2090,10 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     fog(amount = 1) {
       if (suit <= 0) return;
       fogging.amount = clamp(amount, 0, 1); fogging.start = S.t;
+    },
+    clearGlass(all, head = 0) {
+      clearness.all = clamp(all, 0, 1);
+      clearness.head = clamp(head, 0, 1);
     },
     get headPose() {
       return { ...posed };

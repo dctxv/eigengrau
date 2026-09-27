@@ -2,7 +2,7 @@ import gsap from "gsap";
 import { sfx } from "@/audio/sfx";
 import { decline, leaveHome, suitUp } from "@/engine/urchi/acts";
 import type { Attention, Point } from "@/engine/urchi/attention";
-import { createUrchi, preloadSuit, type HeadPose, type UrchiCharacter } from "@/engine/urchi/character";
+import { createUrchi, warmSuitIdle, whenIdle, type HeadPose, type UrchiCharacter } from "@/engine/urchi/character";
 import { setAlong } from "@/lib/along";
 import type { RoomScene } from "./RoomScene";
 import { Tether } from "./Tether";
@@ -11,8 +11,13 @@ import { Tether } from "./Tether";
  * The peg (panel 2, the spacesuit): a 10px ring on Space's left wall, its centre `left` px in and
  * `down` of the way down, and its helmet hanging from it, `helmet` px across (its side discs
  * included), its crown `hang` px below the ring's centre. The tether ties on at the ring's right.
+ * Its button is `hit` px square, the ring `ringTop` px down it. On a short phone the head reaches
+ * the wall at that height (its lower spikes a few px from the button, a tap meant for it could
+ * suit it up): there the peg hangs lower, as little as keeps `clear` px between the button and the
+ * head as drawn at rest (RoomScene.clearOfHead; room enough that no turn or tilt brings the two
+ * together), and never into the bottom `foot` px, where the caption's band is.
  */
-const PEG = { left: 24, down: 0.62, ring: 5, helmet: 36, hang: 3 };
+const PEG = { left: 24, down: 0.62, ring: 5, helmet: 36, hang: 3, hit: 44, ringTop: 8, clear: 24, foot: 96 };
 /** The helmet's width in mesh units, disc to disc, and its crown above the head's centre (as painted, rim included). */
 const HELMET_W = 1132;
 const CROWN = -362;
@@ -25,20 +30,29 @@ const BODY = 0.446;
  * looks at the peg and dips (0.2s); the room steps back (`frame`); the body builds from the neck
  * ring outward (`body`: the ears fold in at the end of it); the helmet lifts off the peg (`lift`)
  * and floats to the head on an arc (`fly`, power2.inOut), coming down over it, turned as the head
- * is by then (see TURN); once it is down (`rise` after it lands) the painted helmet rises and
- * seals under it (`sealFor`), hidden by it; the glass tick and the hiss as it seals (`seal`), and
- * only then, with nothing of the painted one left to show past it, the flying helmet fades into
- * it (`fade`, from `fadeAt`), so all that changes is the visor clearing onto the eyes, wide; the
- * tether draws from the peg to the backpack (`tether`); the float comes in (`float`).
+ * is by then (see TURN), its glass clearing as it comes (see CLEAR), so the eyes are seen through
+ * it all the way down. The moment it is down, in that one frame, it hands over to the painted
+ * helmet, whole: the same outline to the pixel and, sat on the head, the same glass, so nothing
+ * changes but which of the two draws it (one helmet, every frame), and the glass tick and the hiss
+ * say it has sealed. The tether draws from the peg to the backpack (`tether`); the float comes in
+ * (`float`).
  */
-const UP = { frame: 0.12, frameFor: 1, body: 0.2, bodyFor: 0.95, lift: 0.45, liftFor: 0.2, fly: 0.65, flyFor: 0.85, rise: 0, sealFor: 0.14, seal: 0.06, fadeAt: 0.16, fade: 0.24, tether: 1.8, tetherFor: 0.5, float: 2.05, done: 2.3 };
+const UP = { frame: 0.12, frameFor: 1, body: 0.2, bodyFor: 0.95, lift: 0.45, liftFor: 0.2, fly: 0.65, flyFor: 0.85, tether: 1.8, tetherFor: 0.5, float: 2.05, done: 2.3 };
 /**
- * Leaving it home, the other way round: the tether reels in (`reel`); the flying helmet fades in
- * over the painted one (`cover`: the visor darkens over the eyes), which sinks away under it
- * (`unseal`, with the hiss rising), and it floats back to the peg (`fly`); once it is clear of the
- * head the body unbuilds (`body`) and the room steps forward again (`frame`).
+ * Leaving it home, the other way round: the tether reels in (`reel`); at the unseal (`unseal`, the
+ * hiss rising) the painted helmet hands over, in one frame, to the flying one, and it floats back to
+ * the peg (`fly`), the head seen through its glass as it lifts off, darkening again as it leaves;
+ * once it is clear of the head the body unbuilds (`body`) and the room steps forward again (`frame`).
  */
-const HOME = { reel: 0.6, cover: 0.3, coverFor: 0.2, unseal: 0.5, unsealFor: 0.16, fly: 0.68, flyFor: 0.9, body: 1.05, bodyFor: 0.8, frame: 0.95, frameFor: 1, done: 2 };
+const HOME = { reel: 0.6, unseal: 0.5, fly: 0.68, flyFor: 0.9, body: 1.05, bodyFor: 0.8, frame: 0.95, frameFor: 1, done: 2 };
+/**
+ * The helmet's glass as it flies (see clearGlass), by how far along its arc it is: dark inside on
+ * the peg and for most of the way; clearing from `from` to `to`, before it comes down over the head,
+ * so the eyes are seen through it; from `to` to `seat` clear too where the head will be, and from
+ * `seat` to the head dark again round it, so sat on the head it is the worn helmet exactly, and the
+ * head's own outline, inside it now, is not seen through the glass. Going home, the other way.
+ */
+const CLEAR = { from: 0.6, to: 0.85, seat: 0.95 };
 /** Reduced motion: the suit fades on or off, 400ms in all (out, the change, back in), and the peg's helmet with it. */
 const FADE = 0.2;
 /** The glint on the helmet's glass as Urchi looks at it: `seconds` long, at most `alpha` white, a band `width` of the glass wide. */
@@ -77,8 +91,10 @@ export type SuitOptions = {
   peg: HTMLButtonElement;
   helmet: HTMLCanvasElement;
   reducedMotion: boolean;
-  /** Along or not has changed (the label, the cursor's word). */
+  /** Along or not has changed, or will once what is under way is done (the label, the cursor's word). */
   onChange?(along: boolean): void;
+  /** Suiting up or leaving it home has begun or is over: while it runs, Urchi's click has nothing to open. */
+  onBusy?(busy: boolean): void;
 };
 
 /**
@@ -96,7 +112,19 @@ export class Suit {
   private att: Attention;
   private reduced: boolean;
   private state: State = "home";
+  /** The peg has been asked for (show), and has appeared: painted, and on the wall unless the game is up. */
   private shown = false;
+  private up = false;
+  /** The game is up (see away), and an appearance held back until it closes (show's `now`), or null. */
+  private aside = false;
+  private held: boolean | null = null;
+  /** Pressed while suiting up or leaving it home: it goes back the other way once that is done (a second press takes it back). */
+  private queued = false;
+  /** How far down the panel the ring hangs, px (see PEG and layout). */
+  private ringY = 0;
+  /** The peg's helmet has been painted, and what waits for it (see whenPainted). */
+  private ready = false;
+  private onPainted: (() => void)[] = [];
   /** The helmet alone and empty, and its glass alone (white), painted by their own painters. */
   private empty: UrchiCharacter | null = null;
   private glass: UrchiCharacter | null = null;
@@ -136,14 +164,19 @@ export class Suit {
     return this.state === "suited" || this.state === "suiting";
   }
 
+  /** Where it will be once what is under way is done: along, unless a press waits to take it back. What the button says. */
+  get target() {
+    return this.along !== this.queued;
+  }
+
   /** In the middle of suiting up or leaving it home. */
   get busy() {
     return this.state === "suiting" || this.state === "unsuiting";
   }
 
-  /** The peg is on the wall. */
+  /** The peg is on the wall (painted, and not out of the way of the game). */
   get pegShown() {
-    return this.shown;
+    return this.up && !this.aside;
   }
 
   // ---------------------------------------------------------------- the peg
@@ -156,7 +189,7 @@ export class Suit {
   /** The ring's centre in client px (`dx` to its right). */
   ringAt(dx = 0): Point {
     const r = this.panelRect();
-    return { x: r.left + PEG.left + dx, y: r.top + PEG.down * r.height };
+    return { x: r.left + PEG.left + dx, y: r.top + (this.ringY || PEG.down * r.height) };
   }
 
   private ringInRoom(dx = 0) {
@@ -176,79 +209,134 @@ export class Suit {
     return { x: at.x, y: at.y + 90 * at.unit };
   }
 
-  /** The button and the helmet laid out for the panel's size. */
+  /**
+   * The button and the helmet laid out for the panel's size: the ring `down` of the way down, or,
+   * where the head at rest would come within `clear` of the button (a short phone), as little
+   * lower as keeps it that far off, and never into the caption's band.
+   */
   layout() {
     const r = this.panelRect(), btn = this.o.peg;
-    const y = PEG.down * r.height;
-    Object.assign(btn.style, { left: `${PEG.left - 22}px`, top: `${y - PEG.ring - 3}px` });
+    const hit = (y: number) => {
+      const top = r.top + y - PEG.ringTop, left = r.left + PEG.left - PEG.hit / 2;
+      return this.room.clearOfHead(left, top, left + PEG.hit, top + PEG.hit);
+    };
+    let y = Math.round(PEG.down * r.height);
+    const lowest = r.height - PEG.foot - PEG.hit + PEG.ringTop;
+    while (y < lowest && hit(y) < PEG.clear) y += 2;
+    this.ringY = y;
+    Object.assign(btn.style, { left: `${PEG.left - PEG.hit / 2}px`, top: `${y - PEG.ringTop}px` });
     if (this.shown) this.place();
   }
 
-  /** Paints the peg's helmet (the model first, the first time), then shows the peg: faded in, or `now`. */
+  /**
+   * Paints the peg's helmet (the model first, the first time), then shows the peg: faded in, or
+   * `now` (quicker, and without the helmet settling onto it). With the game up it waits, out of the
+   * way, and appears as the game closes (see away). Each step in a moment of its own (whenIdle):
+   * the suit's rig (once for the page, a slice at a time: warmSuitIdle), the helmet's painter, its
+   * first paint; the glint's painter after it is up.
+   */
   show(now = false) {
     if (this.shown || this.disposed) return;
     this.shown = true;
-    preloadSuit().then(
-      () => {
-        if (this.disposed) return;
-        this.makePainters();
+    const step = (fn: () => void) => whenIdle(() => {
+      if (!this.disposed) fn();
+    });
+    const paint = () => step(() => {
+      this.makePainter();
+      step(() => {
         if (this.state === "home") this.size(this.onPeg().unit, null);
         this.draw();
         this.place();
-        // faded in (at once on a return, as the room itself fades in); the helmet settling onto its peg
-        gsap.fromTo(this.o.wall, { autoAlpha: 0 }, { autoAlpha: 1, duration: now ? 0.6 : this.reduced ? 0.6 : 0.9, ease: "power2.out" });
-        if (!now && !this.reduced && this.state === "home") {
-          this.flight.lift = 1;
-          gsap.to(this.flight, { lift: 0, duration: 1.1, ease: "power3.out" });
-        }
-        this.att.add({ id: "peg", kind: "interest", weight: 0.25, at: () => (this.state === "home" ? this.helmetAt() : this.ringAt()) });
-      },
+        if (this.aside) this.held = now;
+        else this.appear(now);
+        this.ready = true;
+        this.onPainted.splice(0).forEach((fn) => fn());
+        step(() => this.glassPainter());
+      });
+    });
+    warmSuitIdle().then(
+      () => paint(),
       () => {
         this.shown = false; // no model, no peg: it may be tried again
       },
     );
   }
 
+  /** The painted peg comes onto the wall: faded in (quicker on a return, as the room itself fades in), the helmet settling onto its peg the first time. */
+  private appear(now: boolean) {
+    this.up = true;
+    gsap.fromTo(this.o.wall, { autoAlpha: 0 }, { autoAlpha: 1, duration: now || this.reduced ? 0.6 : 0.9, ease: "power2.out", overwrite: true });
+    if (!now && !this.reduced && this.state === "home") {
+      this.flight.lift = 1;
+      gsap.to(this.flight, { lift: 0, duration: 1.1, ease: "power3.out" });
+    }
+    this.att.add({ id: "peg", kind: "interest", weight: 0.25, at: () => (this.state === "home" ? this.helmetAt() : this.ringAt()) });
+  }
+
   /**
    * Out of the way while the game is up, as the motes are (the room is cleared for the board), and
    * back after: the peg and, suited, its tether with it, so no line runs to a peg that is not there.
+   * A peg due to appear meanwhile (its ten seconds up, or its model late) waits for the game to close.
    */
   away(on: boolean) {
+    this.aside = on;
     this.o.peg.inert = on;
     if (this.state === "suited") {
       this.tether.dim(on);
       // stacked above the board it holds still (its soles keep their gap to the plate), and floats again after
       this.room.floatUrchi(!on);
     }
-    if (!this.shown) return;
+    if (!on && this.held !== null) {
+      const now = this.held;
+      this.held = null;
+      this.appear(now);
+      return;
+    }
+    if (!this.up) return;
     gsap.to(this.o.wall, { autoAlpha: on ? 0 : 1, duration: on ? 0.3 : 0.5, ease: "power2.out", overwrite: true });
   }
 
   /** A glint on the helmet's glass, as Urchi looks at it. */
   glint() {
-    if (this.disposed || this.state !== "home" || this.flight.glint >= 0 || !this.empty) return;
+    if (this.disposed || this.state !== "home" || this.flight.glint >= 0 || !this.empty || !this.glassPainter()) return;
     gsap.fromTo(this.flight, { glint: 0 }, { glint: 1, duration: GLINT.seconds, ease: "none", onComplete: () => { this.flight.glint = -1; } });
   }
 
   // ---------------------------------------------------------------- the helmet's painters
 
-  private makePainters() {
+  /** The helmet's painter: the helmet alone and empty (the room's suit rig, shared). */
+  private makePainter() {
     if (this.empty) return;
     this.empty = createUrchi({ smooth: true, input: false }, { suitPart: "helmet", suitEmpty: true });
-    this.glass = createUrchi({ smooth: true, input: false }, { suitPart: "helmet", suitLayer: "glass" });
-    for (const ch of [this.empty, this.glass]) ch.setSuit(1);
+    this.empty.setSuit(1);
+  }
+
+  /** The glint's painter, its glass alone (made once the peg is up, or at the first glint): whether it is there. */
+  private glassPainter() {
+    if (!this.glass && this.empty && !this.disposed) {
+      this.glass = createUrchi({ smooth: true, input: false }, { suitPart: "helmet", suitLayer: "glass" });
+      this.glass.setSuit(1);
+      const p = this.painted;
+      if (p.unit) {
+        this.glass.setResolution(1080 * p.unit * p.dpr);
+        this.glass.setRim(p.rim);
+      }
+      this.glassPose = null;
+    }
+    return !!this.glass;
   }
 
   /**
-   * Both painters at `unit` css px per mesh unit (at this screen's pixels), outlined `rim` mesh
+   * The painters at `unit` css px per mesh unit (at this screen's pixels), outlined `rim` mesh
    * units wide: over the head, the rim the room holds for it there, so neither outline shows past
    * the other; on the peg, null (the painter's own, a hairline at that size).
    */
   private size(unit: number, rim: number | null) {
     const dpr = Math.min(window.devicePixelRatio || 1, 3), p = this.painted;
-    if (!this.empty || !this.glass || (p.unit === unit && p.dpr === dpr && p.rim === rim)) return;
+    if (!this.empty || (p.unit === unit && p.dpr === dpr && p.rim === rim)) return;
     Object.assign(p, { unit, dpr, rim });
     for (const ch of [this.empty, this.glass]) {
+      if (!ch) continue;
       ch.setResolution(1080 * unit * dpr);
       ch.setRim(rim);
     }
@@ -264,12 +352,19 @@ export class Suit {
     this.drawn = "";
   }
 
-  /** A painter turned to a pose and painted, unless it shows that pose already (then false). */
-  private static turn(ch: UrchiCharacter, was: HeadPose | null, pose: HeadPose) {
-    if (was && Math.abs(was.yaw - pose.yaw) < 1e-5 && Math.abs(was.pitch - pose.pitch) < 1e-5 && Math.abs(was.roll - pose.roll) < 1e-5 && Math.abs(was.shift - pose.shift) < 1e-3 && Math.abs(was.rise - pose.rise) < 1e-3) return false;
+  /** A painter turned to a pose and painted, unless it shows that pose already (then false; `anyway`, painted whatever). */
+  private static turn(ch: UrchiCharacter, was: HeadPose | null, pose: HeadPose, anyway = false) {
+    if (!anyway && was && Math.abs(was.yaw - pose.yaw) < 1e-5 && Math.abs(was.pitch - pose.pitch) < 1e-5 && Math.abs(was.roll - pose.roll) < 1e-5 && Math.abs(was.shift - pose.shift) < 1e-3 && Math.abs(was.rise - pose.rise) < 1e-3) return false;
     ch.holdPose(pose);
     ch.update(0.001);
     return true;
+  }
+
+  /** How clear the helmet's glass is now (see CLEAR), all of it and where the head will be: dark on the peg, clear coming over the head. */
+  private clearNow(): [number, number] {
+    const p = this.flight.p;
+    if (p <= 0) return [0, 0];
+    return [smooth(CLEAR.from, CLEAR.to, p) * (1 - smooth(CLEAR.seat, 1, p)), smooth(CLEAR.to, CLEAR.seat, p)];
   }
 
   /** The pose the helmet is turned to now: level on and off its peg; the head's as it comes down over it, sits on it and leaves it (see TURN). */
@@ -288,19 +383,25 @@ export class Suit {
 
   /** What the helmet's canvas shows now, as a key: it is only drawn again when that changes. */
   private drawn = "";
+  /** How clear the empty helmet's glass was last painted (see clearNow). */
+  private clear: [number, number] = [0, 0];
 
   /** The helmet into its canvas: the empty helmet, and the glint on its glass. */
   private draw() {
     const { glint } = this.flight;
-    if (!this.empty || !this.glass) return;
+    if (!this.empty) return;
     if (this.flight.alpha > 0) {
-      const pose = this.posed();
-      if (Suit.turn(this.empty, this.pose, pose)) {
+      const pose = this.posed(), clear = this.clearNow(), cleared = Math.abs(clear[0] - this.clear[0]) + Math.abs(clear[1] - this.clear[1]) > 1e-4;
+      if (cleared) {
+        this.empty.clearGlass(...clear);
+        this.clear = clear;
+      }
+      if (Suit.turn(this.empty, this.pose, pose, cleared)) {
         this.pose = pose;
         this.drawn = "";
       }
       // its glass only for the glint (on the peg)
-      if (glint >= 0 && Suit.turn(this.glass, this.glassPose, pose)) {
+      if (glint >= 0 && this.glass && Suit.turn(this.glass, this.glassPose, pose)) {
         this.glassPose = pose;
         this.drawn = "";
       }
@@ -318,7 +419,7 @@ export class Suit {
     g.globalAlpha = 1;
     g.clearRect(0, 0, c.width, c.height);
     blit(g, this.empty);
-    if (glint >= 0 && glint <= 1) {
+    if (glint >= 0 && glint <= 1 && this.glass) {
       // a band of light across the glass, upper left to lower right, only where the glass is
       const s = this.glintCanvas.getContext("2d")!, W = c.width, H = c.height;
       s.globalCompositeOperation = "source-over";
@@ -380,12 +481,32 @@ export class Suit {
 
   // ---------------------------------------------------------------- along
 
-  /** Pressed: suits up, leaves it home, or (asleep at his night) it half wakes and glances away. */
+  /**
+   * Pressed: suits up, leaves it home, or (asleep at his night) it half wakes and glances away.
+   * Pressed while it is suiting up or leaving it home, it goes back the other way once that is done,
+   * and the button says so at once (a second press takes that back): every press is answered, and
+   * what the button says is always where it will end up. Asleep, it never goes along, so a press
+   * as the helmet comes off it in its sleep has nothing to queue.
+   */
   press() {
-    if (this.busy || !this.shown || this.disposed) return;
+    if (!this.pegShown || this.disposed) return;
+    if (this.busy) {
+      if (this.state === "unsuiting" && !this.queued && this.att.mood === "asleep") return;
+      this.queued = !this.queued;
+      setAlong(this.target);
+      this.o.onChange?.(this.target);
+      return;
+    }
     if (this.state === "suited") return this.goHome();
+    this.leave();
+  }
+
+  /** Leaving home, awake: suited up. Asleep it half wakes and glances away instead, and stays (and says it stays). */
+  private leave() {
     if (this.att.mood === "asleep") {
       this.att.play("decline", 6, () => decline(this.att, this.helmetAt()), { sleeping: true });
+      setAlong(false);
+      this.o.onChange?.(false);
       return;
     }
     if (this.att.mood === "dozing") this.att.rouse();
@@ -414,9 +535,9 @@ export class Suit {
    * is here, it suits up as if the peg had been pressed. Asleep, it stays home.
    */
   resume() {
-    // (after the peg's own wait for the model, so its painters are there)
-    preloadSuit().then(() => {
-      if (this.state !== "home" || !this.shown || this.disposed || !this.empty) return;
+    // (once the peg's helmet is painted: it is the one that flies)
+    this.whenPainted(() => {
+      if (this.state !== "home" || this.disposed) return;
       if (this.att.mood === "asleep") {
         setAlong(false);
         this.o.onChange?.(false);
@@ -424,13 +545,20 @@ export class Suit {
       }
       if (this.att.mood === "dozing") this.att.rouse();
       this.suitUp();
-    }, () => {});
+    });
+  }
+
+  /** `fn` once the peg's helmet has been painted (at once if it has): see show. */
+  private whenPainted(fn: () => void) {
+    if (this.ready) fn();
+    else this.onPainted.push(fn);
   }
 
   private suitUp() {
     this.state = "suiting";
     setAlong(true);
     this.o.onChange?.(true);
+    this.o.onBusy?.(true);
     this.att.setAlong(true);
     this.sealed = false;
     const room = this.room, f = this.flight;
@@ -467,9 +595,15 @@ export class Suit {
     tl.to(f, { lift: 1, duration: UP.liftFor, ease: "power2.out" }, UP.lift);
     tl.to(f, { p: 1, duration: UP.flyFor, ease: "power2.inOut" }, UP.fly);
     const land = UP.fly + UP.flyFor;
-    tl.to(this.amount, { v: 1, duration: UP.sealFor, ease: "power1.out", onUpdate: () => room.urchi.setSuit(this.amount.v) }, land + UP.rise);
-    tl.call(() => { this.sealed = true; sfx.seal(true); }, [], land + UP.seal);
-    tl.to(f, { alpha: 0, duration: UP.fade, ease: "power1.inOut" }, land + UP.fadeAt);
+    // down: the painted helmet, whole, in its place in the same frame (it never rises under it: no
+    // edge of it to show through the glass), and sealed
+    tl.call(() => {
+      this.amount.v = 1;
+      room.urchi.setSuit(1);
+      f.alpha = 0;
+      this.sealed = true;
+      sfx.seal(true);
+    }, [], land);
     tl.call(() => this.tether.draw(UP.tetherFor), [], UP.tether);
     tl.call(() => room.floatUrchi(true), [], UP.float);
     tl.to({}, { duration: 0.01 }, UP.done);
@@ -480,6 +614,7 @@ export class Suit {
     this.snap = null;
     setAlong(false);
     this.o.onChange?.(false);
+    this.o.onBusy?.(true);
     this.att.setAlong(false);
     const room = this.room, f = this.flight;
     // What is left of suiting up (the fog, the satisfied blink) gives way to it; a doze is broken, as
@@ -507,15 +642,19 @@ export class Suit {
       return;
     }
     this.tether.reel(HOME.reel);
-    // the flying helmet over the painted one, where it is and turned as it is (see posed)
+    // the flying helmet sized for the head (unseen yet), then in one frame it takes over from the
+    // painted one, where it is and turned as it is (see posed), and the head, its ears still folded,
+    // is under it: unsealed
     tl.call(() => {
       const u = room.headOnScreen().unit;
       this.size(u, room.urchi.rimFor(u));
-      f.p = 1; f.lift = 1;
-    }, [], HOME.cover - 0.01);
-    tl.fromTo(f, { alpha: 0 }, { alpha: 1, duration: HOME.coverFor, ease: "power1.inOut" }, HOME.cover);
-    tl.call(() => sfx.seal(false), [], HOME.unseal);
-    tl.to(this.amount, { v: BODY, duration: HOME.unsealFor, ease: "power1.in", onUpdate: () => room.urchi.setSuit(this.amount.v) }, HOME.unseal);
+    }, [], HOME.unseal - 0.01);
+    tl.call(() => {
+      f.p = 1; f.lift = 1; f.alpha = 1;
+      this.amount.v = BODY;
+      room.urchi.setSuit(BODY);
+      sfx.seal(false);
+    }, [], HOME.unseal);
     tl.to(f, { p: 0, duration: HOME.flyFor, ease: "power2.inOut" }, HOME.fly);
     tl.to(f, { lift: 0, duration: 0.25, ease: "power2.inOut" }, HOME.fly + HOME.flyFor - 0.1);
     tl.call(() => this.size(this.onPeg().unit, null), [], HOME.fly + HOME.flyFor + 0.16);
@@ -531,10 +670,19 @@ export class Suit {
       this.room.urchi.setSuit(0);
       this.flight.alpha = 1;
     }
+    // pressed meanwhile: back the other way now
+    if (this.queued) {
+      this.queued = false;
+      if (state === "suited") return this.goHome();
+      this.leave();
+      if (this.busy) return;
+    }
+    this.o.onBusy?.(false);
   }
 
   dispose() {
     this.disposed = true;
+    this.queued = false;
     this.tl?.kill();
     gsap.killTweensOf(this.flight);
     gsap.killTweensOf(this.amount);
