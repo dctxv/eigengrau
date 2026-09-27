@@ -91,6 +91,14 @@ port: the site's copy carries hooks that `urchi/index.html` lacks (`setReveal`,
 `setRestLid`, `setLids`, `tiltToward`, `fixate`, `converge`, `bob`, `stretch`),
 which the intro and Space's attention and acts drive.
 
+It has a spacesuit too, not yet worn on any tab: a low-poly helmet, suit and backpack built
+from the head itself by `urchi/tools/build-suit.mjs` (the right half, mirrored; the helmet
+fitted round the head, the ears and spikes folded in under it) and baked into
+`src/engine/urchi/suit.json` (its canvas frame into `suit-frame.json`) with `npm run urchi:suit`,
+which also prints its checks. `setSuit` puts it on, fetching the model the first time, so a
+visit that never sees the suit never downloads it; in development `/dev/suit` shows it from all
+sides (a production build leaves the sheet out altogether).
+
 What the site keeps in localStorage, every read and write guarded:
 `eigengrau:sound` (sound on or off), `eigengrau:threshold` (today's result),
 `eigengrau:visits` (`{ prev, seen }` in ms: when the last visit ended, and the
@@ -122,7 +130,7 @@ src/components/pages/    one client panel per tab: canvas + DOM overlays; NotesP
 src/engine/space/        Urchi's room (RoomScene), the intro's ring (IntroRing) and timeline (intro.ts), the motes (Motes.ts), and call and response (Call.ts)
 src/engine/projects/     the wound thread (ThreadScene) and its edge-glass post pass (edgeGlass)
 src/engine/about/        the statement, with Urchi as its mark
-src/engine/urchi/        Urchi in the site: character.ts ports urchi/index.html and adds the site's hooks, Urchi.ts shows its canvas in a scene, attention.ts is what it looks at, acts.ts its small scripted acts, hours.ts his hours, mesh.json is its head
+src/engine/urchi/        Urchi in the site: character.ts ports urchi/index.html and adds the site's hooks, Urchi.ts shows its canvas in a scene, attention.ts is what it looks at, acts.ts its small scripted acts, hours.ts his hours, mesh.json is its head, suit.json its spacesuit
 src/engine/common/       colour, loader and text helpers
 src/lib/                 colour tokens, flags, motion, routes, viewport, the Last.fm poller (now.ts), the game's rules (threshold.ts), the last-visit memory and what's new (visits.ts), the Notes column's data, sentence and sediment (notes.ts), a record's colour read from its cover in OKLab (tone.ts), and which tab you are on and the slide taking you there (where.ts)
 src/audio/sfx.ts         sound: the click and ambient bed from public/audio (the bed has its own lowpass, sfx.air, open at rest), synthesised cues (the counter's D/A chime, Urchi's low pats and Projects' plucked horizon among them) and tick trains on the audio clock (Notes' riffle), and Music's preview voice with the bed ducking under it, whose door the room's colour keeps time with, and which plays on in its room when you leave (off by default, remembered in localStorage)

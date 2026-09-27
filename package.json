@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "gen:assets": "node scripts/gen-assets.mjs",
-    "urchi:sync": "node scripts/sync-urchi.mjs"
+    "urchi:sync": "node scripts/sync-urchi.mjs",
+    "urchi:suit": "node urchi/tools/build-suit.mjs"
   },
   "dependencies": {
     "gsap": "^3.15.0",
