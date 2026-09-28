@@ -219,9 +219,27 @@ export type Note = {
   date: string;
   /** note: his, set in serif. log: the site's own line, set in grotesk. */
   kind: "note" | "log";
-  tags: string[];
+  tags: NoteCategory[];
   body: string;
 };
+
+/**
+ * The categories a note can carry, and the ones `npm run note` offers; typing a new name there
+ * adds it here, or add one by hand. "site" is the site's own log line and stays last.
+ */
+export const NOTE_CATEGORIES = [
+  "random",
+  "music",
+  "tech",
+  "ai",
+  "cybersec",
+  "existential",
+  "psychology",
+  "sport",
+  "site",
+] as const;
+
+export type NoteCategory = (typeof NOTE_CATEGORIES)[number];
 
 /**
  * Past this many notes the column settles into sediment: the last sixty days stay in full, each

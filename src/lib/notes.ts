@@ -62,10 +62,10 @@ export function categories(entries: readonly Note[]): Category[] {
 export const CATEGORIES = categories(ENTRIES);
 const RANK = new Map(CATEGORIES.map((c, i) => [c.tag, i]));
 
-/** How a count names its tag, split so the tag word itself can be the button: "on psychology", "random", "about the site". */
+/** How a count names its tag, split so the tag word itself can be the button: "on psychology", "random", "existential", "about the site". */
 function onTag(tag: string): [string, string] {
   if (tag === "site") return ["about the", "site"];
-  if (tag === "random") return ["", "random"];
+  if (tag === "random" || tag === "existential") return ["", tag];
   return ["on", tag];
 }
 
@@ -181,10 +181,13 @@ export function plain(pieces: readonly Piece[], query: string): string {
 const flat = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const HAYSTACK = new Map(ENTRIES.map((n) => [n.id, flat(n.body)]));
 
+/** Whether a note carries a tag; the tag in hand may be any string, as from a URL or a click. */
+export const hasTag = (n: Note, tag: string) => (n.tags as readonly string[]).includes(tag);
+
 /** What a note has to have to stay open: the tag, and the letters in its body or its tags. */
 export function matcher(tag: string | null, query: string): (n: Note) => boolean {
   const q = flat(query.trim());
-  return (n) => (!tag || n.tags.includes(tag)) && (!q || HAYSTACK.get(n.id)!.includes(q) || n.tags.some((t) => flat(t).includes(q)));
+  return (n) => (!tag || hasTag(n, tag)) && (!q || HAYSTACK.get(n.id)!.includes(q) || n.tags.some((t) => flat(t).includes(q)));
 }
 
 /** A folded run for the cursor label: "Eleven notes, Jun to Aug 2026", or "One note, 14 Sep 2026". */
