@@ -1,0 +1,739 @@
+import gsap from "gsap";
+import { sfx } from "@/audio/sfx";
+import { held, homecoming, jolt, shutEyes } from "@/engine/urchi/acts";
+import type { Attention, Point } from "@/engine/urchi/attention";
+import { warmSuitIdle } from "@/engine/urchi/character";
+import { setAlong } from "@/lib/along";
+import { FIGURE_MIDDLE, URCHI_FIGURE, type RoomScene } from "./RoomScene";
+import { Tether } from "./Tether";
+
+/**
+ * What Urchi taken with you is doing: at home; closing its eyes and dissolving (`leaving`); gone a
+ * beat (`away`); floating in from the left (`arriving`); floating on its line; flying off the page
+ * with its line snapped (`flying`); dithering back home with its eyes shut (`returning`).
+ */
+export type FloatState = "home" | "leaving" | "away" | "arriving" | "floating" | "flying" | "returning";
+
+/**
+ * Taking it, in seconds: its eyes close over `close`; from `dither` it dissolves through the dither
+ * over `ditherFor`; the room stays empty a `beat`; then it floats in from the left over `inFor`,
+ * easing out, starting `out` of its height past the edge, `drop` of the room lower than where it
+ * comes to rest and turned back `tilt` radians. Its own life (the wander, the bob, drifting toward
+ * things) comes in over `lifeIn` once it is there. Under reduced motion it dithers in where it rests.
+ */
+const TAKE = { close: 0.35, dither: 0.3, ditherFor: 1, beat: 0.7, inFor: 3.6, out: 0.35, drop: 0.05, tilt: 0.14, lifeIn: 2.5 };
+/**
+ * Home again, in seconds: `gone` after it has left the page (or, under reduced motion, dithered
+ * away) the head at home dithers back over `ditherFor` with its eyes shut; they stay shut `hold`
+ * more and open over `open`. A flight that has not left the page after `flightMost` ends anyway.
+ */
+const HOME = { gone: 0.35, ditherFor: 1, hold: 0.7, open: 1.8, flightMost: 3 };
+/** Where it likes to float, its middle as shares of the room (from the left, from the top). */
+const REST = { x: 0.3, y: 0.47 };
+/** The line's root: `out` px past the left edge, `down` of the way down. */
+const ROOT = { out: 6, down: 0.56 };
+/**
+ * The line's length: at the root's height, pulled straight, its middle reaches `REACH` of the
+ * room's width from the left and no further (the line, plus the clip's offset from the middle,
+ * less the root's `out`): 856px at 1440 wide, 229 at 390.
+ */
+const REACH = 0.6;
+/**
+ * Where the line clips on: the left side of the backpack, half way down it, in mesh units from the
+ * head's centre (y down), as painted facing you; hidden behind the arm and the torso.
+ */
+const PACK = { x: -134, y: 616 };
+/**
+ * The figure for its walls: half its width (the helmet's discs are its widest, and only up there,
+ * so a little under them) and half its height, mesh units from its middle.
+ */
+const HALF = { w: URCHI_FIGURE.half * 0.8, h: (URCHI_FIGURE.bottom - URCHI_FIGURE.top) / 2 };
+/** The physics' fixed step (s), whatever the frame rate, and the most steps one frame may take. */
+const STEP = 1 / 120;
+const STEPS_MOST = 12;
+/** Its build: its radius of gyration about its middle, a share of its height. */
+const GYRATION = 0.3;
+/**
+ * Zero gravity, so nothing pulls it down, and the air there is none, but it is kept from drifting
+ * forever: velocity falls at `move` and spin at `spin` a second (half-lives about 1.2s and 0.6s);
+ * flying off with its line snapped, `flight` of that. Held, its spin falls `held` a second more.
+ */
+const DRAG = { move: 0.6, spin: 1.2, flight: 0.25, held: 2 };
+/** Righting: a weak spring back to upright, rad/s (a tumble rights itself over a few seconds, overshooting a little). */
+const RIGHTING = 1;
+/**
+ * Its own wandering: a push that changes its mind slowly, three sines a direction on periods that
+ * never line up (s, their weights `mix`), at most `push` of its height per second squared; a turn
+ * the same way, `turn` rad/s²; and a bob, `bob` of its height up and down every `bobEvery` seconds.
+ * Asleep, `asleep` of all of it.
+ */
+const WANDER = { push: 0.1, periods: [9.7, 14.3, 23.1], mix: [1, 0.7, 0.45], turn: 0.3, turnPeriods: [11.3, 17.9, 7.1], bob: 0.025, bobEvery: 5.3, asleep: 0.35 };
+/**
+ * What it is watching (the pointer at rest, a mote) draws it gently: at most `pull` of its height
+ * per second squared, only farther off than `near` of its height, and only once it has been left
+ * alone `calm` seconds (no hold, fling or tug). A weak spring (`home`, per second squared) keeps it
+ * near where it likes to float.
+ */
+const DRIFT = { pull: 0.05, near: 0.6, calm: 2, home: 0.02 };
+/**
+ * The soft walls: the room's edges `side` px in, under the tab bar (`top` px down) and over the
+ * caption's band (`bottom`, `phoneBottom` on a phone). Each corner of the figure's box that crosses
+ * one is pushed back by a spring of `k` per second squared that gives back `restitution` of its
+ * speed; a corner's push turns it, a share `spin` of what a rigid box would.
+ */
+const WALL = { side: 8, top: 56, bottom: 64, phoneBottom: 80, k: 16000, restitution: 0.4, spin: 0.5 };
+/**
+ * The line, per unit mass: pulled past its length, a spring of `k` per second squared (about 20px
+ * of give when flung at 1500px/s) and a damper at `zeta` of critical along it, so it takes the
+ * strain like a slightly elastic line: it cancels the outward velocity, swings it round the root
+ * and sends it back toward it with a little rebound (about an eighth of the speed). It is taut from
+ * its length on, slack again `slack` px short of it. Going taut faster than `tug` of the snap speed
+ * is a tug (heard with sound on, at most every `tugEvery` seconds).
+ */
+const LINE = { k: 1800, zeta: 0.55, slack: 2, tug: 0.3, tugEvery: 0.25 };
+/**
+ * The line snaps when jerked taut faster than `base` + `perWidth` times the room's width, px/s
+ * (2872 at 1440 wide, 1507 at 390, 4328 at 2560): an ordinary push or fling never gets there, a
+ * deliberate hard throw does. Snapped, it tumbles off with `spin` rad/s more (either way), never
+ * slower than `exit` of the snap speed. Sent home from the keyboard it is launched at `send` of the
+ * snap speed away from the root, and the line snaps at its first pull.
+ */
+const SNAP = { base: 1000, perWidth: 1.3, spin: [1.2, 3] as [number, number], exit: 0.8, send: 1.3 };
+/**
+ * Held: a spring from the grab point to the pointer (`omega` rad/s, `zeta` of critical, against the
+ * pointer's own velocity, so it follows with a slight lag and no drag behind), pulling at most
+ * `most` times the snap speed per second, so a line pulled straight by hand never snaps.
+ */
+const HOLD = { omega: 20, zeta: 0.85, most: 10 };
+/** Let go, it takes the pointer's velocity over its last `window` seconds, never over `cap` times the snap speed. */
+const FLING = { window: 0.09, cap: 2.2, keep: 0.16 };
+/** A nudge from the arrow keys: `speed` of its height per second, or under reduced motion `step` px. */
+const NUDGE = { speed: 0.9, step: 24 };
+
+const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+const rand = (a: number, b: number) => a + Math.random() * (b - a);
+/** An angle brought within -pi .. pi: upright the short way round. */
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+export type FloatOptions = {
+  room: RoomScene;
+  att: Attention;
+  reducedMotion: boolean;
+  /** Its state changed: the cursor's word and the control's name follow. */
+  onState?(state: FloatState): void;
+};
+
+/**
+ * Urchi taken with you (Space, Darius's "take with you"). Clicked at home, it closes its eyes and
+ * dissolves through the dither; a beat later it floats in from the left in its suit, at 40% of the
+ * size the whole suited figure stood at in the room, on a line from a root just past the left edge.
+ * There it floats in zero gravity: it drifts, bobs, turns and rights itself, looks at what it looks
+ * at (its attention carries on) and drifts gently toward it. The pointer, or a finger, can hold it
+ * where it is drawn, drag it (it follows with a slight lag, and a grab off its middle turns it) and
+ * fling it; it keeps its momentum with a little drag and tumbles. The line is a rope: slack in lazy
+ * curves, and pulled straight it gives like a slightly elastic line and swings it round and back.
+ * Thrown hard enough, the line snaps: it flies off the page with its spin, and the head comes back
+ * home through the same dither, eyes shut, and opens them slowly. Taken is remembered for the visit
+ * (along.ts): a reload, or a return to Space, finds it floating in again.
+ *
+ * The physics runs at a fixed 120 steps a second in room px (y up), mass 1, so it behaves the same
+ * at 60 and 120Hz, and each frame is drawn between the last two steps. The figure turns as a whole
+ * by turning its plane: nothing is painted again for that.
+ */
+export class Float {
+  state: FloatState = "home";
+  private o: FloatOptions;
+  private room: RoomScene;
+  private att: Attention;
+  private reduced: boolean;
+  private tether: Tether;
+  /** The body: its middle (room px, y up) and velocity (px/s), its turn (radians, anticlockwise) and spin (rad/s). */
+  private b = { x: 0, y: 0, vx: 0, vy: 0, a: 0, w: 0 };
+  /** Where it was a step ago: each frame is drawn between the two. */
+  private prev = { x: 0, y: 0, a: 0 };
+  private acc = 0;
+  /** Its own clock (s), the wander's, and the wander's phases (two directions and the turn, three sines each). */
+  private t = 0;
+  private phases = Array.from({ length: 9 }, () => rand(0, Math.PI * 2));
+  /** How much of its own life it has (see TAKE.lifeIn), 0 .. 1. Tweened. */
+  private life = { v: 0 };
+  /** Floating in: when it began (its clock), and from where to where (room px). */
+  private arrival: { t0: number; from: Point; to: Point } | null = null;
+  /** Held: the grab point (mesh units from the middle, y up, so a resize keeps it), and the pointer's place (room px) and smoothed velocity. */
+  private hold: { gx: number; gy: number; x: number; y: number; vx: number; vy: number } | null = null;
+  /** The pointer's last few places while held (client px, performance.now() ms), for the fling. */
+  private samples: { t: number; x: number; y: number }[] = [];
+  /** The line is pulled straight; when it last tugged; sent home, it snaps at its first pull. */
+  private taut = false;
+  private tugAt = -Infinity;
+  private sending = false;
+  /** Left alone since then (its clock): no hold, fling, nudge or tug. */
+  private calmAt = 0;
+  private flightFor = 0;
+  private tl: gsap.core.Timeline | null = null;
+  private stopFrame: () => void;
+  private disposed = false;
+
+  constructor(o: FloatOptions) {
+    this.o = o;
+    this.room = o.room;
+    this.att = o.att;
+    this.reduced = o.reducedMotion;
+    this.tether = new Tether(o.room, {
+      root: () => this.root(),
+      clip: () => (this.room.float ? this.room.onFigure(PACK.x, PACK.y) : null),
+      length: () => this.length,
+      reducedMotion: o.reducedMotion,
+    });
+    this.stopFrame = o.room.onFrame((dt) => this.frame(dt));
+  }
+
+  /** Afloat: floating in, or floating (it can be held, nudged and sent home). */
+  get afloat() {
+    return this.state === "arriving" || this.state === "floating";
+  }
+
+  /** On its way somewhere: leaving, gone, flying off or coming back. Nothing it is clicked for can happen now. */
+  get busy() {
+    return this.state === "leaving" || this.state === "away" || this.state === "flying" || this.state === "returning";
+  }
+
+  /** Being held. */
+  get holding() {
+    return this.hold !== null;
+  }
+
+  // ---------------------------------------------------------------- its measures
+
+  /** CSS px per mesh unit as it floats. */
+  private get unit() {
+    return this.room.floatUnit;
+  }
+
+  /** Its height, crown to soles (px). */
+  private get tall() {
+    return (URCHI_FIGURE.bottom - URCHI_FIGURE.top) * this.unit;
+  }
+
+  /** The line's root, room px. */
+  private root(): Point {
+    return { x: -this.room.width / 2 - ROOT.out, y: this.room.height / 2 - ROOT.down * this.room.height };
+  }
+
+  /** The clip from its middle, px, as it floats upright (y up). */
+  private clipOffset(): Point {
+    const u = this.unit;
+    return { x: PACK.x * u, y: (FIGURE_MIDDLE - PACK.y) * u };
+  }
+
+  /** The line's length (see REACH). */
+  private get length() {
+    const c = this.clipOffset();
+    return REACH * this.room.width + ROOT.out - Math.hypot(c.x, c.y);
+  }
+
+  /** The speed a jerk on the line snaps it at, px/s (see SNAP). */
+  private get breakSpeed() {
+    return SNAP.base + SNAP.perWidth * this.room.width;
+  }
+
+  /** Where it likes to float: its middle, room px. */
+  private rest(): Point {
+    return { x: (REST.x - 0.5) * this.room.width, y: (0.5 - REST.y) * this.room.height };
+  }
+
+  /** The walls, room px. */
+  private walls() {
+    const W = this.room.width / 2, H = this.room.height / 2, phone = this.room.width <= 640;
+    return { left: -W + WALL.side, right: W - WALL.side, top: H - WALL.top, bottom: -H + (phone ? WALL.phoneBottom : WALL.bottom) };
+  }
+
+  /** How far its box reaches from its middle, across and up, turned as it is. */
+  private extent(a = this.b.a) {
+    const u = this.unit, c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a));
+    return { x: c * HALF.w * u + s * HALF.h * u, y: s * HALF.w * u + c * HALF.h * u };
+  }
+
+  // ---------------------------------------------------------------- what the page asks of it
+
+  /** Taken with you, from home (awake: the page wakes it first). */
+  take() {
+    if (this.state !== "home" || this.disposed) return;
+    setAlong(true);
+    this.set("leaving");
+    warmSuitIdle().catch(() => {}); // loading while it goes, so it is here by the time it is wanted
+    this.att.play("shutEyes", 9, () => shutEyes(this.att, TAKE.close));
+    const gone = TAKE.dither + TAKE.ditherFor;
+    this.tl = gsap
+      .timeline()
+      .call(() => this.room.urchi.dither(1, TAKE.ditherFor), [], TAKE.dither)
+      .call(() => {
+        this.att.cancel("shutEyes");
+        this.set("away");
+      }, [], gone)
+      .call(() => this.whenSuited(), [], gone + TAKE.beat);
+  }
+
+  /** Already taken when Space mounts (within the visit): the head never shows at home, and it floats in from the left once its suit is here. */
+  restore() {
+    if (this.state !== "home" || this.disposed) return;
+    this.room.urchi.uniforms.uDither.value = 1;
+    this.set("away");
+    this.whenSuited();
+  }
+
+  /** Sent home (the keyboard, or a double click or tap under reduced motion): its line snaps and it goes. */
+  sendHome() {
+    if (!this.afloat || this.disposed) return;
+    if (this.hold) this.letGo();
+    if (this.reduced) {
+      this.set("flying");
+      setAlong(false);
+      this.tether.snap();
+      this.room.urchi.dither(1, TAKE.ditherFor, () => this.comeHome());
+      return;
+    }
+    if (this.state === "arriving") this.settle();
+    // launched away from the root, faster than the line can hold: it snaps at its first pull
+    const b = this.b, r = this.root();
+    let dx = b.x - r.x, dy = b.y - r.y;
+    const d = Math.hypot(dx, dy) || 1;
+    dx /= d;
+    dy /= d;
+    const v = SNAP.send * this.breakSpeed;
+    b.vx = dx * v;
+    b.vy = dy * v;
+    this.sending = true;
+  }
+
+  /**
+   * A press at a client point: if it is on the floating figure, it is held from there. Returns
+   * whether it was. `t` is the press's time (performance.now() ms).
+   */
+  grab(clientX: number, clientY: number, t: number) {
+    if (!this.afloat || !this.room.urchiHit(clientX, clientY)) return false;
+    if (this.state === "arriving") this.settle();
+    const p = this.room.toRoom(clientX, clientY), b = this.b, u = this.unit, c = Math.cos(b.a), s = Math.sin(b.a);
+    // the point under the pointer, into the figure's own frame
+    const dx = p.x - b.x, dy = p.y - b.y;
+    this.hold = { gx: (dx * c + dy * s) / u, gy: (-dx * s + dy * c) / u, x: p.x, y: p.y, vx: 0, vy: 0 };
+    this.samples = [{ t, x: clientX, y: clientY }];
+    this.calmAt = Infinity;
+    this.att.play("held", 6, () => held(this.att));
+    return true;
+  }
+
+  /** The held pointer moved to a client point, at `t` (performance.now() ms). */
+  drag(clientX: number, clientY: number, t: number) {
+    const h = this.hold;
+    if (!h) return;
+    const p = this.room.toRoom(clientX, clientY), last = this.samples[this.samples.length - 1];
+    const dt = last ? (t - last.t) / 1000 : 0;
+    if (dt > 0.001) {
+      // the pointer's own velocity, smoothed a little: what the hold's damping follows
+      const k = Math.min(1, dt / 0.03);
+      h.vx += ((p.x - h.x) / dt - h.vx) * k;
+      h.vy += ((p.y - h.y) / dt - h.vy) * k;
+    }
+    h.x = p.x;
+    h.y = p.y;
+    this.samples.push({ t, x: clientX, y: clientY });
+    while (this.samples.length > 2 && t - this.samples[0].t > FLING.keep * 1000) this.samples.shift();
+    if (this.reduced) this.follow();
+  }
+
+  /**
+   * Let go at `t` (performance.now() ms): flung with the pointer's recent velocity. Under reduced
+   * motion it stays where it was left; a hold taken away (`fling` false: the system took the
+   * pointer) leaves it moving as it was.
+   */
+  release(t: number, fling = true) {
+    if (!this.hold) return;
+    const v = this.flingVelocity(t);
+    this.letGo();
+    const b = this.b;
+    this.calmAt = this.t + DRIFT.calm;
+    if (this.reduced) {
+      b.vx = b.vy = b.w = 0;
+      return;
+    }
+    if (!fling) return;
+    b.vx = v.x;
+    b.vy = v.y;
+  }
+
+  /** The arrow keys: a nudge that way (dx, dy each -1 .. 1, y down, as the screen is). */
+  nudge(dx: number, dy: number) {
+    if (!this.afloat || this.hold) return;
+    const b = this.b;
+    if (this.reduced) {
+      b.x += dx * NUDGE.step;
+      b.y -= dy * NUDGE.step;
+      this.keepIn();
+      this.show();
+      return;
+    }
+    if (this.state === "arriving") this.settle();
+    b.vx += dx * NUDGE.speed * this.tall;
+    b.vy -= dy * NUDGE.speed * this.tall;
+    this.calmAt = this.t + DRIFT.calm;
+  }
+
+  /** Where it looks from, afloat (see AttentionOptions.origin): its eyes in client px and its turn; null at home. */
+  lookFrom(): { x: number; y: number; angle: number } | null {
+    const p = this.room.float;
+    if (!p) return null;
+    const e = this.room.eyes(), r = this.room.canvas.getBoundingClientRect();
+    return { x: r.left + r.width / 2 + e.x, y: r.top + r.height / 2 - e.y, angle: p.angle };
+  }
+
+  /** Its box afloat, for the control over it: its middle (room px), width, height and turn (radians, anticlockwise); null at home. */
+  box(): { x: number; y: number; w: number; h: number; angle: number } | null {
+    const p = this.room.float;
+    return p && { x: p.x, y: p.y, w: 2 * URCHI_FIGURE.half * this.unit, h: this.tall, angle: p.angle };
+  }
+
+  /** The room changed size: it is kept inside it, and within its line's reach. */
+  resize() {
+    if (!this.room.float) return;
+    this.keepIn();
+    this.prev = { x: this.b.x, y: this.b.y, a: this.b.a };
+    this.show();
+  }
+
+  // ---------------------------------------------------------------- going and coming
+
+  private set(state: FloatState) {
+    if (state === this.state) return;
+    this.state = state;
+    this.o.onState?.(state);
+  }
+
+  /** Once its suit's model and rig are here: it floats in. With no model to wear, it comes home. */
+  private whenSuited() {
+    warmSuitIdle().then(
+      () => {
+        if (!this.disposed && this.state === "away") this.arrive();
+      },
+      () => {
+        if (this.disposed || this.state !== "away") return;
+        setAlong(false);
+        this.comeHome(0);
+      },
+    );
+  }
+
+  /** In its suit at once (no build-up), at its size, floating in from the left (or, under reduced motion, dithering in where it rests). */
+  private arrive() {
+    const room = this.room, b = this.b, to = this.rest();
+    room.urchi.setSuit(1);
+    b.vx = b.vy = b.w = 0;
+    this.taut = this.sending = false;
+    this.calmAt = 0;
+    this.life.v = 0;
+    if (this.reduced) {
+      b.x = to.x;
+      b.y = to.y;
+      b.a = 0;
+      this.arrival = null;
+      room.urchi.uniforms.uDither.value = 1;
+      room.urchi.dither(0, TAKE.ditherFor, () => this.settle());
+    } else {
+      const from = { x: -room.width / 2 - this.extent(TAKE.tilt).x - TAKE.out * this.tall, y: to.y - TAKE.drop * room.height };
+      // (it comes in already drifting, and slows to a stop: a sine's ease out, so it is not flung in)
+      b.x = from.x;
+      b.y = from.y;
+      b.a = TAKE.tilt;
+      this.arrival = { t0: this.t, from, to };
+      room.urchi.uniforms.uDither.value = 0;
+    }
+    this.prev = { x: b.x, y: b.y, a: b.a };
+    this.show();
+    this.tether.show(this.reduced ? TAKE.ditherFor : 0);
+    this.set("arriving");
+  }
+
+  /** Floating in is over (or cut short by a hand or a key): it floats, and its own life comes in. */
+  private settle() {
+    this.arrival = null;
+    this.set("floating");
+    gsap.killTweensOf(this.life);
+    if (!this.reduced) gsap.to(this.life, { v: 1, duration: TAKE.lifeIn, ease: "sine.inOut" });
+  }
+
+  /** Its line snaps: it flies off with its momentum and a tumble, the line breaking behind it. */
+  private snap() {
+    const b = this.b;
+    this.set("flying");
+    setAlong(false);
+    this.taut = this.sending = false;
+    this.flightFor = 0;
+    this.tether.snap();
+    sfx.snap();
+    this.att.play("jolt", 8, () => jolt(this.att, 1));
+    b.w += (Math.random() < 0.5 ? -1 : 1) * rand(...SNAP.spin);
+    const v = Math.hypot(b.vx, b.vy), exit = SNAP.exit * this.breakSpeed;
+    if (v < exit) {
+      const r = this.root(), dx = b.x - r.x, dy = b.y - r.y, d = Math.hypot(dx, dy) || 1;
+      const ux = v > 1 ? b.vx / v : dx / d, uy = v > 1 ? b.vy / v : dy / d;
+      b.vx = ux * exit;
+      b.vy = uy * exit;
+    }
+  }
+
+  /** Gone off the page (or dissolved): the head comes back home through the dither, eyes shut, and opens them slowly. */
+  private comeHome(after = HOME.gone) {
+    const room = this.room;
+    this.set("returning");
+    this.hold = null;
+    this.arrival = null;
+    room.float = null;
+    room.urchi.setSuit(0);
+    room.urchi.uniforms.uDither.value = 1;
+    this.tether.hide(0);
+    gsap.killTweensOf(this.life);
+    this.life.v = 0;
+    const shut = HOME.ditherFor + HOME.hold;
+    this.tl?.kill();
+    this.tl = gsap
+      .timeline()
+      .call(() => {
+        this.att.play("homecoming", 9, () => homecoming(this.att, shut, HOME.open), { sleeping: true });
+        room.urchi.dither(0, HOME.ditherFor);
+      }, [], after)
+      .call(() => this.set("home"), [], after + shut + HOME.open);
+  }
+
+  private letGo() {
+    this.hold = null;
+    this.samples = [];
+    this.att.cancel("held");
+  }
+
+  /** The pointer's velocity over its last FLING.window seconds, in room px/s (y up), capped. */
+  private flingVelocity(t: number): Point {
+    const s = this.samples, last = s[s.length - 1];
+    if (!last || t - last.t > FLING.window * 1000) return { x: 0, y: 0 };
+    let first = last;
+    for (let i = s.length - 1; i >= 0 && last.t - s[i].t <= FLING.window * 1000; i--) first = s[i];
+    const dt = (last.t - first.t) / 1000;
+    if (dt < 0.008) return { x: 0, y: 0 };
+    let vx = (last.x - first.x) / dt, vy = -(last.y - first.y) / dt;
+    const v = Math.hypot(vx, vy), cap = FLING.cap * this.breakSpeed;
+    if (v > cap) {
+      vx *= cap / v;
+      vy *= cap / v;
+    }
+    return { x: vx, y: vy };
+  }
+
+  /** Reduced motion's hold: the grab point simply goes where the pointer is, kept inside the room and the line's reach. */
+  private follow() {
+    const h = this.hold, b = this.b;
+    if (!h) return;
+    const u = this.unit, c = Math.cos(b.a), s = Math.sin(b.a);
+    b.x = h.x - (h.gx * u * c - h.gy * u * s);
+    b.y = h.y - (h.gx * u * s + h.gy * u * c);
+    this.keepIn();
+    this.show();
+  }
+
+  /** Inside the walls, and its clip within the line's length of the root. */
+  private keepIn() {
+    const b = this.b, w = this.walls(), e = this.extent();
+    b.x = clamp(b.x, w.left + e.x, Math.max(w.left + e.x, w.right - e.x));
+    b.y = clamp(b.y, Math.min(w.top - e.y, w.bottom + e.y), w.top - e.y);
+    const c = this.clipOffset(), cos = Math.cos(b.a), sin = Math.sin(b.a), r = this.root();
+    const cx = b.x + c.x * cos - c.y * sin, cy = b.y + c.x * sin + c.y * cos, dx = cx - r.x, dy = cy - r.y, d = Math.hypot(dx, dy), L = this.length;
+    if (d > L) {
+      b.x -= (dx * (d - L)) / d;
+      b.y -= (dy * (d - L)) / d;
+    }
+  }
+
+  /** The body, drawn where it is now. */
+  private show() {
+    const b = this.b;
+    this.prev = { x: b.x, y: b.y, a: b.a };
+    this.room.float = { x: b.x, y: b.y, angle: b.a };
+  }
+
+  // ---------------------------------------------------------------- the physics
+
+  /** Arriving, floating or flying: the physics runs. */
+  private get moving() {
+    return this.state === "arriving" || this.state === "floating" || this.state === "flying";
+  }
+
+  private frame(dt: number) {
+    if (this.disposed || !this.moving) return;
+    if (this.reduced) return; // still: only a hand, a key or a dither moves it (see follow, nudge, sendHome)
+    this.acc += dt;
+    let n = 0;
+    while (this.acc >= STEP && n < STEPS_MOST && this.moving) {
+      this.prev = { x: this.b.x, y: this.b.y, a: this.b.a };
+      this.step(STEP);
+      this.acc -= STEP;
+      n++;
+    }
+    if (n === STEPS_MOST) this.acc = 0;
+    if (!this.room.float) return;
+    const k = this.acc / STEP, b = this.b, p = this.prev;
+    this.room.float = { x: p.x + (b.x - p.x) * k, y: p.y + (b.y - p.y) * k, angle: p.a + (b.a - p.a) * k };
+    if (this.state === "flying") {
+      this.flightFor += dt;
+      if (this.offPage() || this.flightFor > HOME.flightMost) this.comeHome();
+    }
+  }
+
+  /** Flying: its box is past an edge of the page, all of it. */
+  private offPage() {
+    const b = this.b, e = this.extent(), W = this.room.width / 2 + 16, H = this.room.height / 2 + 16;
+    return b.x - e.x > W || b.x + e.x < -W || b.y - e.y > H || b.y + e.y < -H;
+  }
+
+  /** One step of `h` seconds: the forces on it, then its velocity and place (semi-implicit Euler). */
+  private step(h: number) {
+    this.t += h;
+    const b = this.b, tall = this.tall, I = (GYRATION * tall) ** 2, flying = this.state === "flying";
+    const cos = Math.cos(b.a), sin = Math.sin(b.a);
+    let ax = 0, ay = 0, al = 0;
+    /** A force (per unit mass) at an offset from the middle (px): it moves it, and turns it by its lever. */
+    const push = (fx: number, fy: number, rx: number, ry: number, turn = 1) => {
+      ax += fx;
+      ay += fy;
+      al += (turn * (rx * fy - ry * fx)) / I;
+    };
+
+    // its own life: the wander, the bob, the turn, and a drift toward what it watches
+    const life = this.hold || flying ? 0 : this.life.v * (this.att.asleep ? WANDER.asleep : 1);
+    const turnIn = this.arrival ? Math.min(1, (this.t - this.arrival.t0) / TAKE.inFor) : 1;
+    const turnLife = this.hold || flying ? 0 : Math.max(life, 0.5 * turnIn) * (this.att.asleep ? WANDER.asleep : 1);
+    if (life > 0 || turnLife > 0) {
+      const TAU = 2 * Math.PI, mix = WANDER.mix, sum = mix[0] + mix[1] + mix[2];
+      const wave = (k: number, periods: number[]) => (mix[0] * Math.sin((TAU * this.t) / periods[0] + this.phases[k * 3]) + mix[1] * Math.sin((TAU * this.t) / periods[1] + this.phases[k * 3 + 1]) + mix[2] * Math.sin((TAU * this.t) / periods[2] + this.phases[k * 3 + 2])) / sum;
+      const bobW = TAU / WANDER.bobEvery;
+      ax += life * WANDER.push * tall * wave(0, WANDER.periods);
+      ay += life * (WANDER.push * tall * wave(1, WANDER.periods) - WANDER.bob * tall * bobW * bobW * Math.sin(bobW * this.t));
+      al += turnLife * WANDER.turn * wave(2, WANDER.turnPeriods);
+    }
+    if (life > 0) {
+      const f = this.att.focus;
+      if (f && this.t >= this.calmAt && (f.kind === "mote" || (f.kind === "pointer" && this.att.stillFor > 0.8))) {
+        const at = this.room.toRoom(f.at.x, f.at.y), dx = at.x - b.x, dy = at.y - b.y, d = Math.hypot(dx, dy), near = DRIFT.near * tall;
+        if (d > near) {
+          const pull = life * DRIFT.pull * tall * Math.min(1, (d - near) / tall);
+          ax += (dx / d) * pull;
+          ay += (dy / d) * pull;
+        }
+      }
+      const r = this.rest();
+      ax -= life * DRIFT.home * (b.x - r.x);
+      ay -= life * DRIFT.home * (b.y - r.y);
+    }
+
+    // zero-g drag, and a weak righting
+    const drag = flying ? DRAG.flight : 1;
+    ax -= DRAG.move * drag * b.vx;
+    ay -= DRAG.move * drag * b.vy;
+    al -= (DRAG.spin + (this.hold ? DRAG.held : 0)) * b.w;
+    if (!flying) al -= RIGHTING * RIGHTING * wrap(b.a);
+
+    if (!flying && !this.arrival) {
+      this.wallsPush(push, cos, sin);
+      this.linePull(push, cos, sin);
+    }
+
+    // held: a spring from the grab point to the pointer
+    const hd = this.hold;
+    if (hd) {
+      const u = this.unit, gx = hd.gx * u, gy = hd.gy * u, rx = gx * cos - gy * sin, ry = gx * sin + gy * cos;
+      const vgx = b.vx - b.w * ry, vgy = b.vy + b.w * rx;
+      const k = HOLD.omega * HOLD.omega, c = 2 * HOLD.zeta * HOLD.omega, most = HOLD.most * this.breakSpeed;
+      let fx = k * (hd.x - (b.x + rx)) + c * (hd.vx - vgx), fy = k * (hd.y - (b.y + ry)) + c * (hd.vy - vgy);
+      const f = Math.hypot(fx, fy);
+      if (f > most) {
+        fx *= most / f;
+        fy *= most / f;
+      }
+      push(fx, fy, rx, ry);
+    }
+
+    if (this.arrival) {
+      // floating in: carried along its path (easing out), turning by itself
+      const { t0, from, to } = this.arrival, u = Math.min(1, (this.t - t0) / TAKE.inFor), e = Math.sin((u * Math.PI) / 2), de = ((Math.PI / 2) * Math.cos((u * Math.PI) / 2)) / TAKE.inFor;
+      b.x = from.x + (to.x - from.x) * e;
+      b.y = from.y + (to.y - from.y) * e;
+      b.vx = (to.x - from.x) * de;
+      b.vy = (to.y - from.y) * de;
+      if (u >= 1) this.settle();
+    } else {
+      b.vx += ax * h;
+      b.vy += ay * h;
+      b.x += b.vx * h;
+      b.y += b.vy * h;
+    }
+    b.w += al * h;
+    b.a += b.w * h;
+  }
+
+  /** The soft walls: each corner of its box past one is pushed back in (and turns it). */
+  private wallsPush(push: (fx: number, fy: number, rx: number, ry: number, turn?: number) => void, cos: number, sin: number) {
+    const b = this.b, u = this.unit, w = this.walls(), hw = HALF.w * u, hh = HALF.h * u;
+    const k = WALL.k, zeta = -Math.log(WALL.restitution) / Math.sqrt(Math.PI ** 2 + Math.log(WALL.restitution) ** 2), c = 2 * zeta * Math.sqrt(k);
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const rx = sx * hw * cos - sy * hh * sin, ry = sx * hw * sin + sy * hh * cos;
+      const px = b.x + rx, py = b.y + ry, vx = b.vx - b.w * ry, vy = b.vy + b.w * rx;
+      let fx = 0, fy = 0;
+      if (px < w.left) fx = Math.max(0, k * (w.left - px) - c * vx);
+      else if (px > w.right) fx = Math.min(0, k * (w.right - px) - c * vx);
+      if (py < w.bottom) fy = Math.max(0, k * (w.bottom - py) - c * vy);
+      else if (py > w.top) fy = Math.min(0, k * (w.top - py) - c * vy);
+      if (fx || fy) {
+        push(fx, fy, rx, ry, WALL.spin);
+        this.calmAt = Math.max(this.calmAt, this.t + DRIFT.calm);
+      }
+    }
+  }
+
+  /**
+   * The line: past its length, a spring and a damper along it from the clip toward the root. Jerked
+   * taut faster than the snap speed (not by hand), or sent home, it snaps instead.
+   */
+  private linePull(push: (fx: number, fy: number, rx: number, ry: number) => void, cos: number, sin: number) {
+    const b = this.b, c = this.clipOffset(), r = this.root(), L = this.length;
+    const rx = c.x * cos - c.y * sin, ry = c.x * sin + c.y * cos;
+    const dx = b.x + rx - r.x, dy = b.y + ry - r.y, d = Math.hypot(dx, dy);
+    if (d <= L) {
+      if (d < L - LINE.slack) this.taut = false;
+      return;
+    }
+    const nx = dx / d, ny = dy / d;
+    // the clip's velocity along the line, outward
+    const vn = (b.vx - b.w * ry) * nx + (b.vy + b.w * rx) * ny, snap = this.breakSpeed;
+    if ((vn > snap && !this.hold) || this.sending) {
+      this.snap();
+      return;
+    }
+    if (!this.taut) {
+      this.taut = true;
+      if (vn > LINE.tug * snap && this.t - this.tugAt > LINE.tugEvery) {
+        this.tugAt = this.t;
+        const strength = Math.min(1, vn / snap);
+        sfx.tug(strength);
+        this.att.play("jolt", 7, () => jolt(this.att, strength));
+        this.calmAt = this.t + DRIFT.calm;
+      }
+    }
+    const T = LINE.k * (d - L) + 2 * LINE.zeta * Math.sqrt(LINE.k) * vn;
+    if (T > 0) push(-T * nx, -T * ny, rx, ry);
+  }
+
+  dispose() {
+    this.disposed = true;
+    this.tl?.kill();
+    gsap.killTweensOf(this.life);
+    this.stopFrame();
+    this.tether.dispose();
+  }
+}

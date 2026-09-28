@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import { MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
 import { Call } from "@/engine/space/Call";
+import { Float, type FloatState } from "@/engine/space/Float";
 import { Motes } from "@/engine/space/Motes";
 import { RoomScene } from "@/engine/space/RoomScene";
 import { runIntro } from "@/engine/space/intro";
@@ -12,6 +13,7 @@ import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
 import { clock } from "@/engine/urchi/hours";
 import { CursorLabel } from "@/components/CursorLabel";
 import { MaskedChars, MaskedWords } from "@/components/Mask";
+import { alongOn } from "@/lib/along";
 import { getFlags, setFlag } from "@/lib/flags";
 import { prefersReducedMotion } from "@/lib/motion";
 import { pollNow, type Track } from "@/lib/now";
@@ -20,6 +22,10 @@ import { leftRoute, markNewsTold, newsTold, whatsNew } from "@/lib/visits";
 
 /** A press that moves less than this (px) and lets go within this (ms) is a click. */
 const CLICK = { slop: 6, ms: 600 };
+/** Reduced motion, Urchi afloat: two clicks or taps on it this close (ms, px) send it home, as a fling hard enough would. */
+const TWICE = { ms: 450, px: 24 };
+/** What the page says for a screen reader as Urchi goes out on its line, and as it comes home. */
+const SAID = { out: "Urchi is out on its line.", home: "The line snapped. Urchi is home." };
 /**
  * When a pointer event happened (performance.now() ms): its own time stamp, so that one long frame
  * (a phone painting Urchi at its full resolution) does not bunch the taps it held back into one
@@ -109,9 +115,14 @@ function wordsOf(span: HTMLElement): Point[] {
  * the caption and the cursor label. Urchi pays attention (attention.ts): it
  * chooses what to look at, watches the motes, looks up at what is new, keeps
  * his hours and reads his captions. Hovering it raises its name over one of
- * his lines.
+ * his lines; clicking it takes it with you (Float.ts): it dissolves, and
+ * floats back in from the left on a line, to be held, flung and sent home.
+ * A real button over it (beside the stage, which is aria-hidden) lets the
+ * keyboard do the same.
  */
 export function CreativeSpacePanel({ intro }: { intro: boolean }) {
+  const panel = useRef<HTMLDivElement>(null);
+  const control = useRef<HTMLButtonElement>(null);
   const stage = useRef<HTMLElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const side = useRef<HTMLDivElement>(null);
@@ -124,7 +135,12 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
 
   useEffect(() => {
     const stageEl = stage.current!;
-    const playIntro = intro && !reducedMotion;
+    const panelEl = panel.current!;
+    const controlEl = control.current!;
+    // Taken with you within the visit: a reload finds it floating in from the left again, so the
+    // intro, which builds the bare head from its eyes, gives way to the room as a return shows it.
+    const along = alongOn();
+    const playIntro = intro && !reducedMotion && !along;
     const phone = matchMedia("(hover: none)").matches;
     const room = new RoomScene(canvas.current!, { reducedMotion });
     const cursor = new CursorLabel(label.current!, stageEl);
@@ -137,14 +153,46 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let moodChanged = () => {};
     /** It is being found asleep (a night arrival): the head is on its pillow already, not settling onto it. */
     let arriving = false;
-    const att = new Attention(room.urchi.character, { head: eyesClient, reach: () => room.urchiSize.w / 2, reducedMotion, onMood: () => moodChanged() });
+    // (afloat it looks from where it is, turned as it is: see Float.lookFrom)
+    let float: Float | null = null;
+    const att = new Attention(room.urchi.character, {
+      head: eyesClient,
+      reach: () => (room.urchiSize.w / 2) * room.shown,
+      reducedMotion,
+      onMood: () => moodChanged(),
+      origin: () => float?.lookFrom() ?? null,
+    });
     const motes = new Motes(room, att, { reducedMotion });
     const call = new Call(room, att, motes, { reducedMotion });
     /** The pointer is on Urchi (the cursor label follows at once)... */
     let overUrchi = false;
-    /** What a click on Urchi does, as the cursor says it: asleep, it wakes it. */
-    const urchiWord = () => (att.asleep ? "Wake" : null);
-    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call }); // handy for debugging and headless QA
+    /** Where a mouse (or pen) pointer last was over the panel, client px; null for a finger, or gone. */
+    let resting: Point | null = null;
+    /**
+     * What a click on Urchi does, as the cursor says it: asleep, it wakes it; at home, it takes it
+     * with you; afloat, you hold it. Nothing while it is on its way somewhere.
+     */
+    const urchiWord = () => (fl.busy ? null : att.asleep ? "Wake" : fl.afloat ? "Hold" : "Take with you");
+    /** The control's name, the same thing said for the keyboard: afloat, Enter sends it home. */
+    const controlName = () => (att.asleep ? "Wake Urchi" : fl.afloat ? "Send Urchi home" : "Take Urchi with you");
+    /** Its word, name and cursor follow what it is doing (and whether it is asleep). */
+    const labelUrchi = () => {
+      if (overUrchi) cursor.set(urchiWord());
+      controlEl.setAttribute("aria-label", controlName());
+      controlEl.setAttribute("aria-disabled", String(fl.busy || begun < 0));
+      controlEl.toggleAttribute("data-afloat", fl.afloat);
+      const hand = fl.holding ? "grabbing" : overUrchi && fl.afloat && !att.asleep ? "grab" : "";
+      if ((panelEl.dataset.cursor ?? "") !== hand) panelEl.dataset.cursor = hand;
+    };
+    const onFloat = (state: FloatState) => {
+      labelUrchi();
+      if (state === "floating" && live.current) live.current.textContent = SAID.out;
+      if (state === "returning" && live.current) live.current.textContent = SAID.home;
+      // the room changed under the pointer: whether it is on Urchi is asked again on its next move
+      if (state !== "floating" && state !== "arriving") setOverUrchi(false);
+    };
+    const fl = (float = new Float({ room, att, reducedMotion, onState: (s) => onFloat(s) }));
+    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __float: fl }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
     let stopArrive: (() => void) | null = null;
 
@@ -252,9 +300,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     // Falling asleep or waking under the pointer: the label follows, and the caption when its words change.
     moodChanged = () => {
       // Asleep for the night, the head settles onto its pillow as the lids close (already there
-      // when it is found asleep), and rises as it wakes.
+      // when it is found asleep), and rises as it wakes. Afloat, it dozes where it floats.
       room.settleUrchi(att.mood === "asleep", arriving);
-      if (overUrchi) cursor.set(urchiWord());
+      labelUrchi();
       // The phone's one caption follows too: a tap that wakes it at night must not leave it
       // saying "asleep" with its eyes open. Awake, the line is his, and it reads it.
       if (slot === "auto") {
@@ -288,6 +336,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       arriving = false;
       motes.start();
       begun = att.t;
+      labelUrchi();
       newsAt = att.t + (afterIntro ? NEWS.afterIntro : NEWS.after);
       // Back from another tab: it is still watching the pill of the tab you left.
       const left = leftRoute();
@@ -377,6 +426,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         if (arrived) return;
         arrived = true;
         window.clearTimeout(arriveTimer);
+        // Taken with you: not at home, but floating in from the left once its suit is here.
+        if (along) fl.restore();
         room.showUrchi(0.6);
         begin(false);
       };
@@ -415,43 +466,151 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       const away = hiddenAt < 0 ? 0 : now - hiddenAt;
       hiddenAt = -1;
       if (away < CAUGHT.away || now - caughtAt < CAUGHT.every) return;
-      // Never while it sleeps or dozes, in the intro, mid-rhythm or mid-slide.
-      if (begun < 0 || att.asleep || call.busy || getFlags().transitioning) return;
+      // Never while it sleeps or dozes, in the intro, mid-rhythm or mid-slide, nor away from home.
+      if (begun < 0 || att.asleep || call.busy || getFlags().transitioning || fl.state !== "home") return;
       // Played now, before the page's first frame back, so that frame already shows it.
       if (att.play("caught", 6, () => caught(att, pose(), { rise: (on, seconds) => room.riseUrchi(on, seconds) }))) caughtAt = now;
     };
     document.addEventListener("visibilitychange", onVisibility);
 
-    // ---- pointer: hover and click on Urchi; a tap on the empty room lets a mote go, and a rhythm of them gets an answer
-    let down = { x: 0, y: 0, t: 0 };
+    // ---- pointer: hover and click on Urchi (at home it takes it with you; afloat a press holds
+    // it, and letting go flings it); a tap on the empty room lets a mote go, and a rhythm of them
+    // gets an answer. The whole panel listens, the control over Urchi included, so what a press
+    // does is decided by where Urchi is drawn, not by the control's box.
+    let down = { x: 0, y: 0, t: 0, id: -1, held: false, woke: false };
+    /** Reduced motion: the last click or tap on Urchi afloat, for a second one (see TWICE). */
+    let lastTap = { t: -Infinity, x: 0, y: 0 };
+    // Afloat, Urchi drifts under a pointer that is not moving (and out from under it): every few
+    // frames the place the pointer rests is asked again, so its word comes and goes with it.
+    let frames = 0;
+    const stopDrifting = room.onFrame(() => {
+      if (!resting || down.held || !fl.afloat || ++frames % 4) return;
+      const on = room.urchiHit(resting.x, resting.y);
+      if (on === overUrchi) return;
+      setOverUrchi(on);
+      labelUrchi();
+    });
     // Quick taps must stay taps: no double-tap zoom on a phone (a pinch still zooms).
     stageEl.style.touchAction = "manipulation";
-    const onMove = (e: PointerEvent) => setOverUrchi(room.urchiHit(e.clientX, e.clientY));
-    const onLeave = () => setOverUrchi(false);
+    const onMove = (e: PointerEvent) => {
+      if (down.held && e.pointerId === down.id) {
+        fl.drag(e.clientX, e.clientY, eventTime(e));
+        return;
+      }
+      resting = e.pointerType === "touch" ? null : { x: e.clientX, y: e.clientY };
+      setOverUrchi(room.urchiHit(e.clientX, e.clientY));
+      labelUrchi();
+    };
+    const onLeave = () => {
+      resting = null;
+      if (down.held) return;
+      setOverUrchi(false);
+      labelUrchi();
+    };
     const onDown = (e: PointerEvent) => {
-      down = { x: e.clientX, y: e.clientY, t: eventTime(e) };
+      if (e.button > 0) return;
+      down = { x: e.clientX, y: e.clientY, t: eventTime(e), id: e.pointerId, held: false, woke: false };
+      // Afloat, a press on it holds it (asleep, the press only wakes it, as a click at home does).
+      if (fl.afloat && room.urchiHit(e.clientX, e.clientY)) {
+        call.abort();
+        if (att.wake()) {
+          down.woke = true;
+          return;
+        }
+        if (fl.grab(e.clientX, e.clientY, down.t)) {
+          down.held = true;
+          try {
+            (e.target as Element).setPointerCapture(e.pointerId); // held off the panel's edge, it is still held
+          } catch {
+            /* a pointer already gone */
+          }
+          labelUrchi();
+        }
+        return;
+      }
       call.press(down.t);
     };
     const onUp = (e: PointerEvent) => {
-      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK.slop || eventTime(e) - down.t > CLICK.ms) {
+      if (e.pointerId !== down.id) return;
+      const t = eventTime(e), click = Math.hypot(e.clientX - down.x, e.clientY - down.y) <= CLICK.slop && t - down.t <= CLICK.ms;
+      if (down.held) {
+        down.held = false;
+        fl.release(t);
+        labelUrchi();
+        // Reduced motion has no fling to throw it home with: two clicks or taps on it send it.
+        if (reducedMotion && click) {
+          if (t - lastTap.t < TWICE.ms && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < TWICE.px) {
+            lastTap = { t: -Infinity, x: 0, y: 0 };
+            fl.sendHome();
+          } else lastTap = { t, x: e.clientX, y: e.clientY };
+        }
+        return;
+      }
+      if (down.woke) return;
+      if (!click) {
         call.abort();
         return;
       }
       if (room.urchiHit(e.clientX, e.clientY)) {
         call.abort();
-        // Asleep, a click wakes it.
-        att.wake();
+        // Asleep, the first click wakes it; awake at home, it is taken with you.
+        if (att.wake()) return;
+        if (fl.state === "home" && begun >= 0) fl.take();
       } else if (room.interactive) {
         if (begun >= 0) call.tap(e.clientX, e.clientY, down.t);
         else motes.release(e.clientX, e.clientY);
       }
     };
-    const onResize = () => room.resize();
+    /** The system took the pointer (a gesture of its own): a hold simply ends, and any rhythm with it. */
+    const onCancel = (e: PointerEvent) => {
+      if (e.pointerId !== down.id) return;
+      if (down.held) fl.release(eventTime(e), false);
+      down.held = false;
+      call.abort();
+      labelUrchi();
+    };
 
-    stageEl.addEventListener("pointermove", onMove);
-    stageEl.addEventListener("pointerleave", onLeave);
-    stageEl.addEventListener("pointerdown", onDown);
-    stageEl.addEventListener("pointerup", onUp);
+    // ---- the control over Urchi: the keyboard's way to do what a click does (Enter or Space);
+    // afloat, the arrow keys nudge it. A pointer's own click on it was handled above.
+    const onControl = (e: MouseEvent) => {
+      if (e.detail !== 0 || fl.busy || begun < 0 || !room.interactive) return;
+      call.abort();
+      if (att.wake()) return;
+      if (fl.afloat) fl.sendHome();
+      else fl.take();
+    };
+    const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    const onControlKey = (e: KeyboardEvent) => {
+      const d = ARROWS[e.key];
+      if (!d || !fl.afloat) return;
+      e.preventDefault();
+      fl.nudge(d[0], d[1]);
+    };
+    /** Where the control was last put (panel px, turn), so it is only moved when Urchi has. */
+    let placed = "";
+    // It covers Urchi as it is drawn: the head's box at home, or afloat the figure's, turned with it.
+    const stopControl = room.afterUrchi(() => {
+      const b = fl.box() ?? { ...room.homeBox, angle: 0 };
+      const left = room.width / 2 + b.x - b.w / 2, top = room.height / 2 - b.y - b.h / 2;
+      const key = `${left.toFixed(1)} ${top.toFixed(1)} ${b.w.toFixed(1)} ${b.h.toFixed(1)} ${b.angle.toFixed(3)}`;
+      if (key === placed) return;
+      placed = key;
+      controlEl.style.width = `${b.w}px`;
+      controlEl.style.height = `${b.h}px`;
+      controlEl.style.transform = `translate(${left}px, ${top}px) rotate(${-b.angle}rad)`;
+    });
+    const onResize = () => {
+      room.resize();
+      fl.resize();
+    };
+
+    panelEl.addEventListener("pointermove", onMove);
+    panelEl.addEventListener("pointerleave", onLeave);
+    panelEl.addEventListener("pointerdown", onDown);
+    panelEl.addEventListener("pointerup", onUp);
+    panelEl.addEventListener("pointercancel", onCancel);
+    controlEl.addEventListener("click", onControl);
+    controlEl.addEventListener("keydown", onControlKey);
     window.addEventListener("resize", onResize);
 
     return () => {
@@ -461,15 +620,21 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       restTimer?.kill();
       stopPoll();
       stopLife();
-      stageEl.removeEventListener("pointermove", onMove);
-      stageEl.removeEventListener("pointerleave", onLeave);
-      stageEl.removeEventListener("pointerdown", onDown);
-      stageEl.removeEventListener("pointerup", onUp);
+      stopDrifting();
+      stopControl();
+      panelEl.removeEventListener("pointermove", onMove);
+      panelEl.removeEventListener("pointerleave", onLeave);
+      panelEl.removeEventListener("pointerdown", onDown);
+      panelEl.removeEventListener("pointerup", onUp);
+      panelEl.removeEventListener("pointercancel", onCancel);
+      controlEl.removeEventListener("click", onControl);
+      controlEl.removeEventListener("keydown", onControlKey);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
       cursor.destroy();
       call.dispose();
       motes.dispose();
+      fl.dispose();
       att.dispose();
       room.dispose();
     };
@@ -477,7 +642,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   }, []);
 
   return (
-    <div className="space-panel">
+    <div ref={panel} className="space-panel">
       <section ref={stage} className="stage stage-space" aria-hidden="true">
         <canvas ref={canvas} />
 
@@ -509,7 +674,10 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         <div ref={label} className="cursor-label" />
       </section>
 
-      {/* Beside the stage rather than inside it, so it is not aria-hidden: what's new is read out here. */}
+      {/* Urchi's own control, over it wherever it is: beside the stage, so the keyboard and a screen reader reach it. */}
+      <button ref={control} type="button" className="space-urchi" aria-label="Take Urchi with you" aria-disabled="true" />
+
+      {/* Beside the stage rather than inside it, so it is not aria-hidden: what's new, and Urchi going out and coming home, are read out here. */}
       <p ref={live} className="sr-only" aria-live="polite" />
     </div>
   );

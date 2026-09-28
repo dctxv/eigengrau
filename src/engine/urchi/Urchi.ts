@@ -6,14 +6,30 @@ const vert = /* glsl */ `
 varying vec2 vUv;
 void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 
+/**
+ * The ordered dither Urchi comes and goes through (Space, taken with you and home again): an 8x8
+ * Bayer matrix laid over the screen's own pixels in cells `uCell` device pixels square, the site's
+ * pixel heritage. A cell whose place in the matrix is under `uDither` is dropped, so at 0 all of
+ * Urchi shows and at 1 none of it, and in between it breaks up in the matrix's even order. The
+ * matrix is built from its 2x2 (each finer bit of the cell's place adds its quarter), so it needs
+ * no table.
+ */
+const dither = /* glsl */ `
+uniform float uDither;
+uniform float uCell;
+float bayer2(vec2 a) { a = floor(mod(a, 2.0)); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
+float bayer8(vec2 a) { return bayer2(0.25 * a) * 0.0625 + bayer2(0.5 * a) * 0.25 + bayer2(a); }
+bool dithered() { return uDither > 0.0 && bayer8(gl_FragCoord.xy / uCell) < uDither; }`;
+
 /** Pixel paint: every pixel of the canvas is either head or background, so a hard cut keeps its edge. */
 const fragPixel = /* glsl */ `
 uniform sampler2D uMap;
 uniform float uFade;
 varying vec2 vUv;
+${dither}
 void main() {
   vec4 c = texture2D(uMap, vUv);
-  if (c.a < 0.5) discard;
+  if (c.a < 0.5 || dithered()) discard;
   gl_FragColor = vec4(c.rgb, uFade);
 }`;
 
@@ -22,9 +38,10 @@ const fragSmooth = /* glsl */ `
 uniform sampler2D uMap;
 uniform float uFade;
 varying vec2 vUv;
+${dither}
 void main() {
   vec4 c = texture2D(uMap, vUv);
-  if (c.a < 0.004) discard;
+  if (c.a < 0.004 || dithered()) discard;
   gl_FragColor = c * uFade;
 }`;
 
@@ -77,7 +94,8 @@ export type UrchiHostOptions = {
 export class Urchi {
   readonly character: UrchiCharacter;
   readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
-  readonly uniforms: { uMap: { value: THREE.Texture }; uFade: { value: number } };
+  /** The canvas; the fade (the dim); how far through the dither it has gone (0 all there, 1 gone), and the dither's cell in device px. */
+  readonly uniforms: { uMap: { value: THREE.Texture }; uFade: { value: number }; uDither: { value: number }; uCell: { value: number } };
   /** The mascot's box width in host units. */
   width = 1;
   /** 0 hidden .. 1 full size. */
@@ -101,7 +119,7 @@ export class Urchi {
     this.rim = this.smooth && o.rim ? o.rim : null;
     this.character = createUrchi({ reducedMotion: o.reducedMotion, cell: o.cell, smooth: this.smooth });
     this.texture = this.makeTexture();
-    this.uniforms = { uMap: { value: this.texture }, uFade: { value: 1 } };
+    this.uniforms = { uMap: { value: this.texture }, uFade: { value: 1 }, uDither: { value: 0 }, uCell: { value: 3 } };
     const material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
       vertexShader: vert,
@@ -231,6 +249,19 @@ export class Urchi {
     gsap.to(u, { value, duration, ease: "power2.out", delay, overwrite: true });
   }
 
+  /**
+   * Through the dither to `to` (0 all of it, 1 none) over `seconds` (0 at once), at an even pace,
+   * so the matrix's cells go (or come) as many at a time all the way; then `done`.
+   */
+  dither(to: number, seconds: number, done?: () => void) {
+    const u = this.uniforms.uDither;
+    gsap.killTweensOf(u);
+    if (seconds <= 0) {
+      u.value = to;
+      done?.();
+    } else gsap.to(u, { value: to, duration: seconds, ease: "none", onComplete: done });
+  }
+
   closeEyes() {
     this.character.closeEyes();
   }
@@ -242,6 +273,7 @@ export class Urchi {
   dispose() {
     gsap.killTweensOf(this);
     gsap.killTweensOf(this.uniforms.uFade);
+    gsap.killTweensOf(this.uniforms.uDither);
     this.character.dispose();
     this.texture.dispose();
     this.mesh.geometry.dispose();

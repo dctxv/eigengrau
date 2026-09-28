@@ -404,6 +404,39 @@ button {
   margin: 8px 0 0;
 }
 
+/*
+ * Urchi's own control (taken with you): a real button over it, beside the stage, so the keyboard
+ * and a screen reader reach it ("Take Urchi with you", afloat "Send Urchi home"). The panel keeps
+ * it over Urchi wherever it is, turned as it turns; it shows nothing but the site's ring when
+ * focused from the keyboard, and what a press on it does is the panel's to decide.
+ */
+.space-urchi {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 5;
+  border-radius: var(--r);
+  cursor: default;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Afloat, a finger that lands on Urchi holds it: no pan of the page to take the gesture away. */
+.space-urchi[data-afloat] {
+  touch-action: none;
+}
+/* On its way somewhere (dissolving, gone, flying off, coming back) there is nothing to press: no ring round nothing. */
+.space-urchi[aria-disabled="true"]:focus-visible {
+  outline: none;
+}
+.space-panel[data-cursor="grab"] .stage,
+.space-panel[data-cursor="grab"] .space-urchi {
+  cursor: grab;
+}
+.space-panel[data-cursor="grabbing"] .stage,
+.space-panel[data-cursor="grabbing"] .space-urchi {
+  cursor: grabbing;
+}
+
 /* ------------------------------------------------------------------ */
 /* Case pages: plain DOM in the same language.                         */
 /* ------------------------------------------------------------------ */

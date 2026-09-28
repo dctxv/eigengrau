@@ -1,7 +1,7 @@
 /**
  * Sound (spec 11). Two sampled files in public/audio: a click for opening a
  * project and an ambient bed that loops with a crossfade at the seam. The
- * other cues are synthesised (Urchi's pats, the Projects
+ * other cues are synthesised (Urchi's pats and its line's tug and snap, the Projects
  * horizon's pluck and the supernova's bloom among them), and ticks can come
  * as a train placed on the audio clock (Notes' riffle, and the Projects ball's
  * whirr as it charges). The bed has its own air, a lowpass that can put it
@@ -12,7 +12,7 @@
  * walls. Off by default, remembered in localStorage; nothing is fetched until
  * sound is turned on.
  */
-type Name = "click" | "tab" | "slide" | "focus" | "close" | "tick" | "done" | "pat" | "patOwn";
+type Name = "click" | "tab" | "slide" | "focus" | "close" | "tick" | "done" | "pat" | "patOwn" | "tug" | "snap";
 type Synth = Exclude<Name, "click">;
 
 import gsap from "gsap";
@@ -76,6 +76,42 @@ function patWave(t: number, hz: number): number {
 }
 
 /**
+ * Urchi's line on Space (taken with you). The tug, when it pulls straight hard: a low D (D2,
+ * 73.42 Hz) with its octave, plucked and gone in a third of a second, starting 5% sharp and
+ * settling as the line gives. The snap, when it breaks: a soft crack (noise, gone in about 30ms,
+ * softened further by the lowpass every cue goes through) over a thump that falls from G2 to F2
+ * (98 to 87.31 Hz) in its first 60ms. Both are in the bed's F G A C D and sit under the pats;
+ * each rounds in over a few ms and tapers to nothing, so neither clicks. How hard a tug was sets
+ * its gain, `tugGain` from the softest to the hardest.
+ */
+const LINE = {
+  tug: { hz: 73.42, dur: 0.3, attack: 0.006, taper: 0.05, level: 0.18 },
+  snap: { from: 98, to: 87.31, fall: 0.06, dur: 0.2, attack: 0.003, taper: 0.04, level: 0.2 },
+  tugGain: [0.45, 1] as const,
+};
+/** An envelope that rounds in over `attack` and tapers to nothing over the last `taper` of `dur` (raised cosines, so no click). */
+function rounded(t: number, attack: number, dur: number, taper: number) {
+  const rise = t < attack ? 0.5 - 0.5 * Math.cos((Math.PI * t) / attack) : 1;
+  const tail = Math.min(1, (dur - t) / taper);
+  return rise * (tail <= 0 ? 0 : 0.5 - 0.5 * Math.cos(Math.PI * tail));
+}
+function tugWave(t: number): number {
+  const T = LINE.tug;
+  const phase = 2 * Math.PI * T.hz * (t + 0.05 * 0.03 * (1 - Math.exp(-t / 0.03)));
+  const body = Math.sin(phase) * Math.exp(-t / 0.08) + 0.45 * Math.sin(2 * phase) * Math.exp(-t / 0.05) + 0.12 * Math.sin(3 * phase) * Math.exp(-t / 0.03);
+  return body * rounded(t, T.attack, T.dur, T.taper) * T.level;
+}
+function snapWave(t: number): number {
+  const S = LINE.snap;
+  // the thump's pitch falls exponentially over `fall`, then holds: its phase is that pitch's integral
+  const k = Math.log(S.to / S.from) / S.fall, bent = (2 * Math.PI * S.from * (Math.exp(k * Math.min(t, S.fall)) - 1)) / k;
+  const phase = bent + 2 * Math.PI * S.to * Math.max(0, t - S.fall);
+  const thump = Math.sin(phase) * Math.exp(-t / 0.06);
+  const crack = (Math.random() * 2 - 1) * Math.exp(-t / 0.01);
+  return (0.8 * thump + crack) * rounded(t, S.attack, S.dur, S.taper) * S.level;
+}
+
+/**
  * The counter's chime is D then A (587.33 and 880 Hz), both in the ambient
  * bed's F G A C D; the E it used to open on rubbed against the bed's F.
  */
@@ -90,6 +126,8 @@ function synth(c: AudioContext, name: Synth): AudioBuffer {
     done: { dur: 0.3, gen: (t) => (Math.sin(t * 2 * Math.PI * 587.33) * Math.exp(-t * 14) + Math.sin(Math.max(0, t - 0.09) * 2 * Math.PI * 880) * Math.exp(-Math.max(0, t - 0.09) * 12) * (t > 0.09 ? 1 : 0)) * 0.22 },
     pat: { dur: PAT.dur, gen: (t) => patWave(t, PAT.a2) },
     patOwn: { dur: PAT.dur, gen: (t) => patWave(t, PAT.d3) },
+    tug: { dur: LINE.tug.dur, gen: tugWave },
+    snap: { dur: LINE.snap.dur, gen: snapWave },
   };
   const { dur, gen } = specs[name];
   const n = Math.ceil(sr * dur);
@@ -1179,7 +1217,7 @@ function ensure(): AudioContext | null {
     air.Q.value = AIR_Q;
     air.frequency.value = airAt(ctx, airHz);
     bed.connect(air).connect(master);
-    (["tab", "slide", "focus", "close", "tick", "done", "pat", "patOwn"] as Synth[]).forEach((n) => buffers.set(n, synth(ctx!, n)));
+    (["tab", "slide", "focus", "close", "tick", "done", "pat", "patOwn", "tug", "snap"] as Synth[]).forEach((n) => buffers.set(n, synth(ctx!, n)));
   }
   if (ctx.state === "suspended") void ctx.resume();
   decodeClick(ctx);
@@ -1298,6 +1336,18 @@ export const sfx = {
    */
   pat(at: number, own = false): () => void {
     return pat(at, own);
+  },
+  /**
+   * Urchi's line pulled straight hard (see LINE), `strength` 0 .. 1 of the way to snapping: the
+   * soft tug, louder the harder. Nothing plays, and no context is made, while sound is off.
+   */
+  tug(strength: number) {
+    const [soft, hard] = LINE.tugGain;
+    sfx.play("tug", soft + (hard - soft) * Math.min(1, Math.max(0, strength)));
+  },
+  /** Urchi's line snapping (see LINE): one short, soft snap. Nothing plays while sound is off. */
+  snap() {
+    sfx.play("snap");
   },
   /**
    * The supernova's bloom (see BLOOM), `delay` seconds from now on the audio

@@ -517,6 +517,77 @@ export function* lost(a: Attention): Act {
   }
 }
 
+// ------------------------------------------------------------------ taken with you
+
+/**
+ * Taken with you: its eyes close over `close` seconds, the head level and facing out, and stay shut
+ * until the room has dissolved it (and cancels this). They open again unseen, for it to float in awake.
+ */
+export function* shutEyes(a: Attention, close: number): Act {
+  try {
+    a.steady(true);
+    a.look(face(a));
+    // from as shut as they are now (a blink half way, a resting lid), so they never open on the way
+    const now = a.ch.shut;
+    a.ch.setLids(now, now, 0);
+    a.ch.setLids(1, 1, close * (1 - now));
+    for (;;) yield 1;
+  } finally {
+    a.steady(false);
+    a.look(null);
+    if (a.mood === "awake") a.ch.setLids(0, 0, 0);
+  }
+}
+
+/** Held (grabbed, afloat): its eyes on you, a little wider, for as long as you hold it. */
+export function* held(a: Attention): Act {
+  try {
+    a.look("you", "quick");
+    a.ch.widen(0.06, 0.8);
+    for (;;) yield 1;
+  } finally {
+    a.look(null);
+  }
+}
+
+/**
+ * Its line pulled straight hard (`strength` 0 .. 1, how hard): the breath catches, the eyes widen
+ * and the head gives a small jolt up, as a lead pulled short. Reduced motion: the eyes alone.
+ */
+export function* jolt(a: Attention, strength: number): Act {
+  try {
+    a.look("hold");
+    a.ch.pauseBreath(0.35);
+    a.ch.widen(0.05 + 0.07 * strength, 0.7);
+    a.ch.kick(0, -40 * strength, 0);
+    yield 0.6;
+  } finally {
+    a.look(null);
+  }
+}
+
+/**
+ * Home again after its line snapped: back in its room with its eyes shut while it comes back and
+ * `shut` seconds in all, then opening slowly over `open` seconds, and a look at you.
+ */
+export function* homecoming(a: Attention, shut: number, open: number): Act {
+  try {
+    a.steady(true);
+    a.look(face(a), "snap");
+    a.ch.setLids(1, 1, 0);
+    yield shut;
+    a.ch.setLids(0, 0, open);
+    yield open;
+    a.steady(false);
+    a.look("you");
+    yield 0.4;
+  } finally {
+    a.steady(false);
+    a.ch.setLids(a.mood === "awake" ? 0 : 1, a.mood === "awake" ? 0 : 1, 0.3);
+    a.look(null);
+  }
+}
+
 // ------------------------------------------------------------------ caught in the act (panel 2, N3)
 
 /**

@@ -54,6 +54,14 @@ export type AttentionOptions = {
   reducedMotion: boolean;
   /** Its mood changed (asleep, dozing, awake): the host's caption and label follow. */
   onMood?: (mood: Mood) => void;
+  /**
+   * Where it looks from, when that is not the middle of the screen: its eyes in client px and how
+   * far the whole figure has turned (radians, anticlockwise on screen), or null for the middle. A
+   * head at home in the middle looks at the screen as the screen is; Urchi taken with you, off to
+   * one side and turning as it floats, looks from where it is and in its own frame, so it looks up
+   * at what is above it even upside down.
+   */
+  origin?: () => { x: number; y: number; angle: number } | null;
 };
 
 /** What a target pulls with at no novelty at all. */
@@ -141,7 +149,8 @@ export class Attention {
   /** How an act's last look should turn (a snap, a quick turn): sent with the next aim, once. */
   private actHow: LookHow | undefined;
   private held: Point | null = null;
-  private last = { nx: 0, ny: 0, has: false };
+  /** The last aim: its look (the character's -1..1 each way) and the point it was at, in client px. */
+  private last = { nx: 0, ny: 0, x: 0, y: 0, has: false };
   private blinkAt = -1;
   /** No blink of its own (not even a wide turn's) until then: an act is blinking on purpose. */
   private blinksHeld = -1;
@@ -299,7 +308,14 @@ export class Attention {
 
   /** Where it is looking now, in client px, or null before it has looked anywhere. */
   get gazeNow(): Point | null {
-    return this.last.has ? { x: ((this.last.nx + 1) / 2) * innerWidth, y: ((this.last.ny + 1) / 2) * innerHeight } : null;
+    return this.last.has ? { x: this.last.x, y: this.last.y } : null;
+  }
+
+  /** What it is watching of its own accord now (awake, no act, not bored): what kind of thing, and where; or null. */
+  get focus(): { kind: TargetKind; at: Point } | null {
+    if (this.act || !this.current || this.boredFor >= BORED.after || this.mood !== "awake") return null;
+    const at = this.current.at();
+    return at && { kind: this.current.kind, at };
   }
 
   /** The pointer, as a place: you. */
@@ -725,10 +741,25 @@ export class Attention {
     return i.corner;
   }
 
-  /** Sends the gaze to the character; a wide turn gets a blink in the middle of it. */
+  /**
+   * Sends the gaze to the character; a wide turn gets a blink in the middle of it. From the middle
+   * of the screen, the look is where the point is on it; from an origin (see AttentionOptions), it
+   * is where the point is from the eyes, as far again as the middle is from the screen's edge for a
+   * full turn, taken into the figure's own frame.
+   */
   private aim(p: Point | null, fixate: boolean, how?: LookHow) {
-    const nx = p ? clamp((p.x / innerWidth) * 2 - 1, -1, 1) : 0;
-    const ny = p ? clamp((p.y / innerHeight) * 2 - 1, -1, 1) : 0;
+    const o = this.o.origin?.() ?? null;
+    const W = innerWidth, H = innerHeight;
+    let nx = 0, ny = 0;
+    const at = p ? { x: clamp(p.x, 0, W), y: clamp(p.y, 0, H) } : o ? { x: o.x, y: o.y } : { x: W / 2, y: H / 2 };
+    if (o) {
+      const dx = at.x - o.x, dy = at.y - o.y, c = Math.cos(o.angle), s = Math.sin(o.angle);
+      nx = clamp((dx * c - dy * s) / (W / 2), -1, 1);
+      ny = clamp((dx * s + dy * c) / (H / 2), -1, 1);
+    } else if (p) {
+      nx = clamp((p.x / W) * 2 - 1, -1, 1);
+      ny = clamp((p.y / H) * 2 - 1, -1, 1);
+    }
     if (this.last.has && how !== "snap") {
       const turn = Math.hypot((nx - this.last.nx) * TURN.yaw, (ny - this.last.ny) * TURN.pitch);
       if (turn > TURN.blink && this.t - this.lastBlinkCue > TURN.gap && this.mood === "awake" && this.t >= this.blinksHeld) {
@@ -736,7 +767,7 @@ export class Attention {
         this.blinkAt = this.t + TURN.after;
       }
     }
-    this.last = { nx, ny, has: true };
+    this.last = { nx, ny, x: at.x, y: at.y, has: true };
     this.ch.lookAt(nx, ny, how);
     this.ch.fixate(fixate);
   }

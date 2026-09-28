@@ -69,6 +69,28 @@ const LEAN = { closer: 0.04, in: 0.45, out: 0.7 };
  * one is held.
  */
 const RISE = { share: 0.03, long: 0.05, narrow: 0.02 };
+/**
+ * The suited figure (the spacesuit), in mesh units from the head's centre (y down), rim included,
+ * as the painter draws it facing you: the helmet's crown, the soles, and half its width, the
+ * helmet's side discs (measured on the painted figure).
+ */
+export const URCHI_FIGURE = { top: -362, bottom: 1491, half: 566 } as const;
+/** The figure's middle, mesh units below the head's centre: where it turns, and what the float moves. */
+export const FIGURE_MIDDLE = (URCHI_FIGURE.top + URCHI_FIGURE.bottom) / 2;
+/**
+ * Taken with you, it floats at `share` of the size the whole suited figure stood at in the room
+ * when it suited up there (wave 4's framing, kept here only to size it): the figure `tall` of the
+ * height, and with a turn's reach (`turnRise` above the crown, `turnDrop` below the soles) inside
+ * the room between the tab bar's `top` px and the caption's band (`caption`, 64px, or `phoneCaption`
+ * on a phone) less `feet`; its eyes no more than `rise` of the height above the bare head's, never
+ * smaller than the bare head, never bigger than it was drawn, and `wall` px clear of each side. At
+ * 1440 x 900 the figure stood 466px tall, so it floats at about 186.
+ */
+const FLOAT = { share: 0.4, tall: 0.56, turnRise: 90, turnDrop: 26, top: 60, feet: 40, caption: 64, phoneCaption: 80, rise: 0.05, wall: 72 };
+/** Taken with you: where the figure's middle is (room px, y up) and how far it has turned (radians, anticlockwise). */
+export type FloatPose = { x: number; y: number; angle: number };
+/** The dither's cell, CSS px: rounded to whole device pixels, 3 on a 1x screen and about 2.5 on a 2x or 3x one. */
+const DITHER_CELL = 2.5;
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -120,6 +142,10 @@ export class RoomScene {
   private lean = { v: 0 };
   /** Risen in a stretch, 0 .. 1. Tweened. */
   private risen = { v: 0 };
+  /** Taken with you: its size against the head's rest (see FLOAT). */
+  floatZoom = 1;
+  /** Taken with you: where the float has the figure this frame (Float.ts sets it every frame); null at home. */
+  float: FloatPose | null = null;
   private opts: RoomOptions;
   private hooks = new Set<(dt: number) => void>();
   private afterHooks = new Set<(dt: number) => void>();
@@ -168,6 +194,23 @@ export class RoomScene {
     this.sink = clamp(h - PLACE.caption - PLACE.chin - PLACE.outline - chin, 0, SETTLE.sink * h);
     this.urchi.width = this.pixel * BOX_ART;
     this.urchi.pixelRatio = this.ratio;
+    this.urchi.uniforms.uCell.value = Math.max(1, Math.round(DITHER_CELL * this.ratio));
+    this.fitFloat(w, h);
+  }
+
+  /** The float's size for this viewport: FLOAT.share of the suited figure as it stood in the room (see FLOAT). */
+  private fitFloat(w: number, h: number) {
+    const unit = this.pixel / ART_CELL; // css px per mesh unit at rest
+    const tall = URCHI_FIGURE.bottom - URCHI_FIGURE.top, turned = tall + FLOAT.turnRise + FLOAT.turnDrop;
+    const caption = w > SIZE.narrow ? FLOAT.caption : FLOAT.phoneCaption;
+    const room = Math.max(1, h - caption - FLOAT.feet - FLOAT.top);
+    let figure = Math.min(FLOAT.tall * h, (room * tall) / turned);
+    // its eyes no more than FLOAT.rise of the height above the bare head's (soles on their line), unless that drew it smaller than the head
+    const eyesWere = this.home - EYES_Y * unit;
+    const most = (FLOAT.rise * h + eyesWere + h / 2 - caption - FLOAT.feet) / (URCHI_FIGURE.bottom + FLOAT.turnDrop - EYES_Y);
+    figure = Math.min(figure, Math.max(most * tall, HEAD_ART * this.pixel));
+    const stood = Math.min(1, figure / (tall * unit), Math.max(0.1, w / 2 - FLOAT.wall) / (URCHI_FIGURE.half * unit));
+    this.floatZoom = FLOAT.share * stood;
   }
 
   /** Runs `fn(dt)` every frame, before Urchi and the render; returns the way to stop it. */
@@ -204,19 +247,61 @@ export class RoomScene {
     return pixelAt(1, this.ratio) * HEAD_ART;
   }
 
+  /** CSS px per mesh unit as the float draws the figure (leaning in aside). */
+  get floatUnit() {
+    return (this.pixel / ART_CELL) * this.floatZoom;
+  }
+
+  /** The size Urchi is shown at against the head's rest: 1 at home, smaller afloat. What distances measured by urchiSize scale by. */
+  get shown() {
+    return this.float ? this.floatZoom : 1;
+  }
+
+  /** The head at home, awake and facing out: its centre in room px and its box (the head's width and height), what its control covers. */
+  get homeBox() {
+    return { x: 0, y: this.home, w: this.urchiSize.w, h: this.urchiSize.h };
+  }
+
   /**
    * Where the eyes are now, in room px: the midpoint between them and how far from it they reach,
-   * wherever the head sits and at whatever size (the night's settle, leaning in). The intro closes
-   * its ring around this before the head is drawn, and attention looks out from it.
+   * wherever the head sits and at whatever size (the night's settle, leaning in), or afloat, wherever
+   * the float has the figure and however it has turned. The intro closes its ring around this before
+   * the head is drawn, and attention looks out from it.
    */
   eyes() {
-    const { y, zoom } = this.pose();
-    const unit = (this.pixel * this.urchi.appear * zoom) / ART_CELL;
     const c = URCHI_EYES.centres;
     const mx = c.reduce((s, p) => s + p[0], 0) / (c.length || 1);
     const my = c.reduce((s, p) => s + p[1], 0) / (c.length || 1);
     const reach = Math.max(0, ...c.map(([x, y]) => Math.hypot(x - mx, y - my))) + URCHI_EYES.reach;
+    if (this.float) {
+      const unit = this.floatUnit * (1 + LEAN.closer * this.lean.v);
+      return { ...this.floatPoint(this.float, mx, my, unit), reach: reach * unit };
+    }
+    const { y, zoom } = this.pose();
+    const unit = (this.pixel * this.urchi.appear * zoom) / ART_CELL;
     return { x: mx * unit, y: y - my * unit, reach: reach * unit };
+  }
+
+  /** A point of the figure (mesh units from the head's centre, y down) where a float pose puts it, `unit` css px per mesh unit: room px. */
+  private floatPoint(p: FloatPose, mx: number, my: number, unit: number) {
+    const c = Math.cos(p.angle), s = Math.sin(p.angle), x = mx * unit, y = (FIGURE_MIDDLE - my) * unit;
+    return { x: p.x + x * c - y * s, y: p.y + x * s + y * c };
+  }
+
+  /** A point of the figure (mesh units from the head's centre, y down, as painted facing you) where it is drawn this frame, in room px. */
+  onFigure(mx: number, my: number) {
+    const m = this.urchi.mesh, u = m.scale.x / this.urchi.character.frame.w, c = Math.cos(m.rotation.z), s = Math.sin(m.rotation.z);
+    const x = mx * u, y = -my * u;
+    return { x: m.position.x + x * c - y * s, y: m.position.y + x * s + y * c };
+  }
+
+  /** Whether a room point (px, y up) falls within the floating figure's box, `margin` px round it; never at home. */
+  nearUrchi(x: number, y: number, margin: number) {
+    const p = this.float;
+    if (!p) return false;
+    const u = this.floatUnit, c = Math.cos(p.angle), s = Math.sin(p.angle), dx = x - p.x, dy = y - p.y;
+    const bx = dx * c + dy * s, by = -dx * s + dy * c;
+    return Math.abs(bx) < URCHI_FIGURE.half * u + margin && Math.abs(by) < ((URCHI_FIGURE.bottom - URCHI_FIGURE.top) / 2) * u + margin;
   }
 
   /** The intro's start: Urchi full size but unseen, eyes shut, only its eyes to be painted, looking ahead. */
@@ -258,10 +343,11 @@ export class RoomScene {
     else gsap.to(this.risen, { v: on ? 1 : 0, duration: seconds, ease: "sine.inOut" });
   }
 
-  /** Whether a client point is on Urchi: its drawn pixels, rim included. */
+  /** Whether a client point is on Urchi: its drawn pixels, rim included (not while it is dithered away). */
   urchiHit(clientX: number, clientY: number): boolean {
     if (!this.interactive) return false;
-    if (this.urchi.appear < 0.5 || this.urchi.uniforms.uFade.value < 0.5) return false;
+    const u = this.urchi.uniforms;
+    if (this.urchi.appear < 0.5 || u.uFade.value < 0.5 || u.uDither.value >= 0.5) return false;
     const p = this.toRoom(clientX, clientY);
     return this.urchi.hit(p.x, p.y);
   }
@@ -295,15 +381,28 @@ export class RoomScene {
   private frame(dt: number) {
     if (this.disposed) return;
     this.hooks.forEach((fn) => fn(dt));
-    const { y, zoom } = this.pose();
-    this.urchi.zoom = zoom;
-    this.urchi.update(dt);
-    const v = this.risen.v;
-    if (v > 0) {
-      this.urchi.mesh.scale.y *= 1 + RISE.long * v;
-      this.urchi.mesh.scale.x *= 1 - RISE.narrow * v;
+    const m = this.urchi.mesh;
+    if (this.float) {
+      // afloat: its middle where the float has it and the whole figure turned about it (the plane
+      // turns; nothing is painted again for that), leaning in as at home, never snapped to pixels
+      const p = this.float;
+      this.urchi.zoom = this.floatZoom * (1 + LEAN.closer * this.lean.v);
+      this.urchi.update(dt);
+      const c = FIGURE_MIDDLE * (m.scale.x / this.urchi.character.frame.w);
+      m.position.set(p.x - Math.sin(p.angle) * c, p.y + Math.cos(p.angle) * c, 0);
+      m.rotation.z = p.angle;
+    } else {
+      const { y, zoom } = this.pose();
+      this.urchi.zoom = zoom;
+      this.urchi.update(dt);
+      const v = this.risen.v;
+      if (v > 0) {
+        m.scale.y *= 1 + RISE.long * v;
+        m.scale.x *= 1 - RISE.narrow * v;
+      }
+      this.placeUrchi(y);
+      m.rotation.z = 0;
     }
-    this.placeUrchi(y);
     this.afterHooks.forEach((fn) => fn(dt));
     this.renderer.render(this.scene, this.camera);
   }
