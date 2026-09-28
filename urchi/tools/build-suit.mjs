@@ -135,7 +135,7 @@ function headProjector({ yaw, pitch, roll }) {
 }
 
 // ------------------------------------------------------------------ parts
-const MATERIALS = ['fabric', 'grey', 'dark', 'glass', 'accent', 'pack'];
+const MATERIALS = ['fabric', 'grey', 'dark', 'glass', 'accent', 'pack', 'rim'];
 const parts = [];
 /**
  * A part. `centre` parts cross the middle: built as their right half (x >= 0, the middle exactly
@@ -323,7 +323,8 @@ function octagon(c0, u, w, ru, rw, c) {
 const X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
 
 // ------------------------------------------------------------------ 1. the helmet
-// A superellipsoid, a little boxy (as the head is), centred just above the head's pivot, with its
+// A superellipsoid, boxy across (as the reference's helmet is: a broad, flat face and square
+// shoulders, which the wide visor fills), centred just above the head's pivot, with its
 // own half-axes up and down, front and back, each the head's core's reach that way and a margin:
 // close at the chin and the face, roomier in the dome, where the ears fold in. Its faceted shell
 // must hold the core with CLEAR to spare: flat facets cut inside the smooth surface, so the check
@@ -337,7 +338,7 @@ const H = {
   bottom: coreReach(1, 1) - (PIVOT_Y - 6) + MARGIN.chin,
   front: coreReach(2, 1) + MARGIN.front,
   back: coreReach(2, -1) + MARGIN.back,
-  n: 2.25, m: 2.2,           // horizontal and vertical roundness (2 would be an ellipsoid)
+  n: 3.1, m: 2.2,            // horizontal and vertical roundness (2 would be an ellipsoid)
   rings: [23, 47, 70, 93, 116, 136, 152],   // latitudes from the top, degrees; the bottom is flat
   seg: 7,                    // longitudes per half at the equator (staggered rings get one more)
 };
@@ -376,9 +377,11 @@ function helmetAlong(from, dir) {
 const helmetFront = (x, y) => helmetAlong([x, y, 0], [0, 0, 1]);
 
 // The visor: its outline in the front view (the right half, from the top of the middle round to
-// the bottom of the middle), set on the helmet's front. A wide rounded shield, its top gently
-// arched and its bottom corners well rounded, framing the eyes with room for every turn.
-const VISOR = [[0, -182], [150, -176], [258, -154], [326, -106], [368, -16], [384, 104], [368, 224], [320, 294], [250, 348], [140, 384], [0, 396]];
+// the bottom of the middle), set on the helmet's front. As the reference's: a wide shield of
+// straight runs and plain corners, nearly all of the helmet's face: a gently arched top, a short
+// slant down at each top corner, sides all but upright and widest a little below the middle, a
+// long slant in at the bottom corners, a flat bottom, framing the eyes with room for every turn.
+const VISOR = [[0, -174], [230, -166], [336, -122], [404, -42], [424, 60], [420, 172], [392, 262], [320, 348], [212, 398], [0, 412]];
 /** A point seen from the helmet's middle: its x and y over its z from there (in front only). */
 const toWindow = (p) => [(p[0] - H.c[0]) / (p[2] - H.c[2]), (p[1] - H.c[1]) / (p[2] - H.c[2])];
 /** Whether (x, y) lies inside a polygon of [x, y] points (even-odd). */
@@ -455,10 +458,11 @@ function onShell(p, h = 0) {
   return add(s, mul(helmetNormal(s), h));
 }
 // The glass sits in the rim, not on it: recessed this far under the smooth surface at its edge,
-// and a little more toward its middle, so the rim stands well proud of it and frames it from
-// every side, as the reference's does; in the middle of the face it is held back to the cap, so
-// side on it stays behind the rim. The face stays well behind it (checked below).
-const GLASS = { edge: 14, middle: 6 };
+// and less toward its middle (the inner ring and the hub, the point at y `hub` its rings close
+// round), so the rim stands well proud of it and frames it from every side, as the reference's
+// does; in the middle of the face it is held back to the cap, so side on it stays behind the rim.
+// The face stays well behind it (checked below). Its inner rings' points stray up to `stray`.
+const GLASS = { edge: 14, middle: 6, hub: 108, stray: 26, seed: 911 };
 /** The point `h` under the smooth surface in front of (x, y), along its normal. */
 const underSurface = ([x, y], h) => { const p = helmetFront(x, y); return add(p, mul(helmetNormal(p), -h)); };
 const lens = part('visor', 'glass', { centre: true, rigid: 'head' });
@@ -480,29 +484,37 @@ const openingKey = (p) => `${Math.abs(p[0])},${p[1]}`;
     OPENING.set(openingKey(P.v[i]), z);
     return i;
   };
-  // the outline, a ring inside it and the middle: facets like the shell's; a shallow cone behind
+  // the outline, two rings inside it and the middle, the inner rings' points strayed a little (as
+  // the shell's are, from its own seeded draws), so the glass is facets of all sizes that catch the
+  // light each their own way, as the reference's does; a shallow cone behind
+  const rnd = seeded(GLASS.seed), stray = (x, y, k) => { const a = (rnd() - 0.5) * 2 * GLASS.stray, b = (rnd() - 0.5) * 2 * GLASS.stray; return x === 0 ? [0, y + b] : [x + a * k, y + b * k]; };
+  const ringAt = (f, h, k) => VISOR.map(([x, y]) => put(stray(x * f, GLASS.hub + (y - GLASS.hub) * f, k), h));
   const O = VISOR.map((p) => put(p, GLASS.edge));
-  const I = VISOR.map(([x, y]) => put([x * 0.56, 112 + (y - 112) * 0.6], GLASS.middle));
-  const c = put([0, 108], GLASS.middle);
-  for (let i = 0; i + 1 < O.length; i++) P.quad(O[i], O[i + 1], I[i + 1], I[i]);
+  const M = ringAt(0.72, lerp(GLASS.middle, GLASS.edge, 0.5), 1), I = ringAt(0.4, GLASS.middle, 0.8);
+  const c = put([0, GLASS.hub], GLASS.middle);
+  for (let i = 0; i + 1 < O.length; i++) { P.quad(O[i], O[i + 1], M[i + 1], M[i]); P.quad(M[i], M[i + 1], I[i + 1], I[i]); }
   for (let i = 0; i + 1 < I.length; i++) P.tri(c, I[i], I[i + 1]);
-  P.back = P.vert(add(helmetFront(0, 108), [0, 0, -140]));
+  P.back = P.vert(add(helmetFront(0, GLASS.hub), [0, 0, -140]));
   for (let i = 0; i + 1 < O.length; i++) P.tri(P.back, O[i + 1], O[i]);
 }
 
-// The rim: a thick, rounded tube round the visor, sitting on the shell. Its section runs from a
-// foot inside the glass's edge up a tall inner wall (what frames the glass when the helmet turns),
-// over a rounded crown and down a long outer slope to a foot sunk well under the shell's facets
-// (so no gap ever opens between the two); each point is wrapped onto the curved surface, so the
-// band hugs the helmet all the way round instead of lifting off at the sides. It stands tallest
+// The rim: a slim, rounded tube round the visor, sitting on the shell, in a white of its own a
+// shade brighter than the shell's, so it reads as the frame round the glass (as the reference's
+// does) and not as more of the shell. Its section runs from a foot under the glass's edge up an
+// inner wall (what frames the glass when the helmet turns), over a rounded crown and down a
+// short outer side to a foot sunk under the shell's facets (so no gap ever opens between the
+// two). The inner wall's foot is 20 under the glass's edge: toward the sides the cap holds the
+// glass's edge back deeper than GLASS.edge, and seen from the far side at a full turn the wall
+// must still reach down past it. Each point is wrapped onto the curved surface, so the band
+// hugs the helmet all the way round instead of lifting off at the sides. It stands tallest
 // at the visor's sides, which frame the glass as the head turns, and lower across the top and
 // the bottom, which are seen side on from the side, where a tall crown would stick out like a hook;
 // and a touch taller again (LOW) down its lower sides, which side on are what stands in front of
 // the glass's lower half.
-const RIM = { W: 94, UP: 78, UP_MID: 36, IN: 8, SINK: 1, LOW: 1.08, LOW_Y0: 120, LOW_Y1: 224 };
+const RIM = { W: 32, UP: 40, UP_MID: 30, IN: 6, SINK: 1, LOW: 1.08, LOW_Y0: 120, LOW_Y1: 224 };
 // [across, up]: across as a fraction of W from the foot inside the glass; up as a fraction of the
 // rim's height there (units, if not within -1..1), or 'foot': on the shell's facets, SINK under them
-const RIM_SECTION = [[0, -GLASS.edge - 8], [0, 0.55], [0.16, 0.9], [0.42, 1], [0.7, 0.82], [0.93, 0.34], [1, 'foot']];
+const RIM_SECTION = [[0, -GLASS.edge - 20], [0, 0.6], [0.16, 0.94], [0.5, 1], [0.84, 0.92], [0.98, 0.5], [1, 'foot']];
 /** How far a point is inside the faceted shell (negative: outside it). */
 const shellInside = (() => {
   const planes = shell.f.map(([a, b, c]) => {
@@ -531,7 +543,7 @@ const VISOR_FRAME = VISOR.map(([x, y], i) => {
   tan = unit(sub(tan, mul(nrm, dot(tan, nrm))));
   return { s, nrm, out: unit(cross(tan, nrm)) };   // out: away from the glass
 });
-const rim = part('rim', 'fabric', { centre: true, rigid: 'head', decal: 1 });
+const rim = part('rim', 'rim', { centre: true, rigid: 'head', decal: 1 });
 {
   const P = rim;
   // across in units (a fraction of the width, from the foot inside the glass), up as a fraction of UP (or units, if not in 0..1)

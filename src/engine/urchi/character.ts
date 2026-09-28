@@ -116,8 +116,10 @@ export function preloadSuit(): Promise<void> {
  * The suit's colours, per material: the flat shade of a plane runs from `dark` (turned from
  * the light) to `lit` (square on to it) on the head's own curve. The fabric tops out at the
  * site's ink, never white; its shadows are warm light greys. The backpack is a grey of its own,
- * a step darker than the fabric, so it reads as a separate box from behind. The glass is not
- * filled: it is the head behind a smoked tint, with a soft sheen on the facets that face the light.
+ * a step darker than the fabric, so it reads as a separate box from behind. The visor's rim is a
+ * white of its own, a shade brighter than the fabric in any light, so it reads as the frame round
+ * the glass rather than more of the shell. The glass is not filled: it is the head behind a
+ * smoked tint, with a soft sheen on the facets that face the light.
  */
 const SUIT_COLOUR: Record<string, { dark: Vec3; lit: Vec3 }> = {
   fabric: { dark: [150, 145, 136], lit: [233, 233, 226] },
@@ -126,6 +128,7 @@ const SUIT_COLOUR: Record<string, { dark: Vec3; lit: Vec3 }> = {
   dark: { dark: [34, 34, 37], lit: [88, 88, 92] },
   accent: { dark: [176, 104, 40], lit: [246, 172, 76] },
   glass: { dark: [0, 0, 0], lit: [0, 0, 0] },
+  rim: { dark: [178, 178, 174], lit: [252, 252, 249] },
 };
 /**
  * How the suit builds itself (setSuit between 0 and 1): the body's facets switch on over the
@@ -1389,7 +1392,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
    * one soft highlight, which is kept off any facet that comes within `clear` of an eye's reach of
    * an eye's centre on screen, so it never washes the eyes out. The sheen goes in steps of `step`.
    */
-  const VISOR = { inside: "#060608", tint: "rgba(18, 20, 30, 0.1)", sheen: "205, 212, 228", base: 0.025, grow: 0.07, glint: [0.4, 0.72, 0.36] as Vec3, clear: 1.2, step: 0.012 };
+  const VISOR = { inside: "#060608", tint: "rgba(18, 20, 30, 0.1)", sheen: "196, 200, 226", base: 0.06, grow: 0.3, glint: [0.4, 0.72, 0.42] as Vec3, clear: 1.2, step: 0.012 };
   /** The arms' segments (all that can come up in front of the helmet): those hung from a shoulder, an elbow or a wrist. */
   const ARM_SEGMENT = new Set<number>();
   /** The body's share of a breath's rise (the chest lifts a hair with it) and its zero-g drift. */
