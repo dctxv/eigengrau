@@ -35,7 +35,7 @@ const ROOT = { out: 6, down: 0.56 };
 /**
  * The line's length: at the root's height, pulled straight, its middle reaches `REACH` of the
  * room's width from the left and no further (the line, plus the clip's offset from the middle,
- * less the root's `out`): 856px at 1440 wide, 229 at 390.
+ * less the root's `out`): 856px at 1440 wide, 1140 at 1920, 228 at 390.
  */
 const REACH = 0.6;
 /**
@@ -55,10 +55,10 @@ const STEPS_MOST = 12;
 const GYRATION = 0.3;
 /**
  * Zero gravity, so nothing pulls it down, and the air there is none, but it is kept from drifting
- * forever: velocity falls at `move` and spin at `spin` a second (half-lives about 1.2s and 0.6s);
+ * forever: velocity falls at `move` and spin at `spin` a second (half-lives about 1.2s and 0.45s);
  * flying off with its line snapped, `flight` of that. Held, its spin falls `held` a second more.
  */
-const DRAG = { move: 0.6, spin: 1.2, flight: 0.25, held: 2 };
+const DRAG = { move: 0.6, spin: 1.5, flight: 0.25, held: 2 };
 /** Righting: a weak spring back to upright, rad/s (a tumble rights itself over a few seconds, overshooting a little). */
 const RIGHTING = 1;
 /**
@@ -79,26 +79,29 @@ const DRIFT = { pull: 0.05, near: 0.6, calm: 2, home: 0.02 };
  * The soft walls: the room's edges `side` px in, under the tab bar (`top` px down) and over the
  * caption's band (`bottom`, `phoneBottom` on a phone). Each corner of the figure's box that crosses
  * one is pushed back by a spring of `k` per second squared that gives back `restitution` of its
- * speed; a corner's push turns it, a share `spin` of what a rigid box would.
+ * speed; a corner's push turns it, a share `spin` of what a rigid box would (a suit is not a box,
+ * and a bump should not send it head over heels).
  */
-const WALL = { side: 8, top: 56, bottom: 64, phoneBottom: 80, k: 16000, restitution: 0.4, spin: 0.5 };
+const WALL = { side: 8, top: 56, bottom: 64, phoneBottom: 80, k: 16000, restitution: 0.4, spin: 0.25 };
 /**
  * The line, per unit mass: pulled past its length, a spring of `k` per second squared (about 20px
  * of give when flung at 1500px/s) and a damper at `zeta` of critical along it, so it takes the
  * strain like a slightly elastic line: it cancels the outward velocity, swings it round the root
  * and sends it back toward it with a little rebound (about an eighth of the speed). It is taut from
  * its length on, slack again `slack` px short of it. Going taut faster than `tug` of the snap speed
- * is a tug (heard with sound on, at most every `tugEvery` seconds).
+ * is a tug (heard with sound on, at most every `tugEvery` seconds). Its pull turns the figure by
+ * `turn` of what a pull at a rigid point would (the clip is on a soft pack, and gives).
  */
-const LINE = { k: 1800, zeta: 0.55, slack: 2, tug: 0.3, tugEvery: 0.25 };
+const LINE = { k: 1800, zeta: 0.55, slack: 2, tug: 0.3, tugEvery: 0.25, turn: 0.5 };
 /**
- * The line snaps when jerked taut faster than `base` + `perWidth` times the room's width, px/s
- * (2872 at 1440 wide, 1507 at 390, 4328 at 2560): an ordinary push or fling never gets there, a
- * deliberate hard throw does. Snapped, it tumbles off with `spin` rad/s more (either way), never
- * slower than `exit` of the snap speed. Sent home from the keyboard it is launched at `send` of the
- * snap speed away from the root, and the line snaps at its first pull.
+ * The line snaps when jerked taut faster than `base` + `perWidth` times the room's width, px/s, its
+ * clip moving straight out along it (3172 at 1440 wide, 3796 at 1920, 4628 at 2560, 1807 at 390): an
+ * ordinary push or fling never gets there (a brisk one is half of it), a deliberate hard throw does.
+ * Snapped, it tumbles off with `spin` rad/s more (either way), never slower than `exit` of the snap
+ * speed. Sent home from the keyboard it is launched at `send` of the snap speed away from the root,
+ * and the line snaps at its first pull (or after `sendMost` seconds, whatever is in the way).
  */
-const SNAP = { base: 1000, perWidth: 1.3, spin: [1.2, 3] as [number, number], exit: 0.8, send: 1.3 };
+const SNAP = { base: 1300, perWidth: 1.3, spin: [1.2, 3] as [number, number], exit: 0.8, send: 1.3, sendMost: 1.2 };
 /**
  * Held: a spring from the grab point to the pointer (`omega` rad/s, `zeta` of critical, against the
  * pointer's own velocity, so it follows with a slight lag and no drag behind), pulling at most
@@ -107,8 +110,8 @@ const SNAP = { base: 1000, perWidth: 1.3, spin: [1.2, 3] as [number, number], ex
 const HOLD = { omega: 20, zeta: 0.85, most: 10 };
 /** Let go, it takes the pointer's velocity over its last `window` seconds, never over `cap` times the snap speed. */
 const FLING = { window: 0.09, cap: 2.2, keep: 0.16 };
-/** A nudge from the arrow keys: `speed` of its height per second, or under reduced motion `step` px. */
-const NUDGE = { speed: 0.9, step: 24 };
+/** A nudge from the arrow keys: `speed` of its height per second (it drifts about its own height before it slows), or under reduced motion `step` px. */
+const NUDGE = { speed: 0.45, step: 24 };
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
@@ -163,10 +166,11 @@ export class Float {
   private hold: { gx: number; gy: number; x: number; y: number; vx: number; vy: number } | null = null;
   /** The pointer's last few places while held (client px, performance.now() ms), for the fling. */
   private samples: { t: number; x: number; y: number }[] = [];
-  /** The line is pulled straight; when it last tugged; sent home, it snaps at its first pull. */
+  /** The line is pulled straight; when it last tugged; sent home (and when), it snaps at its first pull. */
   private taut = false;
   private tugAt = -Infinity;
   private sending = false;
+  private sentAt = 0;
   /** Left alone since then (its clock): no hold, fling, nudge or tug. */
   private calmAt = 0;
   private flightFor = 0;
@@ -262,7 +266,8 @@ export class Float {
     setAlong(true);
     this.set("leaving");
     warmSuitIdle().catch(() => {}); // loading while it goes, so it is here by the time it is wanted
-    this.att.play("shutEyes", 9, () => shutEyes(this.att, TAKE.close));
+    // (above everything, a wake still under way included: its eyes close whatever it was doing)
+    this.att.play("shutEyes", 10, () => shutEyes(this.att, TAKE.close));
     const gone = TAKE.dither + TAKE.ditherFor;
     this.tl = gsap
       .timeline()
@@ -304,6 +309,7 @@ export class Float {
     b.vx = dx * v;
     b.vy = dy * v;
     this.sending = true;
+    this.sentAt = this.t;
   }
 
   /**
@@ -393,9 +399,13 @@ export class Float {
     return p && { x: p.x, y: p.y, w: 2 * URCHI_FIGURE.half * this.unit, h: this.tall, angle: p.angle };
   }
 
-  /** The room changed size: it is kept inside it, and within its line's reach. */
+  /** The room changed size: it is kept inside it, and within its line's reach (floating in, it comes to rest where it now should). */
   resize() {
     if (!this.room.float) return;
+    if (this.arrival) {
+      this.arrival.to = this.rest();
+      return;
+    }
     this.keepIn();
     this.prev = { x: this.b.x, y: this.b.y, a: this.b.a };
     this.show();
@@ -498,7 +508,7 @@ export class Float {
     this.tl = gsap
       .timeline()
       .call(() => {
-        this.att.play("homecoming", 9, () => homecoming(this.att, shut, HOME.open), { sleeping: true });
+        this.att.play("homecoming", 10, () => homecoming(this.att, shut, HOME.open), { sleeping: true });
         room.urchi.dither(0, HOME.ditherFor);
       }, [], after)
       .call(() => this.set("home"), [], after + shut + HOME.open);
@@ -642,6 +652,8 @@ export class Float {
     if (!flying && !this.arrival) {
       this.wallsPush(push, cos, sin);
       this.linePull(push, cos, sin);
+      // sent home but kept from its line's end (a wall in the way, say): it snaps anyway
+      if (this.sending && this.t - this.sentAt > SNAP.sendMost) this.snap();
     }
 
     // held: a spring from the grab point to the pointer
@@ -700,7 +712,7 @@ export class Float {
    * The line: past its length, a spring and a damper along it from the clip toward the root. Jerked
    * taut faster than the snap speed (not by hand), or sent home, it snaps instead.
    */
-  private linePull(push: (fx: number, fy: number, rx: number, ry: number) => void, cos: number, sin: number) {
+  private linePull(push: (fx: number, fy: number, rx: number, ry: number, turn?: number) => void, cos: number, sin: number) {
     const b = this.b, c = this.clipOffset(), r = this.root(), L = this.length;
     const rx = c.x * cos - c.y * sin, ry = c.x * sin + c.y * cos;
     const dx = b.x + rx - r.x, dy = b.y + ry - r.y, d = Math.hypot(dx, dy);
@@ -726,7 +738,7 @@ export class Float {
       }
     }
     const T = LINE.k * (d - L) + 2 * LINE.zeta * Math.sqrt(LINE.k) * vn;
-    if (T > 0) push(-T * nx, -T * ny, rx, ry);
+    if (T > 0) push(-T * nx, -T * ny, rx, ry, LINE.turn);
   }
 
   dispose() {

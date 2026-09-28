@@ -184,10 +184,13 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       const hand = fl.holding ? "grabbing" : overUrchi && fl.afloat && !att.asleep ? "grab" : "";
       if ((panelEl.dataset.cursor ?? "") !== hand) panelEl.dataset.cursor = hand;
     };
+    let wasFlying = false;
     const onFloat = (state: FloatState) => {
       labelUrchi();
       if (state === "floating" && live.current) live.current.textContent = SAID.out;
-      if (state === "returning" && live.current) live.current.textContent = SAID.home;
+      // (home without ever getting out, its suit never having come, is nothing to announce)
+      if (state === "returning" && wasFlying && live.current) live.current.textContent = SAID.home;
+      wasFlying = state === "flying";
       // the room changed under the pointer: whether it is on Urchi is asked again on its next move
       if (state !== "floating" && state !== "arriving") setOverUrchi(false);
     };
@@ -348,8 +351,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       att.update(dt);
       if (begun < 0) return;
       const t = att.t;
-      // What's new: once per visit, when you are still, a tug toward that tab, then his line.
-      if (news && t >= newsAt && att.stillFor >= NEWS.still && !att.asleep && !att.acting) {
+      // What's new: once per visit, when you are still, a tug toward that tab, then his line (not
+      // while Urchi is on its way somewhere, and so not there to do the tugging).
+      if (news && t >= newsAt && att.stillFor >= NEWS.still && !att.asleep && !att.acting && !fl.busy) {
         newsAt = Infinity;
         markNewsTold();
         att.play("news", 2, () =>
@@ -362,7 +366,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       }
       // A phone has no hover: its caption rises once, and it reads it.
       if (call.busy) callHeard = t;
-      if (phone && !phoneCaptionShown && t >= begun + PHONE_CAPTION.after && t >= callHeard + PHONE_CAPTION.afterCall && !att.acting && slot === null) {
+      if (phone && !phoneCaptionShown && t >= begun + PHONE_CAPTION.after && t >= callHeard + PHONE_CAPTION.afterCall && !att.acting && slot === null && !fl.busy) {
         phoneCaptionShown = true;
         showUrchiCaption("auto", PHONE_CAPTION.dwell);
       }

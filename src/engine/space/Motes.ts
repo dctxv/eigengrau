@@ -190,13 +190,13 @@ export class Motes {
       m.born -= MOTE.fade;
       return;
     }
-    // somewhere in the open: clear of Urchi, the tabs and the caption
+    // somewhere in the open: clear of Urchi (all of it, afloat), the tabs and the caption
     const head = this.room.eyes();
-    const clear = this.room.urchiSize.w * MOTE.clear;
+    const clear = this.room.urchiSize.w * this.room.shown * MOTE.clear;
     for (let k = 0; k < 20; k++) {
       const x = rand(-w + MOTE.margin, w - MOTE.margin);
       const y = rand(-h + MOTE.bottom, h - MOTE.top);
-      if (Math.hypot(x - head.x, y - head.y) > clear) {
+      if (Math.hypot(x - head.x, y - head.y) > clear && !this.room.nearUrchi(x, y, MOTE.margin)) {
         this.make(x, y, level);
         return;
       }
@@ -255,7 +255,7 @@ export class Motes {
       if (this.att.watching(m.id)) {
         if (m.watchedSince < 0) m.watchedSince = this.t;
       } else m.watchedSince = -1;
-      const near = Math.hypot(m.x - face.x, m.y - face.y) < this.room.urchiSize.w * MOTE.near;
+      const near = Math.hypot(m.x - face.x, m.y - face.y) < this.room.urchiSize.w * this.room.shown * MOTE.near;
       if (!m.claimed && m.out < 0 && near && m.watchedSince >= 0 && this.t - m.watchedSince > MOTE.nearAfter) {
         m.claimed = true;
         this.att.play("closeBy", 3, () => closeBy(this.att, () => this.clientOf(m, 0), () => this.vanish(m)), { queue: 1 });
@@ -329,7 +329,7 @@ export class Motes {
     const head = this.room.eyes();
     m.resting = false;
     m.breathLow = false;
-    m.heading = Math.atan2(m.y - head.y + MOTE.liftFrom * this.room.urchiSize.w, m.x - head.x);
+    m.heading = Math.atan2(m.y - head.y + MOTE.liftFrom * this.room.urchiSize.w * this.room.shown, m.x - head.x);
     m.speed = MOTE.lift;
     m.ghost = this.t + 1.5;
   }
