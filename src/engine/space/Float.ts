@@ -114,6 +114,22 @@ const FLING = { window: 0.09, cap: 2.2, keep: 0.16 };
 /** A nudge from the arrow keys: `speed` of its height per second (it drifts about its own height before it slows), or under reduced motion `step` px. */
 const NUDGE = { speed: 0.45, step: 24 };
 
+/**
+ * Its limbs (see limbs.ts): zero gravity's posture and quirks come in with its own life; they feel
+ * its body's motion (flung, they trail; spun, they fly out); and it reacts with them: a wave `hello`
+ * seconds after it has floated in, arms and legs thrown out when grabbed or flung faster than
+ * `splay` of the snap speed, braced when its line tugs or it bumps a wall faster than `bump` of its
+ * height a second (at most every `braceEvery` seconds), curled up as it tumbles off.
+ */
+const LIMBS = { hello: 0.25, splay: 0.35, bump: 0.8, braceEvery: 1.2 };
+/**
+ * Curious: the pointer resting near it (still `still` seconds), or a mote it watches, within `near`
+ * of its height from its middle but off its body (farther than `off` of it), it reaches for, with the
+ * arm on that side, a little in front (`z` mesh units), for `hold` seconds at most; then it lets it be
+ * for `rest`. Only floating, left alone, not held and doing nothing else.
+ */
+const REACH_FOR = { still: 1, near: 1.3, off: 0.42, z: 260, hold: 3.4, rest: 8 };
+
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 /** An angle brought within -pi .. pi: upright the short way round. */
@@ -175,6 +191,14 @@ export class Float {
   /** Left alone since then (its clock): no hold, fling, nudge or tug. */
   private calmAt = 0;
   private flightFor = 0;
+  /** Its velocity and spin as the last frame left them (for what its limbs feel), and when they last braced. */
+  private felt = { vx: 0, vy: 0, w: 0 };
+  private bracedAt = -Infinity;
+  /** Its hello, waiting (see settle). */
+  private hello: gsap.core.Tween | null = null;
+  /** Reaching for what it watches since (its clock; -1 not), and not again before. */
+  private reachSince = -1;
+  private reachAgain = 0;
   private tl: gsap.core.Timeline | null = null;
   private stopFrame: () => void;
   private disposed = false;
@@ -209,6 +233,11 @@ export class Float {
   }
 
   // ---------------------------------------------------------------- its measures
+
+  /** Its limbs, once its suit's model is here (and never under reduced motion, where they hold still). */
+  private get limbs() {
+    return this.reduced ? null : this.room.urchi.character.limbs;
+  }
 
   /** CSS px per mesh unit as it floats. */
   private get unit() {
@@ -327,6 +356,7 @@ export class Float {
     this.samples = [{ t, x: clientX, y: clientY }];
     this.calmAt = Infinity;
     this.att.play("held", 6, () => held(this.att));
+    this.limbs?.play("splay");
     return true;
   }
 
@@ -367,6 +397,7 @@ export class Float {
     if (!fling) return;
     b.vx = v.x;
     b.vy = v.y;
+    if (Math.hypot(v.x, v.y) > LIMBS.splay * this.breakSpeed) this.limbs?.play("splay");
   }
 
   /** The arrow keys: a nudge that way (dx, dy each -1 .. 1, y down, as the screen is). */
@@ -438,6 +469,8 @@ export class Float {
   private arrive() {
     const room = this.room, b = this.b, to = this.rest();
     room.urchi.setSuit(1);
+    room.urchi.character.limbs?.setMode("float");
+    this.felt.vx = NaN;   // (it comes in already moving: nothing to feel on its first frame)
     b.vx = b.vy = b.w = 0;
     this.taut = this.sending = false;
     this.calmAt = 0;
@@ -464,10 +497,11 @@ export class Float {
     this.set("arriving");
   }
 
-  /** Floating in is over (or cut short by a hand or a key): it floats, and its own life comes in. */
-  private settle() {
+  /** Floating in is over (or cut short by a hand or a key, `all` false): it floats, its own life comes in, and (all the way in) it waves hello. */
+  private settle(all = false) {
     this.arrival = null;
     this.set("floating");
+    if (all) this.hello = gsap.delayedCall(LIMBS.hello, () => { if (this.state === "floating" && !this.hold) this.limbs?.play("wave", 0); });
     gsap.killTweensOf(this.life);
     if (!this.reduced) gsap.to(this.life, { v: 1, duration: TAKE.lifeIn, ease: "sine.inOut" });
   }
@@ -482,6 +516,7 @@ export class Float {
     this.tether.snap();
     sfx.snap();
     this.att.play("jolt", 8, () => jolt(this.att, 1));
+    this.limbs?.play("curl");
     b.w += (Math.random() < 0.5 ? -1 : 1) * rand(...SNAP.spin);
     const v = Math.hypot(b.vx, b.vy), exit = SNAP.exit * this.breakSpeed;
     if (v < exit) {
@@ -499,6 +534,8 @@ export class Float {
     this.hold = null;
     this.arrival = null;
     room.float = null;
+    this.hello?.kill();
+    room.urchi.character.limbs?.setMode("rest");
     room.urchi.setSuit(0);
     room.urchi.uniforms.uDither.value = 1;
     this.tether.hide(0);
@@ -591,10 +628,58 @@ export class Float {
     if (!this.room.float) return;
     const k = this.acc / STEP, b = this.b, p = this.prev;
     this.room.float = { x: p.x + (b.x - p.x) * k, y: p.y + (b.y - p.y) * k, angle: p.a + (b.a - p.a) * k };
+    this.feel(dt);
     if (this.state === "flying") {
       this.flightFor += dt;
       if (this.offPage() || this.flightFor > HOME.flightMost) this.comeHome();
     }
+  }
+
+  /** Its limbs braced (a tug, a bump), not more often than LIMBS.braceEvery. */
+  private brace() {
+    if (this.t - this.bracedAt < LIMBS.braceEvery) return;
+    this.bracedAt = this.t;
+    this.limbs?.play("brace");
+  }
+
+  /**
+   * What its limbs feel this frame: their posture and quirks come in with its own life (half of it
+   * while it floats in), and its body's acceleration and spin, from how its velocity changed since
+   * the last frame, into its own frame (mesh units, y down, turned with it; clockwise as seen).
+   */
+  private feel(dt: number) {
+    const L = this.limbs, b = this.b, f = this.felt;
+    if (L && dt > 0 && !Number.isNaN(f.vx)) {
+      const u = this.unit, c = Math.cos(b.a), s = Math.sin(b.a);
+      const ax = (b.vx - f.vx) / dt, ay = (b.vy - f.vy) / dt, al = (b.w - f.w) / dt;
+      L.setLife(this.state === "flying" ? 0 : Math.max(this.life.v, this.arrival ? 0.5 : 0));
+      L.feel((ax * c + ay * s) / u, -(-ax * s + ay * c) / u, -al, -b.w, FIGURE_MIDDLE);
+      this.reachOut(L);
+    }
+    f.vx = b.vx;
+    f.vy = b.vy;
+    f.w = b.w;
+  }
+
+  /** Curious: reaching for what it watches, near it (see REACH_FOR). */
+  private reachOut(L: NonNullable<Float["limbs"]>) {
+    const f = this.att.focus, you = this.att.you(), p = this.room.float;
+    const thing = f?.kind === "mote" ? f.at : you && this.att.stillFor > REACH_FOR.still ? you : null;
+    let at: [number, number, number] | null = null;
+    if (p && thing && this.state === "floating" && !this.hold && this.t >= this.calmAt && this.life.v > 0.9) {
+      // into its own frame: mesh units from the head's centre, y down
+      const q = this.room.toRoom(thing.x, thing.y), u = this.unit, c = Math.cos(p.angle), s = Math.sin(p.angle), dx = q.x - p.x, dy = q.y - p.y;
+      const bx = (dx * c + dy * s) / u, by = (-dx * s + dy * c) / u;
+      const d = (Math.hypot(bx, by) * u) / this.tall;
+      if (d < REACH_FOR.near && d > REACH_FOR.off) at = [bx, FIGURE_MIDDLE - by, REACH_FOR.z];
+    }
+    const reaching = this.reachSince >= 0;
+    if (at && !reaching && this.t >= this.reachAgain && !L.doing) this.reachSince = this.t;
+    if (this.reachSince >= 0 && (!at || this.t - this.reachSince > REACH_FOR.hold)) {
+      L.reachFor(null);
+      this.reachSince = -1;
+      this.reachAgain = this.t + REACH_FOR.rest;
+    } else if (this.reachSince >= 0 && at) L.reachFor(at, at[0] >= 0 ? 0 : 1);
   }
 
   /** Flying: its box is past an edge of the page, all of it. */
@@ -679,7 +764,7 @@ export class Float {
       b.y = from.y + (to.y - from.y) * e;
       b.vx = (to.x - from.x) * de;
       b.vy = (to.y - from.y) * de;
-      if (u >= 1) this.settle();
+      if (u >= 1) this.settle(true);
     } else {
       b.vx += ax * h;
       b.vy += ay * h;
@@ -705,6 +790,7 @@ export class Float {
       if (fx || fy) {
         push(fx, fy, rx, ry, WALL.spin);
         this.calmAt = Math.max(this.calmAt, this.t + DRIFT.calm);
+        if (Math.hypot(vx, vy) > LIMBS.bump * this.tall) this.brace();
       }
     }
   }
@@ -735,6 +821,7 @@ export class Float {
         const strength = Math.min(1, vn / snap);
         sfx.tug(strength);
         this.att.play("jolt", 7, () => jolt(this.att, strength));
+        this.brace();
         this.calmAt = this.t + DRIFT.calm;
       }
     }
@@ -745,6 +832,7 @@ export class Float {
   dispose() {
     this.disposed = true;
     this.tl?.kill();
+    this.hello?.kill();
     gsap.killTweensOf(this.life);
     this.stopFrame();
     this.tether.dispose();

@@ -1,3 +1,4 @@
+import { createLimbs, type Limbs, type RigData } from "./limbs";
 import MESH_DATA from "./mesh.json";
 import SUIT_FRAME from "./suit-frame.json";
 
@@ -72,9 +73,12 @@ type Suit = {
   vp: number[];
   vm: number[];
   materials: string[];
-  parts: { name: string; material: number; rigid: number; decal: number; convex: number }[];
+  /** Per part: its material, what carries it (1 the head), how it lies on the shell, whether convex; the segment it turns in (see limbs.ts; 0 the torso), and whether it is a joint's ball. */
+  parts: { name: string; material: number; rigid: number; decal: number; convex: number; seg: number; ball: number }[];
   hidden: number[];
   sep: number[][];
+  segments: RigData["segments"];
+  joints: RigData["joints"];
   neck: Vec3;
   body: { yaw: number; roll: number };
   tuck: [number, number, number, number][];
@@ -85,6 +89,8 @@ type Suit = {
 };
 /** The suit's model, once loaded (it is not part of the page until the suit is first wanted). */
 let SUIT: Suit | null = null;
+/** The suit's rig (see limbs.ts), once its model is loaded: for the suit's preview sheet's poses. */
+export const suitRigData = (): RigData | null => SUIT;
 let suitLoad: Promise<void> | null = null;
 /**
  * Loads the suit's model (about 30 KB over the wire), once for every Urchi on the page. setSuit
@@ -153,8 +159,17 @@ type SuitModel = {
   parts: SuitPart[];
   /** The helmet's shell, glass and rim, its decals (the rim, the discs), and the body's parts. */
   shell: number; glass: number; rim: number; decals: number[]; body: number[];
-  /** The planes between the body's parts: [a, b, nx, ny, nz, d] each, part a on the side n.p < d. */
+  /** The planes between the body's parts that turn together: [a, b, nx, ny, nz, d] each, part a on the side n.p < d (at rest). */
   sep: Float64Array;
+  /**
+   * The rig: per vertex and per part the segment it turns in (0 the torso); per pair of parts (a
+   * times the parts' count, plus b) the plane baked between them (its offset in `sep`), or -1, and
+   * the joint the two meet at (see limbs.ts: its parent's and child's tubes, its ring and its
+   * ball), or -1; and per part whether it is a joint's ball.
+   */
+  vseg: Uint8Array; partSeg: Int32Array; pairSep: Int32Array; pairJoint: Int32Array; ball: Uint8Array;
+  /** Per part, the balls of the joints it is a tube of (either side): what goes before it goes before them too; per part, the joint it is the ball of (-1 none). */
+  tubeBalls: number[][]; ballJoint: Int32Array;
   tucked: Vec3[];
   /** The head's planes with a tucked corner: once folded in, painted before the rest of the head, so they never cover an eye. */
   tuckPlanes: Set<number>;
@@ -299,7 +314,20 @@ function* buildModel(D: Suit): Generator<void, SuitModel, void> {
   const tucked = V.slice(), tuckPlanes = new Set<number>(), moved = new Set<number>();
   for (const [i, x, y, z] of D.tuck) { tucked[i] = [x, y, z]; moved.add(i); }
   F.forEach((f, fi) => { if (moved.has(f[0]) || moved.has(f[1]) || moved.has(f[2])) tuckPlanes.add(G[fi]); });
+  // the rig: what turns with what, and how any two of the body's parts are ordered
+  const np2 = D.parts.length, vseg = new Uint8Array(nv), partSeg = Int32Array.from(D.parts, (p) => p.seg), pairSep = new Int32Array(np2 * np2).fill(-1), pairJoint = new Int32Array(np2 * np2).fill(-1);
+  for (let i = 0; i < nv; i++) vseg[i] = partSeg[D.vp[i]];
+  D.sep.forEach(([a, b], k) => { pairSep[a * np2 + b] = pairSep[b * np2 + a] = k * 6; });
+  const tubeBalls: number[][] = D.parts.map(() => []), ballJoint = new Int32Array(np2).fill(-1);
+  D.joints.forEach((J, j) => {
+    if (J.parts[3] >= 0) ballJoint[J.parts[3]] = j;
+    const roles = J.parts.filter((p) => p >= 0);
+    for (const a of roles) for (const b of roles) if (a !== b) pairJoint[a * np2 + b] = j;
+    const [par, chi, , bal] = J.parts;
+    if (bal >= 0) for (const t of [par, chi]) tubeBalls[t].push(bal);
+  });
   return {
+    vseg, partSeg, pairSep, pairJoint, ball: Uint8Array.from(D.parts, (p) => p.ball), tubeBalls, ballJoint,
     data: D, sv, rigid, planeMat, planePart, loop0, loops, planeMid,
     loopAt: Int32Array.from(loopAt), loopLen: Int32Array.from(loopLen), corner: Int32Array.from(corners), across: Int32Array.from(across),
     reveal, shellPlanes: Float64Array.from(shellPlanes), open, glassTris: Int32Array.from(glassTris), window: Float64Array.from(D.window), hub: D.hub, parts,
@@ -586,6 +614,12 @@ export type UrchiCharacter = {
   setSuit(amount: number): void;
   /** The suit as set, 0..1 (whether or not its model has arrived). */
   readonly suit: number;
+  /**
+   * The limbs in the suit (see limbs.ts): null until the suit's model is here. They stay as modelled
+   * (arms hanging) until asked for more: zero gravity's posture and its quirks (setMode "float",
+   * setLife), a quirk now (play), the body's motion felt (feel). They move only while the suit is on.
+   */
+  readonly limbs: Limbs | null;
   /** The canvas's frame in mesh units: URCHI_FRAME, or URCHI_SUIT_FRAME while the suit is painted. */
   readonly frame: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
 
@@ -878,7 +912,10 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       }
       gaze.next = t + (gaze.fixed ? rand(...FIX.gap) : drift ? rand(...DRIFT.gap) : rand(GAZE.minGap, GAZE.maxGap));
     }
-    if (eyes.on) {
+    if (selfAim) {   // its own hand, held up to be looked at
+      gaze.x.target = clamp(selfAim[0] * GAZE.x + look.fx * 0.5, -GAZE.x, GAZE.x);
+      gaze.y.target = clamp(selfAim[1] * GAZE.y + look.fy * 0.5, -GAZE.y, GAZE.y);
+    } else if (eyes.on) {
       gaze.x.target = eyes.x * EYES_REACH.x; gaze.y.target = eyes.y * EYES_REACH.y;
     } else if (look.on) {   // kept on the target as it moves
       gaze.x.target = clamp(look.nx * GAZE.x + look.fx, -GAZE.x, GAZE.x);
@@ -1278,6 +1315,18 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     // scratch: the eyes on screen, the body's parts drawn and their order, the decals in order, the sheen's steps
     eyeAt: Float64Array; bodyNow: number[]; order: number[]; deg: Int32Array; slot: Int32Array; after: number[][]; partZ: Float64Array; done: Uint8Array;
     decalNow: number[]; level: Int32Array; byLevel: number[];
+    /**
+     * The limbs, this frame: every point in view space (x right, y down, z toward the eye, before the
+     * perspective), the eye in each segment's own space at rest, per joint where it is and which ways
+     * its parent and its child point (see orderBody), and the parts in front of the helmet.
+     */
+    view: Float64Array; segEye: Float64Array; jointNow: Float64Array; late: Uint8Array;
+    /** The gloves' parts, `.R` and `.L` (the hands a head looks at). */
+    gloves: [number, number];
+    /** Per segment, its limb (the segment hung from the torso it comes down from; the torso's own, 0); and scratch, the balls' orders to add. */
+    chain: Int32Array; inherit: number[];
+    /** Scratch: the orders found between parts posed apart, by a plane and (pressed together) by depth, [first, then, ...]. */
+    found: number[]; pressed: number[];
   };
   let rig: SuitRig | null = null;
   function suitRig(): SuitRig {
@@ -1292,7 +1341,11 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       eyeAt: new Float64Array(EYES.length * 2), bodyNow: [], order: [], deg: new Int32Array(D.parts.length), slot: new Int32Array(D.parts.length),
       after: D.parts.map(() => []), partZ: new Float64Array(D.parts.length), done: new Uint8Array(D.parts.length),
       decalNow: [], level: new Int32Array(np), byLevel: [],
+      view: new Float64Array(nv * 3), segEye: new Float64Array(D.segments.length * 3), jointNow: new Float64Array(D.joints.length * 9), late: new Uint8Array(D.parts.length), gloves: [0, 0],
+      chain: Int32Array.from(D.segments, (_, s) => { let c = s; while (c > 0 && D.segments[c][1] > 0) c = D.segments[c][1]; return c; }), inherit: [], found: [], pressed: [],
     };
+    D.segments.forEach(([j], s) => { if (j >= 0 && /^(shoulder|elbow|wrist)\./.test(D.joints[j].name)) ARM_SEGMENT.add(s); });
+    rig.gloves = [D.parts.findIndex((p) => p.name === "glove.R"), D.parts.findIndex((p) => p.name === "glove.L")];
     return rig;
   }
   /** Something a plane's outline can be traced into: a Path2D, or the context's own path. */
@@ -1337,9 +1390,17 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
    * an eye's centre on screen, so it never washes the eyes out. The sheen goes in steps of `step`.
    */
   const VISOR = { inside: "#060608", tint: "rgba(18, 20, 30, 0.1)", sheen: "205, 212, 228", base: 0.025, grow: 0.07, glint: [0.4, 0.72, 0.36] as Vec3, clear: 1.2, step: 0.012 };
+  /** The arms' segments (all that can come up in front of the helmet): those hung from a shoulder, an elbow or a wrist. */
+  const ARM_SEGMENT = new Set<number>();
   /** The body's share of a breath's rise (the chest lifts a hair with it) and its zero-g drift. */
   const SUIT_BODY = { rise: 0.5, drift: { roll: 0.7 * D2R, yaw: 1.1 * D2R, lift: 3, periods: [7.3, 9.1, 6.1] as Vec3 } };
   let suit = 0;
+  /**
+   * The limbs in the suit (see limbs.ts), once its model is here: posed as modelled (arms hanging)
+   * until a host asks for more (Space's float, for zero gravity's posture and its quirks).
+   */
+  let limbs: Limbs | null = null;
+  const limbsNow = () => (limbs ??= SUIT ? createLimbs(SUIT, { reducedMotion: reduceMotion }) : null);
   const turn = (dev.turn ?? 0) * D2R;
   /** The suit is painted: wanted, and its model is here. */
   const suited = () => suit > 0 && SUIT !== null;
@@ -1449,10 +1510,13 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   /**
    * One suited frame. The helmet turns with the head (the same projection, point for point); the
    * body hangs from the neck ring, which the head's roll carries, turned by part of the head's yaw
-   * and roll (never its pitch) and drifting a little.
+   * and roll (never its pitch) and drifting a little; its limbs posed first, each part where its
+   * segment's transform puts it (see limbs.ts).
    *
-   * Order, far to near. The body first: its parts are convex and any two that can overlap have a
-   * plane between them (baked), so the one on the far side of it from the eye goes first. Then
+   * Order, far to near. The body first: its parts are convex, and every two that overlap on screen
+   * are put in order (see orderBody): by the plane baked between them, their joint, or a plane found
+   * between them as they are posed. An arm's parts in front of the helmet (a glove held up to the
+   * chin) go last of all, after the helmet. Then
    * the helmet: the rim behind the shell and a disc turned away (so the shell covers what of them
    * is behind it); the shell; the glass: the helmet's dark inside, the far side of the rim seen
    * across it, the head as ever (clipped to the glass, so no ear, spike or pixel of it can show
@@ -1462,7 +1526,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
    * its neighbours) close up instead of letting the page show through as seams.
    */
   function renderSuit(yaw: number, pitch: number, roll: number, head: Path2D, eyeClip: Path2D, items: Item[], toCanvas: CanvasTransform6) {
-    const R = suitRig(), D = R.data, POST = R.post, SV = R.sv, RP = TILT.pivot, nv = SV.length / 3;
+    const R = suitRig(), D = R.data, POST = R.post, SV = R.sv, RP = TILT.pivot, nv = SV.length / 3, whole = suit >= 1;
     const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch), cr = Math.cos(roll), sr = Math.sin(roll);
     // the neck, where the head's roll carries it, and the body's own turn about it
     const [NX, NY, NZ] = D.neck, ny0 = NY - PIVOT_Y;
@@ -1470,6 +1534,8 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     const bYaw = D.body.yaw * (yaw - turn) + turn + drift.yaw, bRoll = D.body.roll * roll + drift.roll;
     const cby = Math.cos(bYaw), sby = Math.sin(bYaw), cbr = Math.cos(bRoll), sbr = Math.sin(bRoll);
     const lift = (SUIT_BODY.rise - 1) * rise - drift.lift;
+    // the limbs as posed: each segment's transform (at rest, none)
+    const T = limbs && whole ? limbs.transforms : null, VIEW = R.view, VS = R.vseg;
     for (let i = 0; i < nv; i++) {
       let X: number, Y: number, Z: number;
       if (R.rigid[i]) {
@@ -1478,13 +1544,18 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
         const y2 = y * cp + z1 * sp; Z = -y * sp + z1 * cp;
         X = x1 * cr - (y2 - RP) * sr; Y = x1 * sr + (y2 - RP) * cr + RP + PIVOT_Y;
       } else {
-        const x = SV[i * 3] - NX, y = SV[i * 3 + 1] - NY, z = SV[i * 3 + 2] - NZ;
+        let x = SV[i * 3], y = SV[i * 3 + 1], z = SV[i * 3 + 2];
+        const g = VS[i] * 12;
+        if (T && g) { const px = x, py = y, pz = z; x = T[g] * px + T[g + 1] * py + T[g + 2] * pz + T[g + 3]; y = T[g + 4] * px + T[g + 5] * py + T[g + 6] * pz + T[g + 7]; z = T[g + 8] * px + T[g + 9] * py + T[g + 10] * pz + T[g + 11]; }
+        x -= NX; y -= NY; z -= NZ;
         const x1 = x * cby + z * sby; Z = -x * sby + z * cby;
         X = ax + x1 * cbr - y * sbr; Y = ay + x1 * sbr + y * cbr;
       }
       const s = PERSPECTIVE === Infinity ? 1 : PERSPECTIVE / (PERSPECTIVE - Z);
       POST[i * 3] = X * s; POST[i * 3 + 1] = Y * s + (R.rigid[i] ? 0 : lift); POST[i * 3 + 2] = Z;
+      VIEW[i * 3] = X; VIEW[i * 3 + 1] = Y; VIEW[i * 3 + 2] = Z;
     }
+    poseJoints(R, T);
     // the visor's opening on screen, and its facets' boxes, for the rim's "through the glass" test
     const OP = R.openPost;
     for (let k = 0, O = R.open; k < O.length; k += 3) {
@@ -1516,7 +1587,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       const u = -ax, v = -ay, bx1 = u * cbr + v * sbr;
       ebx = bx1 * cby - EZ * sby + NX; eby = -u * sbr + v * cbr + NY; ebz = bx1 * sby + EZ * cby + NZ;
     }
-    const whole = suit >= 1, shown = whole ? Infinity : suit * SUIT_BUILD.over;
+    const shown = whole ? Infinity : suit * SUIT_BUILD.over;
     // how far the helmet has risen, 0..1, and the level (on screen) below which it is there
     const risen = whole ? 1 : clamp((shown - SUIT_BUILD.helmet) / (1 - SUIT_BUILD.helmet), 0, 1);
     let level = -Infinity;
@@ -1542,9 +1613,11 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       // a disc goes after the glass while it faces the eye, and before the shell while it does not
       const [mx, my, mz] = P.mid;
       const farPart = P.decal === 2 && (mx - hub[0]) * (ehx - mx) + (my - hub[1]) * (ehy - my) + (mz - hub[2]) * (ehz - mz) < 0;
+      const ball = R.ball[pi] === 1;
       for (const g of P.planes) {
         const unrevealed = P.rigid ? risen <= 0 : R.reveal[g] > shown;
         if (unrevealed && pi !== R.glass) continue;
+        if (ball && !ballPlaneShows(R, pi, g, T)) continue;
         // facing the eye: the plane's outline runs the right way round on screen; its normal as the
         // head's, summed over its outline (the same sum as over its triangles: inside edges cancel)
         let area = 0, nx = 0, ny = 0, nz = 0, z = 0, count = 0;
@@ -1586,7 +1659,24 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       for (let v = P.v0; v < P.v0 + P.vn; v++) { const x = POST[v * 3], y = POST[v * 3 + 1]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
       box[pi * 4] = x0; box[pi * 4 + 1] = y0; box[pi * 4 + 2] = x1; box[pi * 4 + 3] = y1;
     }
-    const order = orderBody(R, body, box, ebx, eby, ebz);
+    const order = orderBody(R, body, box, ebx, eby, ebz, T);
+    // an arm's parts in front of the helmet go after it (a hand held up to the visor): those with a
+    // plane between them and the shell, the eye on their side; and so, then, does whatever goes after
+    // one of them where they overlap
+    const late = R.late;
+    late.fill(0);
+    let lateAny = false;
+    if (T && !dev.suitPart) {
+      const P = R.parts[R.shell];
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, zs = 0;
+      for (let v = P.v0; v < P.v0 + P.vn; v++) { const x = POST[v * 3], y = POST[v * 3 + 1]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; zs += POST[v * 3 + 2]; }
+      R.partZ[R.shell] = zs / P.vn;
+      for (const pi of order) {
+        if (!ARM_SEGMENT.has(R.partSeg[pi]) || box[pi * 4] > x1 || box[pi * 4 + 2] < x0 || box[pi * 4 + 1] > y1 || box[pi * 4 + 3] < y0) continue;
+        if (apart(R, pi, R.shell) === R.shell) { late[pi] = 1; lateAny = true; }   // (pressed into it: behind)
+      }
+      if (lateAny) for (const pi of order) if (late[pi]) for (const q of R.after[R.slot[pi]]) late[q] = 1;
+    }
     const light = (g: number) => {
       let nx = N[g * 3], ny = N[g * 3 + 1], nz = N[g * 3 + 2];
       const l = Math.hypot(nx, ny, nz) || 1;
@@ -1709,7 +1799,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     ctx.strokeStyle = COLOR.base; ctx.lineWidth = 2 * BASE;
     strokeOutline(false);
     ctx.lineWidth = CELL;
-    for (const pi of order) { underlay(pi, front[pi]); for (const g of front[pi]) fillPlane(g); }
+    for (const pi of order) { if (late[pi]) continue; underlay(pi, front[pi]); for (const g of front[pi]) fillPlane(g); }
     // the helmet, as far as it has risen
     ctx.save();
     if (rising) belowLevel();
@@ -1734,6 +1824,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     }
     decals(front);
     ctx.restore();
+    if (lateAny) for (const pi of order) { if (!late[pi]) continue; underlay(pi, front[pi]); for (const g of front[pi]) fillPlane(g); }
     if (!SMOOTH) pixelFinish(null);
   }
 
@@ -1785,32 +1876,193 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   }
 
   /**
-   * The body's parts in painting order: for every two drawn parts whose boxes on screen overlap,
-   * the one on the far side of the plane between them (from the eye) goes first; among the parts
-   * free to go, the farthest. Should the planes ever disagree in a loop, the farthest part left
-   * breaks it.
+   * The body's parts in painting order, far to near: every two drawn parts whose boxes on screen
+   * overlap are put in order, and then among the parts free to go the farthest goes (should the
+   * orders ever run in a loop, the farthest part left breaks it). Two that turn together (one
+   * segment, see limbs.ts) have a plane baked between them: the one on its far side from the eye
+   * first (the eye taken into the segment's own space at rest). Two that meet at a joint go by the
+   * joint (see jointFirst). Any other two are posed apart: a plane is found between them as they are
+   * (see apart). The eye is (ex, ey, ez) in the body's space.
    */
-  function orderBody(R: SuitRig, body: number[], box: Float64Array, ex: number, ey: number, ez: number): number[] {
-    const S = R.sep, deg = R.deg, after = R.after, slot = R.slot, z = R.partZ, done = R.done, out = R.order;
+  function orderBody(R: SuitRig, body: number[], box: Float64Array, ex: number, ey: number, ez: number, T: Float64Array | null): number[] {
+    const S = R.sep, deg = R.deg, after = R.after, slot = R.slot, z = R.partZ, done = R.done, out = R.order, n = R.parts.length, D = R.data;
     deg.fill(0); slot.fill(-1); done.fill(0); out.length = 0;
     body.forEach((pi, k) => { slot[pi] = k; after[k].length = 0; });
-    for (let k = 0; k < S.length; k += 6) {
-      const a = S[k], b = S[k + 1];
-      if (slot[a] < 0 || slot[b] < 0) continue;
-      if (box[a * 4] > box[b * 4 + 2] || box[b * 4] > box[a * 4 + 2] || box[a * 4 + 1] > box[b * 4 + 3] || box[b * 4 + 1] > box[a * 4 + 3]) continue;
-      const nearB = S[k + 2] * ex + S[k + 3] * ey + S[k + 4] * ez - S[k + 5] > 0;   // the eye on b's side: a first
-      const first = nearB ? a : b, then = nearB ? b : a;
-      after[slot[first]].push(then); deg[then]++;
-    }
     for (const pi of body) { const P = R.parts[pi]; let s = 0; for (let v = P.v0; v < P.v0 + P.vn; v++) s += R.post[v * 3 + 2]; z[pi] = s / P.vn; }
+    // the eye in each segment's own space at rest
+    const E = R.segEye;
+    for (let s = 0; s < D.segments.length; s++) {
+      const g = s * 12;
+      if (!T || !s) { E[s * 3] = ex; E[s * 3 + 1] = ey; E[s * 3 + 2] = ez; continue; }
+      const dx = ex - T[g + 3], dy = ey - T[g + 7], dz = ez - T[g + 11];
+      E[s * 3] = T[g] * dx + T[g + 4] * dy + T[g + 8] * dz; E[s * 3 + 1] = T[g + 1] * dx + T[g + 5] * dy + T[g + 9] * dz; E[s * 3 + 2] = T[g + 2] * dx + T[g + 6] * dy + T[g + 10] * dz;
+    }
+    const inherit = R.inherit, found = R.found, pressed = R.pressed, seen = R.done;
+    inherit.length = found.length = pressed.length = 0;
+    /** Whether `to` is after `from`, however far along. */
+    const reaches = (from: number, to: number) => {
+      seen.fill(0);
+      const stack = [from];
+      while (stack.length) {
+        const p = stack.pop()!;
+        if (p === to) return true;
+        if (seen[p]) continue;
+        seen[p] = 1;
+        for (const q of after[slot[p]]) if (!seen[q]) stack.push(q);
+      }
+      return false;
+    };
+    for (let x = 0; x < body.length; x++) {
+      const a = body[x];
+      for (let y = x + 1; y < body.length; y++) {
+        const b = body[y];
+        if (box[a * 4] > box[b * 4 + 2] || box[b * 4] > box[a * 4 + 2] || box[a * 4 + 1] > box[b * 4 + 3] || box[b * 4 + 1] > box[a * 4 + 3]) continue;
+        let first: number;
+        const k = R.pairSep[a * n + b], j = R.pairJoint[a * n + b];
+        // two that turn apart and whose shapes on screen do not overlap (only their boxes do) need no order
+        if (k < 0 && R.partSeg[a] !== R.partSeg[b] && apartOnScreen(R, a, b)) continue;
+        if (k >= 0) {
+          const e = R.partSeg[a] * 3;
+          // the eye on the second's side of the plane: the first first
+          first = S[k + 2] * E[e] + S[k + 3] * E[e + 1] + S[k + 4] * E[e + 2] - S[k + 5] > 0 ? S[k] : S[k + 1];
+        } else if (j >= 0) first = jointFirst(R, j, a, b, ex, ey, ez);
+        else if (R.partSeg[a] === R.partSeg[b] || R.ball[a] || R.ball[b]) continue;   // turning together with no plane between them, they never overlap; a ball goes by its tubes (below)
+        else {
+          // posed apart: a plane found between them as they are, or (pressed into each other) their depths; after the rest (below)
+          const f = apart(R, a, b);
+          if (f !== PRESSED) found.push(f, f === a ? b : a);
+          else if (R.partZ[a] <= R.partZ[b]) pressed.push(a, b);
+          else pressed.push(b, a);
+          continue;
+        }
+        const then = first === a ? b : a;
+        after[slot[first]].push(then); deg[then]++;
+        // a joint's ball is inside its tubes: what goes before either of them from outside its limb goes before it (below)
+        if (!R.ball[first] && R.chain[R.partSeg[first]] !== R.chain[R.partSeg[then]]) for (const B of R.tubeBalls[then]) if (slot[B] >= 0) inherit.push(first, B);
+      }
+    }
+    // Then the orders of parts posed apart: a plane's, then a depth's (pressed together), then a
+    // ball's (only where it overlaps the ball on screen: it is seen only in the wedge a bend opens);
+    // each only if it does not close a loop with what is already ordered (a joint's orders are its
+    // own and come first: two parts that turn apart meet in a loop only where they are pressed into
+    // each other, or nearly, and there the joint knows better)
+    const add = (list: number[], ball: boolean) => {
+      for (let i = 0; i < list.length; i += 2) {
+        const x = list[i], y = list[i + 1];
+        if (ball && (box[y * 4] > box[x * 4 + 2] || box[x * 4] > box[y * 4 + 2] || box[y * 4 + 1] > box[x * 4 + 3] || box[x * 4 + 1] > box[y * 4 + 3])) continue;
+        if (reaches(y, x)) continue;
+        after[slot[x]].push(y); deg[y]++;
+        if (!ball && !R.ball[x]) for (const B of R.tubeBalls[y]) if (slot[B] >= 0 && R.chain[R.partSeg[x]] !== R.chain[R.partSeg[y]]) inherit.push(x, B);
+      }
+    };
+    add(found, false); add(pressed, false); add(inherit, true);
+    done.fill(0);
     while (out.length < body.length) {
       let pick = -1;
       for (const pi of body) if (!done[pi] && deg[pi] === 0 && (pick < 0 || z[pi] < z[pick])) pick = pi;
-      if (pick < 0) for (const pi of body) if (!done[pi] && (pick < 0 || z[pi] < z[pick])) pick = pi;
+      // a loop (none should be left): the part waiting on the fewest, then the farthest
+      if (pick < 0) for (const pi of body) if (!done[pi] && (pick < 0 || deg[pi] < deg[pick] || (deg[pi] === deg[pick] && z[pi] < z[pick]))) pick = pi;
       done[pick] = 1; out.push(pick);
       for (const q of after[slot[pick]]) deg[q]--;
     }
     return out;
+  }
+  /** Each joint as posed (see orderBody): where it is, its parent's way back from it and its child's way out, the body's space. */
+  function poseJoints(R: SuitRig, T: Float64Array | null) {
+    const JN = R.jointNow;
+    R.data.joints.forEach((J, j) => {
+      const ps = (J.parts[0] >= 0 ? R.partSeg[J.parts[0]] : 0) * 12, cs = R.partSeg[J.parts[1]] * 12, o = j * 9, [px, py, pz] = J.pivot;
+      if (!T) { JN.set(J.pivot, o); JN.set(J.up, o + 3); JN.set(J.axis, o + 6); return; }
+      JN[o] = T[ps] * px + T[ps + 1] * py + T[ps + 2] * pz + T[ps + 3]; JN[o + 1] = T[ps + 4] * px + T[ps + 5] * py + T[ps + 6] * pz + T[ps + 7]; JN[o + 2] = T[ps + 8] * px + T[ps + 9] * py + T[ps + 10] * pz + T[ps + 11];
+      const [ux, uy, uz] = J.up, [ax, ay, az] = J.axis;
+      JN[o + 3] = T[ps] * ux + T[ps + 1] * uy + T[ps + 2] * uz; JN[o + 4] = T[ps + 4] * ux + T[ps + 5] * uy + T[ps + 6] * uz; JN[o + 5] = T[ps + 8] * ux + T[ps + 9] * uy + T[ps + 10] * uz;
+      JN[o + 6] = T[cs] * ax + T[cs + 1] * ay + T[cs + 2] * az; JN[o + 7] = T[cs + 4] * ax + T[cs + 5] * ay + T[cs + 6] * az; JN[o + 8] = T[cs + 8] * ax + T[cs + 9] * ay + T[cs + 10] * az;
+    });
+  }
+  /**
+   * Whether a joint's ball has anything to show: its joint bent more than `least` (below that its
+   * tubes and ring cover it), and of it only the planes facing out of the bend, into the wedge
+   * (those facing into the bend are inside its tubes, whatever the eye sees). A plane's way out is
+   * taken from its middle, as the ball is round. The way into the bend is its tubes' ways out of the
+   * joint added (they point apart, straight: their sum grows toward the inside as it bends).
+   */
+  const BALL = { least: 0.12, inward: 0.3 };
+  function ballPlaneShows(R: SuitRig, pi: number, g: number, T: Float64Array | null) {
+    const j = R.ballJoint[pi], JN = R.jointNow, o = j * 9;
+    const ix = JN[o + 3] + JN[o + 6], iy = JN[o + 4] + JN[o + 7], iz = JN[o + 5] + JN[o + 8], il = Math.hypot(ix, iy, iz);
+    if (!T || il < BALL.least) return false;
+    const M = R.planeMid, P = R.data.joints[j].pivot, s = R.partSeg[pi] * 12;
+    const dx = M[g * 3] - P[0], dy = M[g * 3 + 1] - P[1], dz = M[g * 3 + 2] - P[2];
+    const wx = T[s] * dx + T[s + 1] * dy + T[s + 2] * dz, wy = T[s + 4] * dx + T[s + 5] * dy + T[s + 6] * dz, wz = T[s + 8] * dx + T[s + 9] * dy + T[s + 10] * dz;
+    return wx * ix + wy * iy + wz * iz < BALL.inward * il * Math.hypot(wx, wy, wz);
+  }
+  /**
+   * How a joint's parts go (see limbs.ts): its ball first, as it is inside all of them. A ring and a
+   * tube meeting it: a tube stands on the ring's end, so it goes after the ring where the eye is on
+   * its side of the joint (it pointing the eye's way, the ring's end on its side faces the eye) and
+   * before it where not (the ring's side then in front of the tube's end). The parent's and the
+   * child's tubes: by the plane through the joint that halves its bend, the one on its far side first.
+   * A joint with no ring (the hip) has its parent over the child's top, always.
+   */
+  function jointFirst(R: SuitRig, j: number, a: number, b: number, ex: number, ey: number, ez: number) {
+    const [par, , cov, bal] = R.data.joints[j].parts, JN = R.jointNow, o = j * 9;
+    if (a === bal || b === bal) return a === bal ? a : b;
+    const other = a === par ? b : a;
+    if (cov < 0) return other;
+    const vx = ex - JN[o], vy = ey - JN[o + 1], vz = ez - JN[o + 2];
+    if (a === cov || b === cov) {
+      const tube = a === cov ? b : a, u = tube === par ? o + 3 : o + 6;
+      return JN[u] * vx + JN[u + 1] * vy + JN[u + 2] * vz > 0 ? cov : tube;
+    }
+    return (JN[o + 6] - JN[o + 3]) * vx + (JN[o + 7] - JN[o + 4]) * vy + (JN[o + 8] - JN[o + 5]) * vz > 0 ? par : other;
+  }
+  /**
+   * Which of two parts posed apart goes first: a plane between them as they are (view space), and
+   * the one on its far side from the eye. Found by Gilbert's walk toward the point of their
+   * difference nearest the origin, stopping at the first direction that has all of one on one side
+   * of all of the other (at once, mostly, for parts well apart); after `steps` without one, they are
+   * pressed into each other (PRESSED).
+   */
+  const APART = { steps: 24 };
+  /** apart's answer for two pressed into each other: no plane between them. */
+  const PRESSED = -1;
+  /** Whether two parts' shapes on screen are apart (the same walk as apart, in the screen's plane). */
+  function apartOnScreen(R: SuitRig, a: number, b: number) {
+    const V = R.post, A = R.parts[a], B = R.parts[b];
+    let wx = 0, wy = 0;
+    for (let v = B.v0; v < B.v0 + B.vn; v++) { wx += V[v * 3] / B.vn; wy += V[v * 3 + 1] / B.vn; }
+    for (let v = A.v0; v < A.v0 + A.vn; v++) { wx -= V[v * 3] / A.vn; wy -= V[v * 3 + 1] / A.vn; }
+    for (let step = 0; step < APART.steps; step++) {
+      let most = -Infinity, least = Infinity, ai = A.v0, bi = B.v0;
+      for (let v = A.v0; v < A.v0 + A.vn; v++) { const d = wx * V[v * 3] + wy * V[v * 3 + 1]; if (d > most) { most = d; ai = v; } }
+      for (let v = B.v0; v < B.v0 + B.vn; v++) { const d = wx * V[v * 3] + wy * V[v * 3 + 1]; if (d < least) { least = d; bi = v; } }
+      if (least > most) return true;
+      const dx = V[bi * 3] - V[ai * 3] - wx, dy = V[bi * 3 + 1] - V[ai * 3 + 1] - wy, dd = dx * dx + dy * dy;
+      if (dd < 1e-9) return false;
+      const t = clamp(-(wx * dx + wy * dy) / dd, 0, 1);
+      wx += t * dx; wy += t * dy;
+      if (wx * wx + wy * wy < 1e-6) return false;
+    }
+    return false;
+  }
+  function apart(R: SuitRig, a: number, b: number) {
+    const V = R.view, A = R.parts[a], B = R.parts[b], EZ = PERSPECTIVE === Infinity ? 1e7 : PERSPECTIVE;
+    let wx = 0, wy = 0, wz = 0;
+    for (let v = B.v0; v < B.v0 + B.vn; v++) { wx += V[v * 3] / B.vn; wy += V[v * 3 + 1] / B.vn; wz += V[v * 3 + 2] / B.vn; }
+    for (let v = A.v0; v < A.v0 + A.vn; v++) { wx -= V[v * 3] / A.vn; wy -= V[v * 3 + 1] / A.vn; wz -= V[v * 3 + 2] / A.vn; }
+    for (let step = 0; step < APART.steps; step++) {
+      let most = -Infinity, least = Infinity, ai = A.v0, bi = B.v0;
+      for (let v = A.v0; v < A.v0 + A.vn; v++) { const d = wx * V[v * 3] + wy * V[v * 3 + 1] + wz * V[v * 3 + 2]; if (d > most) { most = d; ai = v; } }
+      for (let v = B.v0; v < B.v0 + B.vn; v++) { const d = wx * V[v * 3] + wy * V[v * 3 + 1] + wz * V[v * 3 + 2]; if (d < least) { least = d; bi = v; } }
+      // all of b beyond all of a along w: the eye on b's side of the plane between puts a first
+      if (least > most) return wz * EZ > (most + least) / 2 ? a : b;
+      const dx = V[bi * 3] - V[ai * 3] - wx, dy = V[bi * 3 + 1] - V[ai * 3 + 1] - wy, dz = V[bi * 3 + 2] - V[ai * 3 + 2] - wz, dd = dx * dx + dy * dy + dz * dz;
+      if (dd < 1e-9) break;
+      const t = clamp(-(wx * dx + wy * dy + wz * dz) / dd, 0, 1);
+      wx += t * dx; wy += t * dy; wz += t * dz;
+      if (wx * wx + wy * wy + wz * wz < 1e-6) break;
+    }
+    return PRESSED;
   }
   /** The head's vertices for a suit this far on: the ears and spikes fold in, all the way before the helmet starts to rise. */
   function headFor(amount: number): Vec3[] {
@@ -1844,7 +2096,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   const DRAWN_EPS = 1e-5;
   function paint(yaw: number, pitch: number, roll: number): boolean {
     const now = [yaw, pitch, roll, lidOf(0), lidOf(1), gaze.x.v, gaze.y.v, gaze.h.v, gaze.conv.v, wide.v, shift, rise, reveal, CELL, rimWidth()];
-    if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift);
+    if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift, limbs ? limbs.version : 0);
     const was = lastDrawn;
     if (was && was.length === now.length && now.every((v, i) => Math.abs(v - was[i]) < DRAWN_EPS)) return false;
     lastDrawn = now;
@@ -1856,8 +2108,11 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   function frame(dtSeconds: number): boolean {
     const dt = Math.min(0.05, Math.max(0.001, dtSeconds));
     S.t += dt;
-    let tx = 0, ty = 0;   // a gaze target outranks the pointer
-    if (look.on && !reduceMotion) {
+    let tx = 0, ty = 0;   // a gaze target outranks the pointer, and its own hand held up to be looked at outranks both
+    const hand = limbs && suit >= 1 && !reduceMotion && !FORCED ? limbs.lookHand : null;
+    selfAim = hand === null ? null : handAim(hand);
+    if (selfAim) [tx, ty] = selfAim;
+    else if (look.on && !reduceMotion) {
       if (look.headAt < 0 || S.t >= look.headAt) { look.hx = look.nx; look.hy = look.ny; look.headAt = -1; }
       tx = look.hx; ty = look.hy;
     } else if (P.has) { tx = P.nx; ty = P.ny; }
@@ -1902,8 +2157,27 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       drift.yaw = SUIT_BODY.drift.yaw * Math.sin((TAU * S.t) / p1 + 1.3);
       drift.lift = SUIT_BODY.drift.lift * Math.sin((TAU * S.t) / p2 + 0.6);
     } else drift.roll = drift.yaw = drift.lift = 0;
+    if (suit >= 1 && SUIT) limbsNow()!.step(dt);
     return paint(S.yaw.v + tilt.yaw.v + away.turn.v + extra.yaw, S.pitch.v + tilt.pitch.v + nod + extra.pitch, roll);
   }
+  /** Where the head looks while it looks at its own hand, in the pointer's terms (see headAim); null while it does not. */
+  let selfAim: Vec2 | null = null;
+  /**
+   * Where a hand is, for its head to look at it, in the pointer's terms: the glove's middle as last
+   * painted (view space), from a little in front of the head's middle, where it looks from.
+   */
+  function handAim(side: 0 | 1): Vec2 | null {
+    const R = rig;
+    if (!R) return null;
+    const P = R.parts[R.gloves[side]], V = R.view;
+    let x = 0, y = 0, z = 0;
+    for (let v = P.v0; v < P.v0 + P.vn; v++) { x += V[v * 3]; y += V[v * 3 + 1]; z += V[v * 3 + 2]; }
+    x /= P.vn; y /= P.vn; z /= P.vn;
+    const dz = Math.max(1, z - HAND_LOOK.from), yaw = Math.atan2(x, dz), pitch = Math.atan2(y - PIVOT_Y, Math.hypot(x, dz));
+    return [clamp(yaw / LOOK.yaw, -1, 1), clamp(pitch / (pitch > 0 ? LOOK.pitchDown : LOOK.pitchUp), -1, 1)];
+  }
+  /** Its hand looked at from this far in front of the head's middle (about where the eyes are). */
+  const HAND_LOOK = { from: 250 };
   /** Until dispose: a suit model arriving after it has nothing to repaint. */
   let alive = true;
   blinkAmount = FORCED_BLINK ?? 0;
@@ -1980,6 +2254,9 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     },
     get suit() {
       return suit;
+    },
+    get limbs() {
+      return limbsNow();
     },
     get frame() {
       return frameNow();

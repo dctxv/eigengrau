@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { URCHI_BOX, URCHI_FRAME, URCHI_HEAD, URCHI_SUIT_FRAME, createUrchi, preloadSuit, type UrchiCharacter, type UrchiDevOptions } from "@/engine/urchi/character";
+import { URCHI_BOX, URCHI_FRAME, URCHI_HEAD, URCHI_SUIT_FRAME, createUrchi, preloadSuit, suitRigData, type UrchiCharacter, type UrchiDevOptions } from "@/engine/urchi/character";
+import { FLOAT, QUIRKS, quirkPose, type Pose, type QuirkName, type RigData, type Side } from "@/engine/urchi/limbs";
 
 /** A pose to hold: the head's angles (degrees), the whole figure's turn, the lids, the suit. */
 type Shot = {
@@ -18,6 +19,8 @@ type Shot = {
   smooth?: boolean;
   layer?: UrchiDevOptions["suitLayer"];
   part?: UrchiDevOptions["suitPart"];
+  /** The limbs held in a pose: the `.R` side's, and the `.L` side's (the same if left out). */
+  limbs?: [Pose, Pose?];
 };
 /** A window onto the figure, in mesh units. */
 type Win = { x: number; y: number; w: number; h: number };
@@ -49,6 +52,7 @@ function still(shot: Shot, boxPx: number): UrchiCharacter {
     history.replaceState(history.state, "", was || location.pathname);
   }
   ch.setSuit(shot.suit ?? 1);
+  if (shot.limbs) ch.limbs?.hold(shot.limbs[0], shot.limbs[1]);
   if (boxPx > 0) ch.setResolution(boxPx);
   if (shot.rest) ch.setRestLid(shot.rest);
   if (shot.lids) ch.setLids(shot.lids[0], shot.lids[1], 0);
@@ -145,6 +149,118 @@ function drawSheet(g: CanvasRenderingContext2D, W: number, H: number) {
   });
   cell(views, FIGURE, figH, figRowH, 0);
   cell(looks, HELMET, helmH, lookRowH, H * 0.62);
+}
+
+/**
+ * The limbs' poses (?view=limbs): the modelled pose, zero gravity's posture and each quirk's pose at
+ * its height, facing you; and some of them turned (?turn=35), so what goes in front of what shows.
+ */
+/** Each quirk's pose part way through (seconds), over zero gravity's posture, its doing side the `.R` one. */
+const LIMB_AT: [QuirkName, number][] = [["wave", 1.3], ["inspect", 2.6], ["tap", 1.3], ["stretch", 1.8], ["clap", 0.95], ["cheeks", 1.5], ["fidget", 1.5], ["cross", 3], ["swing", 1.3], ["swim", 1.1], ["splay", 0.8], ["brace", 0.7], ["curl", 1]];
+const limbPoses = (rig: RigData): [string, Pose, Pose?][] => [
+  ["REST", {}],
+  ["FLOAT", FLOAT],
+  ...LIMB_AT.map(([n, t]): [string, Pose, Pose] => [n.toUpperCase(), { ...FLOAT, ...quirkPose(rig, n, t, 0) }, { ...FLOAT, ...quirkPose(rig, n, t, 1) }]),
+  ["BACK", { shFlex: -45, shAbd: 20, elbow: 30, hipFlex: -30, ankle: -30 }],
+];
+function drawLimbs(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
+  g.fillStyle = BG;
+  g.fillRect(0, 0, W, H);
+  const q = new URLSearchParams(location.search), turn = Number(q.get("turn")) || 0, only = q.get("pose");
+  const all = limbPoses(suitRigData()!), list = only ? all.filter(([n]) => n === only.toUpperCase()) : all;
+  const cols = Math.min(list.length, Math.max(1, Math.round(Math.sqrt((list.length * W) / H * (WHOLE.h / WHOLE.w))))), rows = Math.ceil(list.length / cols);
+  const labelPx = Math.round(12 * dpr), cellW = W / cols, cellH = H / rows, h = Math.min(cellH - labelPx * 2, (cellW * WHOLE.h) / WHOLE.w);
+  list.forEach(([name, R, L], i) => {
+    const x = cellW * (i % cols), y = cellH * Math.floor(i / cols);
+    const ch = still({ turn, limbs: [R, L] }, boxFor(WHOLE, h));
+    blit(g, ch, WHOLE, x + (cellW - (WHOLE.w * h) / WHOLE.h) / 2, y, h);
+    ch.dispose();
+    label(g, name, x + cellW / 2, y + h + labelPx * 0.2, labelPx);
+  });
+}
+
+/**
+ * A quirk as a film strip (?view=strip&quirk=wave&side=0&every=0.25&n=16&turn=0): the limbs afloat,
+ * the quirk played at 0.5s, a frame every `every` seconds, stepped at 60Hz, left to right and down.
+ * ?push=ax,ay,for[,spin]: from 0.5s the body is felt accelerating that much (mesh units/s², its own
+ * frame, y down) for `for` seconds (and spinning, rad/s), as a fling or a stop would.
+ */
+function drawStrip(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
+  g.fillStyle = BG;
+  g.fillRect(0, 0, W, H);
+  const q = new URLSearchParams(location.search), quirk = (q.get("quirk") || "wave") as QuirkName, side = (Number(q.get("side")) || 0) as Side;
+  const every = Number(q.get("every")) || 0.25, n = Number(q.get("n")) || 16, turn = Number(q.get("turn")) || 0;
+  const cols = Math.min(n, Math.max(1, Math.round(Math.sqrt((n * W) / H * (WHOLE.h / WHOLE.w))))), rows = Math.ceil(n / cols);
+  const labelPx = Math.round(11 * dpr), cellW = W / cols, cellH = H / rows, h = Math.min(cellH - labelPx * 2, (cellW * WHOLE.h) / WHOLE.w);
+  // the head held facing you (?yaw=0: no breath, no look), the limbs left to move
+  const was = location.search, qq = new URLSearchParams(was);
+  qq.set("yaw", "0");
+  qq.set("pitch", "0");
+  history.replaceState(history.state, "", `?${qq}`);
+  let ch: UrchiCharacter;
+  try {
+    ch = createUrchi({ smooth: true, input: false }, { turn });
+  } finally {
+    history.replaceState(history.state, "", was || location.pathname);
+  }
+  ch.setSuit(1);
+  ch.setResolution(boxFor(WHOLE, h));
+  const L = ch.limbs!;
+  L.setMode("float");
+  L.setLife(1);
+  const [pax, pay, pfor, pspin] = (q.get("push") || "0,0,0,0").split(",").map(Number);
+  let t = 0;
+  const run = (to: number) => {
+    while (t < to - 1e-9) {
+      if (t >= 0.5 && t < 0.5 + (pfor || 0)) L.feel(pax || 0, pay || 0, 0, pspin || 0, 565);
+      ch.update(1 / 60);
+      t += 1 / 60;
+    }
+  };
+  run(0.5);
+  if (quirk in QUIRKS) L.play(quirk, side);
+  for (let i = 0; i < n; i++) {
+    run(0.5 + i * every);
+    const x = cellW * (i % cols), y = cellH * Math.floor(i / cols);
+    blit(g, ch, WHOLE, x + (cellW - (WHOLE.w * h) / WHOLE.h) / 2, y, h);
+    label(g, `${(i * every).toFixed(2)}s`, x + cellW / 2, y + h + labelPx * 0.2, labelPx);
+  }
+  ch.dispose();
+}
+
+/**
+ * Every quirk over its time (?view=quirks&cols=7&turn=0): a row each, a frame at even steps from
+ * its start to its end, afloat, stepped at 60Hz from zero gravity's posture.
+ */
+function drawQuirks(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
+  g.fillStyle = BG;
+  g.fillRect(0, 0, W, H);
+  const q = new URLSearchParams(location.search), cols = Number(q.get("cols")) || 7, turn = Number(q.get("turn")) || 0;
+  const names = (q.get("only")?.split(",") ?? Object.keys(QUIRKS)) as QuirkName[];
+  const labelPx = Math.round(10 * dpr), cellW = W / (cols + 1), cellH = H / names.length, h = Math.min(cellH - 2, (cellW * WHOLE.h) / WHOLE.w);
+  names.forEach((name, row) => {
+    const was = location.search, qq = new URLSearchParams(was);
+    qq.set("yaw", "0"); qq.set("pitch", "0");
+    history.replaceState(history.state, "", `?${qq}`);
+    let ch: UrchiCharacter;
+    try { ch = createUrchi({ smooth: true, input: false }, { turn }); } finally { history.replaceState(history.state, "", was || location.pathname); }
+    ch.setSuit(1);
+    ch.setResolution(boxFor(WHOLE, h));
+    const L = ch.limbs!;
+    L.setMode("float");
+    L.setLife(1);
+    let t = 0;
+    const run = (to: number) => { while (t < to - 1e-9) { ch.update(1 / 60); t += 1 / 60; } };
+    run(0.6);
+    L.play(name, 0);
+    const dur = QUIRKS[name].dur, y = cellH * row;
+    label(g, name.toUpperCase(), cellW / 2, y + cellH / 2 - labelPx / 2, labelPx);
+    for (let k = 0; k < cols; k++) {
+      run(0.6 + (dur * (k + 0.5)) / cols);
+      blit(g, ch, WHOLE, cellW * (k + 1) + (cellW - (WHOLE.w * h) / WHOLE.h) / 2, y + (cellH - h) / 2, h);
+    }
+    ch.dispose();
+  });
 }
 
 /** Where a character's painting reaches, left to right, in mesh units (from its canvas's alpha). */
@@ -441,6 +557,9 @@ export function SuitSheet() {
     Promise.all([document.fonts.ready, preloadSuit()]).then(() => {
       if (!alive) return;
       if (view === "small") drawSmall(g, W, H, dpr);
+      else if (view === "limbs") drawLimbs(g, W, H, dpr);
+      else if (view === "strip") drawStrip(g, W, H, dpr);
+      else if (view === "quirks") drawQuirks(g, W, H, dpr);
       else if (view === "space") drawSpace(g, W, H, dpr);
       else if (view === "poses") drawPoses(g, W, H, dpr);
       else if (view === "turn") drawTurn(g, W, H, dpr);
