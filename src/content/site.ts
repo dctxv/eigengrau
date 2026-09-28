@@ -231,15 +231,6 @@ export const NOTES_FOLD_AFTER = 100;
 
 /** The notes column, any order; the page sorts newest first. Log lines carry the tag "site". */
 export const NOTES: Note[] = [
-  { id: "2026-09-24-eigengrau", date: "2026-09-24", kind: "log", tags: ["site"], body: "Eigengrau replaces white. Sound arrives." },
-  { id: "2026-09-21-cache", date: "2026-09-21", kind: "note", tags: ["psychology", "ai"], body: "Most of what people call intuition is a cached decision. The interesting part is not that the cache exists but how rarely anyone invalidates it. Models do the same thing; they are only more honest about it." },
-  { id: "2026-09-14-kettle", date: "2026-09-14", kind: "note", tags: ["random"], body: "Bought a kettle with one button. It boils. I have not thought about it since, which is the highest praise I have for an object." },
-  { id: "2026-09-10-nav", date: "2026-09-10", kind: "log", tags: ["site"], body: "Four tabs. The nav shows only the current label; pages slide between routes." },
-  { id: "2026-09-06-unsure", date: "2026-09-06", kind: "note", tags: ["ai"], body: "A model that says it does not know costs its maker nothing and saves its user an afternoon. That so few of them say it tells you who the product is for." },
-  { id: "2026-08-29-threshold", date: "2026-08-29", kind: "note", tags: ["psychology"], body: "The threshold for noticing a thing is lower than the threshold for saying so. Most rooms are full of people who have already noticed." },
-  { id: "2026-08-22-rebuild", date: "2026-08-22", kind: "log", tags: ["site"], body: "Rebuilt as one canvas per tab. The intro plays once, on a hard load of the front page." },
-  { id: "2026-08-17-door", date: "2026-08-17", kind: "note", tags: ["random", "psychology"], body: "Walked the same route for a year before I saw the second door. Attention is not a resource. It is a habit, and habits have edges." },
-  { id: "2026-08-03-confidence", date: "2026-08-03", kind: "note", tags: ["ai", "random"], body: "Asked three assistants the same question and got three confident answers, none of them the same. Confidence is a tone, not a signal." },
 ];
 
 export type SpaceItem = {

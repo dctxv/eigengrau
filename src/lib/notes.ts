@@ -112,6 +112,7 @@ const NAMED = 4;
 /** "Nine since August: three on psychology, three on ai, three random, three about the site." */
 export function indexSentence(today: string, more: boolean): Piece[] {
   const w = new Writer();
+  if (!ENTRIES.length) return w.say("n", "None yet.").out;
   w.say("n", `${countWord(ENTRIES.length)} since ${since(ENTRIES[ENTRIES.length - 1].date, today)}:`);
   // Five fit; past that the top four stand for the rest until asked.
   const shown = CATEGORIES.length > NAMED + 1 && !more ? CATEGORIES.slice(0, NAMED) : CATEGORIES;
