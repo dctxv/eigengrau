@@ -6,20 +6,17 @@ import { MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/con
 import { Call } from "@/engine/space/Call";
 import { Motes } from "@/engine/space/Motes";
 import { RoomScene } from "@/engine/space/RoomScene";
-import { Suit } from "@/engine/space/Suit";
 import { runIntro } from "@/engine/space/intro";
 import { caught, comeBack, glanceAt, glanceDown, read, tug, type Caught } from "@/engine/urchi/acts";
 import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
-import { warmSuitIdle } from "@/engine/urchi/character";
 import { clock } from "@/engine/urchi/hours";
 import { CursorLabel } from "@/components/CursorLabel";
 import { MaskedChars, MaskedWords } from "@/components/Mask";
-import { alongOn } from "@/lib/along";
 import { getFlags, setFlag } from "@/lib/flags";
 import { prefersReducedMotion } from "@/lib/motion";
 import { pollNow, type Track } from "@/lib/now";
 import { isTab } from "@/lib/routes";
-import { lastVisit, leftRoute, markNewsTold, newsTold, whatsNew } from "@/lib/visits";
+import { leftRoute, markNewsTold, newsTold, whatsNew } from "@/lib/visits";
 
 /** A press that moves less than this (px) and lets go within this (ms) is a click. */
 const CLICK = { slop: 6, ms: 600 };
@@ -83,23 +80,6 @@ const NIGHT_WAIT = 800;
 const CAUGHT = { away: 45 * 1000, every: 10 * 60 * 1000 };
 /** When it was last caught (Date.now() ms, in memory): wall time, since a phone put away may stop the page's own clock. */
 let caughtAt = -Infinity;
-/**
- * The peg (panel 2, the spacesuit): it appears `after` seconds into Urchi's life in the room (after
- * the intro, or after arriving), so the first impression is still one creature alone; at once on a
- * return visit, or once it has been seen in this session, or while Urchi is along. It is a
- * low-weight target (0.25, see Suit.ts), looked at when little else pulls; and now and then (every
- * `every` seconds, the first `first` after it appears) Urchi glances at it on purpose, as it looks up
- * at the "4" while he listens, and its glass glints while it looks: you find the button by
- * following its eyes. Not while the pointer is on the move: the glance waits until it has rested
- * `still` seconds (or nobody is there), asking again every `retry`.
- */
-const PEG = { after: 10, first: [3, 6] as [number, number], every: [24, 48] as [number, number], still: 1.5, retry: 1.5, glint: 0.15 };
-/** The peg has been on the wall in this session (in memory). */
-let pegSeen = false;
-/** Along, a reload waits this long (ms, at most) for the suit's model before Urchi appears, so it arrives suited. */
-const SUIT_WAIT = 2500;
-/** The peg's word (the cursor label, and the button's name): what pressing it does. */
-const pegWord = (along: boolean) => (along ? "Leave it home" : "Take it along");
 
 /** Who holds the caption: a timed line (what's new) outranks the hover caption. */
 type Slot = "hover" | "auto" | "news";
@@ -140,18 +120,11 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   const caption = useRef<HTMLDivElement>(null);
   const label = useRef<HTMLDivElement>(null);
   const live = useRef<HTMLParagraphElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
-  const wall = useRef<HTMLDivElement>(null);
-  const peg = useRef<HTMLButtonElement>(null);
-  const pegHelmet = useRef<HTMLCanvasElement>(null);
   const reducedMotion = prefersReducedMotion();
 
   useEffect(() => {
     const stageEl = stage.current!;
-    // Along within the visit (panel 2, the spacesuit): a reload finds it suited and tethered, so the
-    // intro, which builds the bare head from its eyes, gives way to the room as a return shows it.
-    let along = alongOn();
-    const playIntro = intro && !reducedMotion && !along;
+    const playIntro = intro && !reducedMotion;
     const phone = matchMedia("(hover: none)").matches;
     const room = new RoomScene(canvas.current!, { reducedMotion });
     const cursor = new CursorLabel(label.current!, stageEl);
@@ -164,37 +137,16 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let moodChanged = () => {};
     /** It is being found asleep (a night arrival): the head is on its pillow already, not settling onto it. */
     let arriving = false;
-    // (its reach is its head's, as it is drawn once the suit has stepped it back)
-    const att = new Attention(room.urchi.character, { head: eyesClient, reach: () => (room.urchiSize.w / 2) * room.fit, reducedMotion, onMood: () => moodChanged() });
-    room.attention = att;
+    const att = new Attention(room.urchi.character, { head: eyesClient, reach: () => room.urchiSize.w / 2, reducedMotion, onMood: () => moodChanged() });
     const motes = new Motes(room, att, { reducedMotion });
     const call = new Call(room, att, motes, { reducedMotion });
-    // ---- the peg and the suit: its word follows along (the button's name, and the cursor's word
-    // under the pointer), saying where it will end up, a press made mid-way included (see Suit.press)
-    const pegEl = peg.current!;
-    let overPeg = false;
     /** The pointer is on Urchi (the cursor label follows at once)... */
     let overUrchi = false;
     /** What a click on Urchi does, as the cursor says it: asleep, it wakes it. */
     const urchiWord = () => (att.asleep ? "Wake" : null);
-    const pegLabel = (on: boolean) => {
-      pegEl.setAttribute("aria-pressed", String(on));
-      pegEl.setAttribute("aria-label", pegWord(on));
-      if (overPeg) cursor.set(pegWord(on));
-    };
-    const suit = new Suit({
-      room, att, panel: panel.current!, wall: wall.current!, peg: pegEl, helmet: pegHelmet.current!, reducedMotion,
-      onChange: pegLabel,
-      onBusy: () => {
-        if (overUrchi) cursor.set(urchiWord());
-      },
-    });
-    pegLabel(along);
-    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __suit: suit }); // handy for debugging and headless QA
+    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
     let stopArrive: (() => void) | null = null;
-    /** Until the panel unmounts: anything that lands later (the suit's model) finds nothing to act on. */
-    let alive = true;
 
     // ---- the caption: Urchi's name over one of his lines, a state, or what's new
     const capTitle = caption.current!.querySelector("h3")!;
@@ -329,15 +281,6 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let listenGlance = Infinity;
     /** When a rhythm or its answer last had its attention (attention seconds). */
     let callHeard = -Infinity;
-    /** When Urchi next glances at the peg (attention seconds), and the peg's timer to appear. */
-    let pegGlance = Infinity;
-    let pegTimer: gsap.core.Tween | null = null;
-    Object.assign(stageEl, { __glancePeg: () => (pegGlance = att.t) }); // headless QA: the next glance now
-    const showPeg = (now: boolean) => {
-      pegSeen = true;
-      suit.show(now);
-      pegGlance = att.t + rand(...PEG.first);
-    };
     const begin = (afterIntro: boolean) => {
       if (begun >= 0) return;
       arriving = !afterIntro;
@@ -346,9 +289,6 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       motes.start();
       begun = att.t;
       newsAt = att.t + (afterIntro ? NEWS.afterIntro : NEWS.after);
-      // the peg: at once on a return, else after a while alone in the room
-      if (along || pegSeen || lastVisit() !== null) showPeg(true);
-      else pegTimer = gsap.delayedCall(PEG.after, () => showPeg(false));
       // Back from another tab: it is still watching the pill of the tab you left.
       const left = leftRoute();
       if (!afterIntro && left && left !== "/" && isTab(left)) {
@@ -381,14 +321,6 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (att.listening && t >= listenGlance) {
         listenGlance = t + rand(...LISTEN_GLANCE.every);
         att.play("listenGlance", 1, () => glanceAt(att, () => pillAt("/music")));
-      }
-      // Now and then, left home, the peg catches its eye (and its glass glints as it looks).
-      if (t >= pegGlance && suit.pegShown && !suit.along && !suit.busy && !att.asleep && !att.acting && !call.busy && slot === null) {
-        if (att.you() && att.stillFor < PEG.still) pegGlance = t + PEG.retry;
-        else {
-          pegGlance = t + rand(...PEG.every);
-          if (att.play("pegGlance", 1, () => glanceAt(att, () => suit.helmetAt()))) gsap.delayedCall(PEG.glint, () => suit.glint());
-        }
       }
     });
 
@@ -441,67 +373,22 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       let arrived = false;
       // Real timers, not gsap's: its clock can jump ahead after a long first frame.
       let arriveTimer = 0;
-      let suitTimer = 0;
-      let suitReady = false;
       const arrive = () => {
         if (arrived) return;
         arrived = true;
         window.clearTimeout(arriveTimer);
-        window.clearTimeout(suitTimer);
-        // Along: already suited and tethered, as it was left (no animation). Its model late (past
-        // SUIT_WAIT), it arrives bare, as nothing of a suit can be drawn yet, and suits up once
-        // the model is here.
-        if (along && suitReady) suit.restore();
-        else if (along) pegLabel(false);
         room.showUrchi(0.6);
         begin(false);
       };
-      // At night it waits for the poll; along, for the suit's model, so it arrives as it will stay.
-      let heard = known !== null || clock().hours !== "night";
-      let dressed = !along;
-      const ready = () => {
-        if (heard && dressed) arrive();
-      };
-      if (!heard) {
-        onHeard = () => {
-          heard = true;
-          ready();
-        };
-        arriveTimer = window.setTimeout(() => {
-          heard = true;
-          ready();
-        }, NIGHT_WAIT);
+      if (known !== null || clock().hours !== "night") arrive();
+      else {
+        onHeard = arrive;
+        arriveTimer = window.setTimeout(arrive, NIGHT_WAIT);
       }
-      if (!dressed) {
-        const dress = () => {
-          dressed = true;
-          ready();
-        };
-        // (its rig built too, in idle moments, so the frame that first shows it suited does not pay
-        // for it; left before it lands, the room, the suit and the attention are gone: it does nothing)
-        warmSuitIdle().then(
-          () => {
-            if (!alive) return;
-            suitReady = true;
-            if (!arrived) dress();
-            else suit.resume();
-          },
-          () => {
-            if (!alive) return;
-            along = false; // no model to wear: it stays home
-            dress();
-          },
-        );
-        suitTimer = window.setTimeout(dress, SUIT_WAIT);
-      }
-      ready();
       setFlag("loadingComplete", true);
       setFlag("exploded", true);
       setFlag("pageReady", true);
-      stopArrive = () => {
-        window.clearTimeout(arriveTimer);
-        window.clearTimeout(suitTimer);
-      };
+      stopArrive = () => window.clearTimeout(arriveTimer);
     }
 
     // ---- caught in the act: back on the tab after a while away, it was doing something else
@@ -559,28 +446,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         else motes.release(e.clientX, e.clientY);
       }
     };
-    // The peg: a real button beside the stage, so a tap on it is not a tap on the room (no mote,
-    // no beat of a rhythm) and the keyboard reaches it.
-    const onPeg = () => {
-      call.abort();
-      suit.press();
-    };
-    const onPegOver = (e: PointerEvent) => {
-      if (e.pointerType === "touch") return;
-      overPeg = true;
-      cursor.set(pegWord(suit.target));
-    };
-    const onPegOut = () => {
-      overPeg = false;
-      cursor.set(overUrchi ? urchiWord() : null);
-    };
-    pegEl.addEventListener("click", onPeg);
-    pegEl.addEventListener("pointerenter", onPegOver);
-    pegEl.addEventListener("pointerleave", onPegOut);
-    const onResize = () => {
-      room.resize();
-      suit.layout();
-    };
+    const onResize = () => room.resize();
 
     stageEl.addEventListener("pointermove", onMove);
     stageEl.addEventListener("pointerleave", onLeave);
@@ -589,14 +455,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     window.addEventListener("resize", onResize);
 
     return () => {
-      alive = false;
       stopIntro?.();
       stopArrive?.();
-      pegTimer?.kill();
-      pegEl.removeEventListener("click", onPeg);
-      pegEl.removeEventListener("pointerenter", onPegOver);
-      pegEl.removeEventListener("pointerleave", onPegOut);
-      suit.dispose();
       slotTimer?.kill();
       restTimer?.kill();
       stopPoll();
@@ -617,7 +477,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   }, []);
 
   return (
-    <div ref={panel} className="space-panel">
+    <div className="space-panel">
       <section ref={stage} className="stage stage-space" aria-hidden="true">
         <canvas ref={canvas} />
 
@@ -648,14 +508,6 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         </div>
         <div ref={label} className="cursor-label" />
       </section>
-
-      {/* The peg on the left wall, with Urchi's helmet hanging from it: a real button beside the stage, hidden until it appears. */}
-      <div ref={wall} className="space-peg">
-        <button ref={peg} type="button" className="space-peg-button" aria-pressed="false" aria-label={pegWord(false)}>
-          <span className="space-peg-ring" />
-        </button>
-        <canvas ref={pegHelmet} className="space-peg-helmet" aria-hidden="true" />
-      </div>
 
       {/* Beside the stage rather than inside it, so it is not aria-hidden: what's new is read out here. */}
       <p ref={live} className="sr-only" aria-live="polite" />

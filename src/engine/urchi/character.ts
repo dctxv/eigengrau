@@ -101,7 +101,7 @@ export function preloadSuit(): Promise<void> {
 
 // ------------------------------------------------------------------ the suit's rig
 // Built the first time a suit is painted (nothing of it exists before), from suit.json, once for
-// every painter on the page (the room's Urchi, and the peg's helmet and its glass): the painter works
+// every painter on the page (the room's Urchi, or the sheet's on /dev/suit): the painter works
 // a flat plane at a time, and each plane's outline (its loops of vertices, from the triangles that
 // can be seen) is found once here, so a frame walks each plane's corners once. What a frame fills in
 // is each painter's own (see suitRig in createUrchi).
@@ -165,9 +165,9 @@ let modelOnce: SuitModel | null = null;
 let modelBuild: Generator<void, SuitModel, void> | null = null;
 /**
  * Builds the page's suit rig ahead of the first suited paint, a slice at a time: for about `budget`
- * ms, then it stops where it is, for the host to carry on in a moment of its own (the peg's first
- * appearance does, in idle time). True once it is built; false if not yet, or if the model is not
- * here. With no budget, all of it now.
+ * ms, then it stops where it is, for the host to carry on in a moment of its own (Space does, in
+ * idle time). True once it is built; false if not yet, or if the model is not here. With no
+ * budget, all of it now.
  */
 export function warmSuit(budget = Infinity): boolean {
   if (modelOnce) return true;
@@ -187,10 +187,10 @@ export function warmSuit(budget = Infinity): boolean {
 /**
  * `fn` in a moment of its own: an idle callback where the browser has them (within `wait` ms at
  * most), else a task soon after this frame. The suit's rig is built in such moments, `slice` ms of
- * it in each, and Space's peg makes its helmet in them too, so none of it holds up a frame.
+ * it in each, so none of it holds up a frame.
  */
 const IDLE = { wait: 250, fallback: 16, slice: 6 };
-export function whenIdle(fn: () => void): void {
+function whenIdle(fn: () => void): void {
   if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(() => fn(), { timeout: IDLE.wait });
   else window.setTimeout(fn, IDLE.fallback);
 }
@@ -347,33 +347,6 @@ export const URCHI_EYES: { centres: [number, number][]; reach: number } = (() =>
   return { centres, reach };
 })();
 
-/**
- * The head's left side as drawn at rest (facing front, in perspective, rim not included), by rows:
- * for each height in mesh units (y down, every `step` from `top`), how far left of the centre the
- * head reaches there, or Infinity where it does not reach. Whatever sits beside it on the left
- * (Space's peg on the wall) keeps clear of this. Worked out the first time it is asked for.
- */
-let leftOnce: { top: number; step: number; left: Float32Array } | null = null;
-export function urchiLeft(): { top: number; step: number; left: Float32Array } {
-  if (leftOnce) return leftOnce;
-  const top = URCHI_HEAD.top - 8, step = 4, n = Math.ceil((URCHI_HEAD.bottom - top) / step) + 3, left = new Float32Array(n).fill(Infinity);
-  const nv = MESH.v.length, X = new Float64Array(nv), Y = new Float64Array(nv);
-  for (let i = 0; i < nv; i++) {
-    const [x, y, z] = MESH.v[i], s = PERSPECTIVE_AT_REST / (PERSPECTIVE_AT_REST - z);
-    X[i] = x * s; Y[i] = y * s;
-  }
-  // each triangle's edges across the rows they span: the leftmost crossing on each row
-  for (const f of MESH.f) for (let e = 0; e < 3; e++) {
-    const p = f[e], q = f[(e + 1) % 3], a = Y[p] <= Y[q] ? p : q, b = a === p ? q : p;
-    const ya = Y[a], yb = Y[b], xa = X[a], xb = X[b];
-    for (let r = Math.max(0, Math.ceil((ya - top) / step)); r < n && top + r * step <= yb; r++) {
-      const x = yb === ya ? Math.min(xa, xb) : xa + ((top + r * step - ya) / (yb - ya)) * (xb - xa);
-      if (x < left[r]) left[r] = x;
-    }
-  }
-  return (leftOnce = { top, step, left });
-}
-
 // ------------------------------------------------------------------ eye colours
 // One colourway is drawn at random on every page load, weighted exactly as the LilGuy eyes
 // trait sheet: 100 colourways in seven bands (weights 1, .8, .9, .7, .3, .5, .2; total 52.7).
@@ -528,10 +501,7 @@ export type UrchiOptions = {
   smooth?: boolean;
 };
 
-/**
- * Knobs for the suit's preview sheet and its checks (/dev/suit), and for the helmet that hangs on
- * Space's peg (suitPart "helmet" with suitEmpty, still, facing you): no Urchi of the site uses them.
- */
+/** Knobs for the suit's preview sheet and its checks (/dev/suit): no Urchi of the site uses them. */
 export type UrchiDevOptions = {
   /**
    * The leak check's layers: paint one layer of the suited figure alone, flat white, instead of
@@ -543,8 +513,6 @@ export type UrchiDevOptions = {
   suitLayer?: "head" | "helmet" | "tucked" | "eyes" | "glass";
   /** The close-ups: "helmet" paints the suited figure's helmet alone, without the body. */
   suitPart?: "helmet";
-  /** The suit with nobody in it: behind the visor only the helmet's dark inside (the peg's helmet). */
-  suitEmpty?: boolean;
   /**
    * The whole figure turned about its vertical axis, in degrees (90 shows its left side, 180 its
    * back): a view, not a look, so the head's own turn still comes on top. The sheet's 3/4, side and back views.
@@ -618,28 +586,6 @@ export type UrchiCharacter = {
   setSuit(amount: number): void;
   /** The suit as set, 0..1 (whether or not its model has arrived). */
   readonly suit: number;
-  /**
-   * A breath fogging the visor: a soft white over the lower glass (8% at `amount` 1), clipped to
-   * the glass, that comes in over a quarter of a second and clears over 1.2s. Only with the suit on.
-   */
-  fog(amount?: number): void;
-  /**
-   * The empty helmet's glass (suitEmpty only): its dark inside, and the far side of its rim across
-   * it (as it hangs on Space's peg), wiped away by `amount` (0..1) where a head is, the head's own
-   * outline in this pose, rim not included, its middle at `x`, `y` (mesh units from this helmet's
-   * middle, as painted) and `k` times this size: there what is behind the canvas shows through,
-   * under the smoke and the sheen. Brought down over a head, with where it is, the head shows
-   * through it just as it does through the worn visor, eyes and all, and nothing of its outline.
-   */
-  clearGlass(amount: number, at?: { x: number; y: number; k: number }): void;
-  /** The head's pose as it was last painted: what another painter holds to paint a helmet exactly over it (holdPose). */
-  readonly headPose: HeadPose;
-  /**
-   * Paint at exactly this pose instead of the head's own (its springs, breath and tilts run on
-   * unseen), until null: Space's peg helmet, lowered onto a head or lifted off it, is turned,
-   * tipped and risen as that head is (its headPose), so the two are one outline.
-   */
-  holdPose(pose: HeadPose | null): void;
   /** The canvas's frame in mesh units: URCHI_FRAME, or URCHI_SUIT_FRAME while the suit is painted. */
   readonly frame: { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
 
@@ -712,8 +658,6 @@ export type UrchiCharacter = {
 
 /** How the gaze turns when lookAt moves it: "snap" is already there; "quick" turns faster than usual. */
 export type LookHow = "snap" | "quick";
-/** A head's pose as painted: yaw, pitch and roll in radians, and its sideways shift and its rise (the breath's) in mesh units. */
-export type HeadPose = { yaw: number; pitch: number; roll: number; shift: number; rise: number };
 
 export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): UrchiCharacter {
   const D2R = Math.PI / 180;
@@ -1395,22 +1339,6 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   const VISOR = { inside: "#060608", tint: "rgba(18, 20, 30, 0.1)", sheen: "205, 212, 228", base: 0.025, grow: 0.07, glint: [0.4, 0.72, 0.36] as Vec3, clear: 1.2, step: 0.012 };
   /** The body's share of a breath's rise (the chest lifts a hair with it) and its zero-g drift. */
   const SUIT_BODY = { rise: 0.5, drift: { roll: 0.7 * D2R, yaw: 1.1 * D2R, lift: 3, periods: [7.3, 9.1, 6.1] as Vec3 } };
-  /**
-   * A breath on the visor (fog): white at `alpha` over the lower glass, from nothing at `from` of
-   * the glass's height on screen to all of it at `full`, coming in over `rise` seconds and clearing
-   * over `clear`.
-   */
-  const FOG = { alpha: 0.08, from: 0.45, full: 0.78, rise: 0.25, clear: 1.2 };
-  /** The fog now (0..1), and the breath that made it: how much, and when (-1: none). */
-  const fogging = { v: 0, amount: 0, start: -1 };
-  /** How clear an empty helmet's glass is where the head is, and where that head is (see clearGlass). */
-  const clearness = { v: 0, x: 0, y: 0, k: 1 };
-  /**
-   * The glass clears this many canvas px inside the head's outline, measured where the tucked head's
-   * outline crosses the glass, about `r` mesh units from its middle (its crown), so a head under it
-   * drawn a pixel off never shows its rim at the edge.
-   */
-  const GLASS_CUT = { px: 2.5, r: 300 };
   let suit = 0;
   const turn = (dev.turn ?? 0) * D2R;
   /** The suit is painted: wanted, and its model is here. */
@@ -1762,15 +1690,14 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       if (!SMOOTH) pixelFinish(null);
       return;
     }
-    const RIM = rimWidth(), empty = !!dev.suitEmpty;
+    const RIM = rimWidth();
     if (SMOOTH) {
       ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * (RIM + BASE);
       strokeOutline(true);
-      if (!whole && !empty) ctx.stroke(head);
+      if (!whole) ctx.stroke(head);
     }
     // the bare head under a suit still building itself (its own rim, drawn with the suit's)
     const headItems = () => {
-      if (empty) return;
       ctx.fillStyle = ctx.strokeStyle = COLOR.base; ctx.lineWidth = 2 * BASE; ctx.fill(head); ctx.stroke(head);
       ctx.lineWidth = CELL;
       for (const it of items) {
@@ -1799,27 +1726,9 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       underlay(R.rim, through);
       for (const g of through.sort(byDepth)) fillPlane(g);
       ctx.save(); ctx.clip(opening);
-      if (empty && clearness.v > 0) {
-        // an empty helmet's glass cleared where the head is (see clearGlass): its inside wiped away
-        // there, so the head behind the canvas shows through the smoke; a hair inside its outline
-        const { x, y, k } = clearness, s = k - (GLASS_CUT.px * CELL) / GLASS_CUT.r;
-        ctx.globalCompositeOperation = "destination-out"; ctx.globalAlpha = clearness.v;
-        ctx.save(); ctx.transform(s, 0, 0, s, x, y); ctx.fill(head); ctx.restore();
-        ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
-      }
       headItems();
       ctx.globalAlpha = glass; ctx.fillStyle = VISOR.tint; ctx.fill(opening); ctx.globalAlpha = 1;
       sheen(R, front[R.glass], light, eyeAt);
-      if (fogging.v > 0 && glassOn) {
-        // a breath on the lower glass: from nothing part way down the opening (on screen) to all of it lower down
-        let top = Infinity, bottom = -Infinity;
-        for (let k = 1; k < OP.length; k += 3) { if (OP[k] < top) top = OP[k]; if (OP[k] > bottom) bottom = OP[k]; }
-        const fade = ctx.createLinearGradient(0, top + FOG.from * (bottom - top), 0, top + FOG.full * (bottom - top));
-        fade.addColorStop(0, "rgba(255, 255, 255, 0)");
-        fade.addColorStop(1, `rgba(255, 255, 255, ${(FOG.alpha * fogging.v).toFixed(4)})`);
-        ctx.fillStyle = fade;
-        ctx.fill(visor);
-      }
       ctx.restore();
       ctx.lineWidth = CELL;
     }
@@ -1933,13 +1842,9 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
    */
   let lastDrawn: number[] | null = null;
   const DRAWN_EPS = 1e-5;
-  /** The head's pose this frame, as painted (see headPose), and one held instead of its own (see holdPose). */
-  const posed: HeadPose = { yaw: 0, pitch: 0, roll: 0, shift: 0, rise: 0 };
-  let held: HeadPose | null = null;
   function paint(yaw: number, pitch: number, roll: number): boolean {
-    Object.assign(posed, { yaw, pitch, roll, shift, rise });
     const now = [yaw, pitch, roll, lidOf(0), lidOf(1), gaze.x.v, gaze.y.v, gaze.h.v, gaze.conv.v, wide.v, shift, rise, reveal, CELL, rimWidth()];
-    if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift, fogging.v, clearness.v, clearness.x, clearness.y, clearness.k);
+    if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift);
     const was = lastDrawn;
     if (was && was.length === now.length && now.every((v, i) => Math.abs(v - was[i]) < DRAWN_EPS)) return false;
     lastDrawn = now;
@@ -1997,15 +1902,6 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       drift.yaw = SUIT_BODY.drift.yaw * Math.sin((TAU * S.t) / p1 + 1.3);
       drift.lift = SUIT_BODY.drift.lift * Math.sin((TAU * S.t) / p2 + 0.6);
     } else drift.roll = drift.yaw = drift.lift = 0;
-    if (fogging.start >= 0) {
-      const e = S.t - fogging.start;
-      if (e >= FOG.rise + FOG.clear || suit <= 0) { fogging.v = 0; fogging.start = -1; }
-      else fogging.v = fogging.amount * (e < FOG.rise ? smooth01(0, FOG.rise, e) : 1 - smooth01(0, FOG.clear, e - FOG.rise));
-    }
-    if (held) {
-      shift = held.shift; rise = held.rise;
-      return paint(held.yaw, held.pitch, held.roll);
-    }
     return paint(S.yaw.v + tilt.yaw.v + away.turn.v + extra.yaw, S.pitch.v + tilt.pitch.v + nod + extra.pitch, roll);
   }
   /** Until dispose: a suit model arriving after it has nothing to repaint. */
@@ -2084,20 +1980,6 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     },
     get suit() {
       return suit;
-    },
-    fog(amount = 1) {
-      if (suit <= 0) return;
-      fogging.amount = clamp(amount, 0, 1); fogging.start = S.t;
-    },
-    clearGlass(amount, at) {
-      clearness.v = clamp(amount, 0, 1);
-      if (at) Object.assign(clearness, { x: at.x, y: at.y, k: at.k });
-    },
-    get headPose() {
-      return { ...posed };
-    },
-    holdPose(pose) {
-      held = pose && { ...pose };
     },
     get frame() {
       return frameNow();

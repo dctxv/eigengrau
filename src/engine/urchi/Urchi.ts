@@ -169,8 +169,8 @@ export class Urchi {
     if (r !== null) this.character.setRim(r);
   }
 
-  /** The rim it holds (mesh units) for the head shown at `shown` host units per mesh unit; null if it holds none. Space's peg helmet wears the same over the head. */
-  rimFor(shown: number): number | null {
+  /** The rim it holds (mesh units) for the head shown at `shown` host units per mesh unit; null if it holds none. */
+  private rimFor(shown: number): number | null {
     if (!this.rim || shown <= 0) return null;
     const [min, max] = this.rim;
     return Math.min(max / shown, Math.max(min / shown, ART_PIXEL));
