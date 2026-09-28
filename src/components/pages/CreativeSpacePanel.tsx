@@ -25,7 +25,7 @@ const CLICK = { slop: 6, ms: 600 };
 /** Reduced motion, Urchi afloat: two clicks or taps on it this close (ms, px) send it home, as a fling hard enough would. */
 const TWICE = { ms: 450, px: 24 };
 /** What the page says for a screen reader as Urchi goes out on its line, and as it comes home. */
-const SAID = { out: "Urchi is out on its line.", home: "The line snapped. Urchi is home." };
+const SAID = { out: "Urchi is out on its line.", snapped: "The line snapped.", home: "Urchi is home." };
 /**
  * When a pointer event happened (performance.now() ms): its own time stamp, so that one long frame
  * (a phone painting Urchi at its full resolution) does not bunch the taps it held back into one
@@ -184,13 +184,16 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       const hand = fl.holding ? "grabbing" : overUrchi && fl.afloat && !att.asleep ? "grab" : "";
       if ((panelEl.dataset.cursor ?? "") !== hand) panelEl.dataset.cursor = hand;
     };
-    let wasFlying = false;
+    let flew = false;
     const onFloat = (state: FloatState) => {
       labelUrchi();
       if (state === "floating" && live.current) live.current.textContent = SAID.out;
+      // the snap is said as it happens, and "home" only once the head is back with its eyes open
       // (home without ever getting out, its suit never having come, is nothing to announce)
-      if (state === "returning" && wasFlying && live.current) live.current.textContent = SAID.home;
-      wasFlying = state === "flying";
+      if (state === "flying" && live.current) live.current.textContent = SAID.snapped;
+      if (state === "flying") flew = true;
+      if (state === "home" && flew && live.current) live.current.textContent = SAID.home;
+      if (state === "home") flew = false;
       // the room changed under the pointer: whether it is on Urchi is asked again on its next move
       if (state !== "floating" && state !== "arriving") setOverUrchi(false);
     };
