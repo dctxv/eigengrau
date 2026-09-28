@@ -24,8 +24,9 @@ export type FloatState = "home" | "leaving" | "away" | "arriving" | "floating" |
 const TAKE = { close: 0.35, dither: 0.3, ditherFor: 1, beat: 0.7, inFor: 3.6, out: 0.35, drop: 0.05, tilt: 0.14, lifeIn: 2.5 };
 /**
  * Home again, in seconds: `gone` after it has left the page (or, under reduced motion, dithered
- * away; long enough that the room is seen empty) the head at home dithers back over `ditherFor` with its eyes shut; they stay shut `hold`
- * more and open over `open`. A flight that has not left the page after `flightMost` ends anyway.
+ * away), long enough for the room to be seen empty, the head at home dithers back over
+ * `ditherFor` with its eyes shut; they stay shut `hold` more and open over `open`. A flight that
+ * has not left the page after `flightMost` ends anyway.
  */
 const HOME = { gone: 2, ditherFor: 1, hold: 0.7, open: 1.8, flightMost: 3 };
 /** Where it likes to float, its middle as shares of the room (from the left, from the top). */
