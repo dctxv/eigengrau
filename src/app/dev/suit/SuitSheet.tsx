@@ -182,6 +182,8 @@ function drawLimbs(g: CanvasRenderingContext2D, W: number, H: number, dpr: numbe
 /**
  * A quirk as a film strip (?view=strip&quirk=wave&side=0&every=0.25&n=16&turn=0): the limbs afloat,
  * the quirk played at 0.5s, a frame every `every` seconds, stepped at 60Hz, left to right and down.
+ * ?push=ax,ay,for[,spin]: from 0.5s the body is felt accelerating that much (mesh units/s², its own
+ * frame, y down) for `for` seconds (and spinning, rad/s), as a fling or a stop would.
  */
 function drawStrip(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
   g.fillStyle = BG;
@@ -206,8 +208,15 @@ function drawStrip(g: CanvasRenderingContext2D, W: number, H: number, dpr: numbe
   const L = ch.limbs!;
   L.setMode("float");
   L.setLife(1);
+  const [pax, pay, pfor, pspin] = (q.get("push") || "0,0,0,0").split(",").map(Number);
   let t = 0;
-  const run = (to: number) => { while (t < to - 1e-9) { ch.update(1 / 60); t += 1 / 60; } };
+  const run = (to: number) => {
+    while (t < to - 1e-9) {
+      if (t >= 0.5 && t < 0.5 + (pfor || 0)) L.feel(pax || 0, pay || 0, 0, pspin || 0, 565);
+      ch.update(1 / 60);
+      t += 1 / 60;
+    }
+  };
   run(0.5);
   if (quirk in QUIRKS) L.play(quirk, side);
   for (let i = 0; i < n; i++) {

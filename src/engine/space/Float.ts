@@ -124,11 +124,11 @@ const NUDGE = { speed: 0.45, step: 24 };
 const LIMBS = { hello: 0.25, splay: 0.35, bump: 0.8, braceEvery: 1.2 };
 /**
  * Curious: the pointer resting near it (still `still` seconds), or a mote it watches, within `near`
- * of its height from its middle, it reaches for, with the arm on that side, a little in front (`z`
- * mesh units), for `hold` seconds at most; then it lets it be for `rest`. Only floating, left alone,
- * not held and doing nothing else.
+ * of its height from its middle but off its body (farther than `off` of it), it reaches for, with the
+ * arm on that side, a little in front (`z` mesh units), for `hold` seconds at most; then it lets it be
+ * for `rest`. Only floating, left alone, not held and doing nothing else.
  */
-const REACH_FOR = { still: 1, near: 1.3, z: 260, hold: 3.4, rest: 8 };
+const REACH_FOR = { still: 1, near: 1.3, off: 0.42, z: 260, hold: 3.4, rest: 8 };
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
@@ -194,6 +194,8 @@ export class Float {
   /** Its velocity and spin as the last frame left them (for what its limbs feel), and when they last braced. */
   private felt = { vx: 0, vy: 0, w: 0 };
   private bracedAt = -Infinity;
+  /** Its hello, waiting (see settle). */
+  private hello: gsap.core.Tween | null = null;
   /** Reaching for what it watches since (its clock; -1 not), and not again before. */
   private reachSince = -1;
   private reachAgain = 0;
@@ -499,7 +501,7 @@ export class Float {
   private settle(all = false) {
     this.arrival = null;
     this.set("floating");
-    if (all) gsap.delayedCall(LIMBS.hello, () => { if (this.state === "floating" && !this.hold) this.limbs?.play("wave", 0); });
+    if (all) this.hello = gsap.delayedCall(LIMBS.hello, () => { if (this.state === "floating" && !this.hold) this.limbs?.play("wave", 0); });
     gsap.killTweensOf(this.life);
     if (!this.reduced) gsap.to(this.life, { v: 1, duration: TAKE.lifeIn, ease: "sine.inOut" });
   }
@@ -532,6 +534,7 @@ export class Float {
     this.hold = null;
     this.arrival = null;
     room.float = null;
+    this.hello?.kill();
     room.urchi.character.limbs?.setMode("rest");
     room.urchi.setSuit(0);
     room.urchi.uniforms.uDither.value = 1;
@@ -667,7 +670,8 @@ export class Float {
       // into its own frame: mesh units from the head's centre, y down
       const q = this.room.toRoom(thing.x, thing.y), u = this.unit, c = Math.cos(p.angle), s = Math.sin(p.angle), dx = q.x - p.x, dy = q.y - p.y;
       const bx = (dx * c + dy * s) / u, by = (-dx * s + dy * c) / u;
-      if (Math.hypot(bx, by) < (REACH_FOR.near * this.tall) / u) at = [bx, FIGURE_MIDDLE - by, REACH_FOR.z];
+      const d = (Math.hypot(bx, by) * u) / this.tall;
+      if (d < REACH_FOR.near && d > REACH_FOR.off) at = [bx, FIGURE_MIDDLE - by, REACH_FOR.z];
     }
     const reaching = this.reachSince >= 0;
     if (at && !reaching && this.t >= this.reachAgain && !L.doing) this.reachSince = this.t;
@@ -828,6 +832,7 @@ export class Float {
   dispose() {
     this.disposed = true;
     this.tl?.kill();
+    this.hello?.kill();
     gsap.killTweensOf(this.life);
     this.stopFrame();
     this.tether.dispose();
