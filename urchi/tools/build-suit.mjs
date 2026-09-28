@@ -377,11 +377,27 @@ function helmetAlong(from, dir) {
 const helmetFront = (x, y) => helmetAlong([x, y, 0], [0, 0, 1]);
 
 // The visor: its outline in the front view (the right half, from the top of the middle round to
-// the bottom of the middle), set on the helmet's front. As the reference's: a wide shield of
-// straight runs and plain corners, nearly all of the helmet's face: a gently arched top, a short
-// slant down at each top corner, sides all but upright and widest a little below the middle, a
-// long slant in at the bottom corners, a flat bottom, framing the eyes with room for every turn.
-const VISOR = [[0, -174], [230, -166], [336, -122], [404, -42], [424, 60], [420, 172], [392, 262], [320, 348], [212, 398], [0, 412]];
+// the bottom of the middle), set on the helmet's front. As the reference's, five straight runs a
+// side and nothing between them: the top, rising a touch to a point in the middle; a slant down
+// at the top corner; the side, upright; a long slant in at the bottom corner; the bottom, dipping
+// a touch to a point in the middle. Nearly all of the helmet's face, framing the eyes with room
+// for every turn.
+const VISOR_CORNERS = [[0, -178], [290, -162], [418, -44], [418, 232], [228, 398], [0, 412]];
+/**
+ * The outline as it is built: each run cut into pieces no longer than VISOR_PIECE, all on the
+ * straight line between its corners in the front view, so the band and the glass's edge bend with
+ * the helmet from corner to corner (a band straight from corner to corner would sink into it on
+ * the long runs) while the front view shows only the runs.
+ */
+const VISOR_PIECE = 80;
+const VISOR = (() => {
+  const out = [VISOR_CORNERS[0]];
+  for (let k = 0; k + 1 < VISOR_CORNERS.length; k++) {
+    const [ax, ay] = VISOR_CORNERS[k], [bx, by] = VISOR_CORNERS[k + 1], n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / VISOR_PIECE));
+    for (let j = 1; j <= n; j++) out.push([ax + ((bx - ax) * j) / n, ay + ((by - ay) * j) / n]);
+  }
+  return out;
+})();
 /** A point seen from the helmet's middle: its x and y over its z from there (in front only). */
 const toWindow = (p) => [(p[0] - H.c[0]) / (p[2] - H.c[2]), (p[1] - H.c[1]) / (p[2] - H.c[2])];
 /** Whether (x, y) lies inside a polygon of [x, y] points (even-odd). */
@@ -406,11 +422,16 @@ const underGlass = (p) => p[2] - H.c[2] > 1 && inPolygon(...toWindow(p), GLASS_W
  * past the rim's sides in the middle of the face. So the glass is held back to this cap, a
  * shallow dome in front of the face (the face stays FACE_GAP behind it, checked below), and the
  * shell's points behind the glass another `shell` behind that: the visor is a hole in the shell,
- * and nothing of it may show in front of the rim from the side either. Out of the middle the
- * surface is lower than the cap and nothing changes.
+ * and nothing of it may show in front of the rim from the side either. It comes down a little
+ * more above the eyes (`up` a unit from `upFrom` up) and under the chin (`low` a unit from
+ * `lowFrom` down), level with the ends of the visor's straight sides, where side on the rim is
+ * furthest round the helmet's curve: in the middle, where the glass is frontmost, and less and
+ * less out to `wide` either side (further out it would only pull the shell in under the rim).
+ * Out of the middle the surface is lower than the cap and nothing changes. (The glass's own edge
+ * is left where it is, recessed as everywhere: the rim stands over it.)
  */
-const CAP = { z: 442, y: 165, x1: 0.1, x2: 3.5e-4, y2: 2e-4, down: 0.15, shell: 1.5 };
-const glassCap = (x, y) => CAP.z - CAP.x1 * Math.abs(x) - CAP.x2 * x * x - CAP.y2 * (y - CAP.y) ** 2 - CAP.down * Math.max(0, y - CAP.y);
+const CAP = { z: 442, y: 165, x1: 0.1, x2: 3.5e-4, y2: 2e-4, up: 0.3, upFrom: 10, down: 0.15, low: 0.3, lowFrom: 250, wide: 450, shell: 1.5 };
+const glassCap = (x, y) => CAP.z - CAP.x1 * Math.abs(x) - CAP.x2 * x * x - CAP.y2 * (y - CAP.y) ** 2 - CAP.down * Math.max(0, y - CAP.y) - Math.max(0, 1 - Math.abs(x) / CAP.wide) * (CAP.up * Math.max(0, CAP.upFrom - y) + CAP.low * Math.max(0, y - CAP.lowFrom));
 /** Behind the glass, where the cap flattens the shell, its points on a grid this far apart (x, y), so its facets there follow the cap closely. */
 const GRID = { x: 90, y: 80 };
 
@@ -477,19 +498,19 @@ const openingKey = (p) => `${Math.abs(p[0])},${p[1]}`;
 {
   const P = lens;
   /** A point of the glass: under the surface, held back to the cap; its uncapped z kept for the opening. */
-  const put = (q, h) => {
+  const put = (q, h, capped = true) => {
     const p = underSurface(q, h), z = p[2];
-    p[2] = Math.min(z, glassCap(p[0], p[1]));
+    if (capped) p[2] = Math.min(z, glassCap(p[0], p[1]));
     const i = P.vert(p);
     OPENING.set(openingKey(P.v[i]), z);
     return i;
   };
-  // the outline, two rings inside it and the middle, the inner rings' points strayed a little (as
-  // the shell's are, from its own seeded draws), so the glass is facets of all sizes that catch the
-  // light each their own way, as the reference's does; a shallow cone behind
+  // the outline (every piece of it), two rings inside it and the middle, the inner rings' points
+  // strayed a little (as the shell's are, from its own seeded draws), so the glass is facets of all
+  // sizes that catch the light each their own way, as the reference's does; a shallow cone behind
   const rnd = seeded(GLASS.seed), stray = (x, y, k) => { const a = (rnd() - 0.5) * 2 * GLASS.stray, b = (rnd() - 0.5) * 2 * GLASS.stray; return x === 0 ? [0, y + b] : [x + a * k, y + b * k]; };
   const ringAt = (f, h, k) => VISOR.map(([x, y]) => put(stray(x * f, GLASS.hub + (y - GLASS.hub) * f, k), h));
-  const O = VISOR.map((p) => put(p, GLASS.edge));
+  const O = VISOR.map((p) => put(p, GLASS.edge, false));   // the edge as recessed as anywhere, the cap or not: the rim's wall always reaches under it
   const M = ringAt(0.72, lerp(GLASS.middle, GLASS.edge, 0.5), 1), I = ringAt(0.4, GLASS.middle, 0.8);
   const c = put([0, GLASS.hub], GLASS.middle);
   for (let i = 0; i + 1 < O.length; i++) { P.quad(O[i], O[i + 1], M[i + 1], M[i]); P.quad(M[i], M[i + 1], I[i + 1], I[i]); }
@@ -503,18 +524,16 @@ const openingKey = (p) => `${Math.abs(p[0])},${p[1]}`;
 // does) and not as more of the shell. Its section runs from a foot under the glass's edge up an
 // inner wall (what frames the glass when the helmet turns), over a rounded crown and down a
 // short outer side to a foot sunk under the shell's facets (so no gap ever opens between the
-// two). The inner wall's foot is 20 under the glass's edge: toward the sides the cap holds the
-// glass's edge back deeper than GLASS.edge, and seen from the far side at a full turn the wall
-// must still reach down past it. Each point is wrapped onto the curved surface, so the band
+// two). Each point is wrapped onto the curved surface, so the band
 // hugs the helmet all the way round instead of lifting off at the sides. It stands tallest
 // at the visor's sides, which frame the glass as the head turns, and lower across the top and
 // the bottom, which are seen side on from the side, where a tall crown would stick out like a hook;
-// and a touch taller again (LOW) down its lower sides, which side on are what stands in front of
-// the glass's lower half.
-const RIM = { W: 32, UP: 40, UP_MID: 30, IN: 6, SINK: 1, LOW: 1.08, LOW_Y0: 120, LOW_Y1: 224 };
+// and taller again (LOW) down its lower sides, which side on are what stands in front of the
+// glass's lower half.
+const RIM = { W: 32, UP: 40, UP_MID: 30, IN: 6, SINK: 1, LOW: 1.3, LOW_Y0: 120, LOW_Y1: 224 };
 // [across, up]: across as a fraction of W from the foot inside the glass; up as a fraction of the
 // rim's height there (units, if not within -1..1), or 'foot': on the shell's facets, SINK under them
-const RIM_SECTION = [[0, -GLASS.edge - 20], [0, 0.6], [0.16, 0.94], [0.5, 1], [0.84, 0.92], [0.98, 0.5], [1, 'foot']];
+const RIM_SECTION = [[0, -GLASS.edge - 8], [0, 0.6], [0.16, 0.94], [0.5, 1], [0.84, 0.92], [0.98, 0.5], [1, 'foot']];
 /** How far a point is inside the faceted shell (negative: outside it). */
 const shellInside = (() => {
   const planes = shell.f.map(([a, b, c]) => {
@@ -536,19 +555,20 @@ const smoothstep = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b
 const rimUp = (i) => lerp(RIM.UP_MID, RIM.UP, smoothstep(0.2, 0.8, VISOR[i][0] / Math.max(...VISOR.map((p) => p[0])))) * lerp(1, RIM.LOW, smoothstep(RIM.LOW_Y0, RIM.LOW_Y1, VISOR[i][1]));
 /** At each point of the visor's outline: where it lies on the smooth surface, the surface's normal there, and the way out from the glass along the surface. */
 const VISOR_FRAME = VISOR.map(([x, y], i) => {
-  const s = helmetFront(x, y), nrm = helmetNormal(s);
-  const prev = VISOR[Math.max(0, i - 1)], next = VISOR[Math.min(VISOR.length - 1, i + 1)];
-  // the outline runs clockwise on screen: rightward across the top, leftward along the bottom
-  let tan = i === 0 ? [1, 0, 0] : i === VISOR.length - 1 ? [-1, 0, 0] : [next[0] - prev[0], next[1] - prev[1], 0];
-  tan = unit(sub(tan, mul(nrm, dot(tan, nrm))));
-  return { s, nrm, out: unit(cross(tan, nrm)) };   // out: away from the glass
+  const s = helmetFront(x, y), nrm = helmetNormal(s), flat = (v) => unit(sub(v, mul(nrm, dot(v, nrm))));
+  // the outline runs clockwise on screen: rightward across the top, leftward along the bottom; at
+  // a corner the band turns on the line halving it, and is let out there (its mitre) so that it
+  // stays as wide, square on to either run
+  const run = i === VISOR.length - 1 ? [-1, 0, 0] : flat(sub(helmetFront(...VISOR[i + 1]), s));
+  const tan = i === 0 ? flat([1, 0, 0]) : i === VISOR.length - 1 ? flat([-1, 0, 0]) : flat(add(flat(sub(s, helmetFront(...VISOR[i - 1]))), run));
+  return { s, nrm, out: unit(cross(tan, nrm)), mitre: 1 / Math.max(0.5, dot(tan, flat(run))) };   // out: away from the glass
 });
 const rim = part('rim', 'rim', { centre: true, rigid: 'head', decal: 1 });
 {
   const P = rim;
   // across in units (a fraction of the width, from the foot inside the glass), up as a fraction of UP (or units, if not in 0..1)
-  const rings = VISOR_FRAME.map(({ s, out }, i) => RIM_SECTION.map(([u, h]) => {
-    const at = add(s, mul(out, u * RIM.W - RIM.IN));
+  const rings = VISOR_FRAME.map(({ s, out, mitre }, i) => RIM_SECTION.map(([u, h]) => {
+    const at = add(s, mul(out, (u * RIM.W - RIM.IN) * mitre));
     return h === 'foot' ? ontoFacets(onShell(at), RIM.SINK) : onShell(at, Math.abs(h) <= 1 ? h * rimUp(i) : h);
   }));
   for (const r of [rings[0], rings[rings.length - 1]]) for (const p of r) p[0] = 0;   // square on to the middle
@@ -567,8 +587,8 @@ const rim = part('rim', 'rim', { centre: true, rigid: 'head', decal: 1 });
  */
 const WINDOW_MARGIN = 14;
 const WINDOW = (() => {
-  const half = VISOR_FRAME.map(({ s, out }, i) => {
-    const q = toWindow(onShell(add(s, mul(out, RIM.W - RIM.IN + WINDOW_MARGIN))));
+  const half = VISOR_FRAME.map(({ s, out, mitre }, i) => {
+    const q = toWindow(onShell(add(s, mul(out, (RIM.W - RIM.IN + WINDOW_MARGIN) * mitre))));
     return i === 0 || i === VISOR.length - 1 ? [0, q[1]] : q;
   });
   return [...half, ...half.slice(1, -1).reverse().map(([x, y]) => [-x, y])];
