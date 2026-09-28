@@ -3,9 +3,11 @@
  * arms and legs in segments from five joints a side: the shoulder in the middle of its cap, the
  * elbow and the wrist in the middle of their rings, the hip up inside the hips, the ankle in the
  * middle of its cuff. This poses them: ten angles a side, each on a spring toward what it wants,
- * which is a posture (the modelled one, or zero gravity's own), a slow drift on it, what it is doing
- * (a quirk: waving, turning a glove over to look at it, tapping its helmet, swinging its legs...) and
- * what its body's motion does to it (flung, the limbs trail; spun, they fly out; stopped, they swing on).
+ * which is a posture (the modelled one, or zero gravity's own), its life afloat on it (a slow sway
+ * of every limb and of the whole body, a lift with each breath, a settle now and then; see
+ * IDLE_LIFE), what it is doing (a quirk: waving, turning a glove over to look at it, tapping its
+ * helmet, swinging its legs...) and what its body's motion does to it (flung, the limbs trail;
+ * spun, they fly out; stopped, they swing on).
  *
  * The angles, in degrees in what follows (radians inside), for the `.R` side (x positive, on the
  * viewer's right); the `.L` side takes the same angles as its mirror image:
@@ -379,9 +381,35 @@ const IDLE: [QuirkName, number][] = [["inspect", 3], ["tap", 2], ["swing", 3], [
 /** A reach comes in over REACH_IN seconds and lets go over REACH_OUT, its elbow out and down. */
 const REACH_IN = 0.7, REACH_OUT = 0.9;
 const REACH_POLE: [number, number, number] = [0.7, 0.7, -0.2];
-/** Seconds between quirks, left alone: [least, most]; and the drift's size, degrees, per angle. */
+/** Seconds between quirks, left alone: [least, most]. */
 const PACE = { gap: [3.2, 7.5] as [number, number], first: 1.6 };
-const DRIFT: Record<Dof, number> = { shFlex: 7, shAbd: 6, shTwist: 6, elbow: 9, wrTwist: 10, wrBend: 8, hipFlex: 6, hipAbd: 4, hipTwist: 6, ankle: 8 };
+/**
+ * Its life afloat between quirks: never quite still, as a body in zero gravity is not. Each angle
+ * sways (`sway`, degrees) on a slow noise, three sines a band apart (`bands`, seconds; `weights`) on
+ * periods that never line up: part of it its own; part (`limb`, and which way) its limb's, so an
+ * arm drifts up and round as a piece rather than an angle at a time; and part (`body`) the whole
+ * body's, curling in a little and opening out again as a sleeper's does, arms and legs together.
+ * The limbs lift a little with each in-breath (`breath`, degrees at the top of one; the head's
+ * breath, see breathe); and every `every` seconds one limb settles somewhere a little different
+ * (`settle`, degrees at most each way) over `over` seconds, and stays there. Big enough to be seen
+ * on the page, where the figure is a couple of hundred pixels tall; slow enough to read as
+ * drifting, not as doing something.
+ */
+const IDLE_LIFE = {
+  sway: { shFlex: 12, shAbd: 10, shTwist: 10, elbow: 15, wrTwist: 16, wrBend: 11, hipFlex: 11, hipAbd: 5, hipTwist: 9, ankle: 15 } as Record<Dof, number>,
+  limb: { shFlex: 0.5, shAbd: 0.45, shTwist: 0.3, elbow: 0.35, wrTwist: 0.2, wrBend: 0.25, hipFlex: 0.45, hipAbd: 0.4, hipTwist: 0.3, ankle: -0.3 } as Record<Dof, number>,
+  body: { shFlex: 0.35, shAbd: -0.2, shTwist: 0, elbow: 0.35, wrTwist: 0, wrBend: 0.2, hipFlex: 0.5, hipAbd: 0, hipTwist: 0, ankle: -0.3 } as Record<Dof, number>,
+  bands: [[8, 13], [4, 6.5], [2, 3]] as [number, number][],
+  weights: [0.4, 0.45, 0.15],
+  breath: { shFlex: 2.5, shAbd: 3.5, elbow: -3.5, wrBend: 2.5, hipFlex: 1.5, ankle: -2.5 } as Pose,
+  settle: { shFlex: 12, shAbd: 9, shTwist: 12, elbow: 18, wrTwist: 24, wrBend: 12, hipFlex: 10, hipAbd: 3, hipTwist: 9, ankle: 12 } as Record<Dof, number>,
+  every: [3, 7] as [number, number],
+  over: [1.4, 2.4] as [number, number],
+  /** How likely each limb is to be the one that settles: the `.R` arm and leg, the `.L` arm and leg. */
+  limbs: [0.3, 0.2, 0.3, 0.2],
+  /** Asleep (or dozing): the sway `size` as big and `pace` as quick, eased in and out over `ease` seconds; no quirks, no settles. */
+  asleep: { size: 0.6, pace: 0.55, ease: 2 },
+};
 
 /**
  * What its body's motion does to the limbs, at most (rad/s² per angle): each limb is a weight on its
@@ -407,8 +435,49 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
   let held: Float64Array | null = null;
   const running: Running[] = [];
   let next = PACE.first, last: QuirkName | null = null;
-  const phase = Array.from({ length: 2 * N }, () => Math.random() * Math.PI * 2);
-  const period = Array.from({ length: 2 * N }, () => 4 + Math.random() * 5);
+  // its life afloat (IDLE_LIFE): a noise for each angle (both sides' ten), for each limb (the `.R`
+  // arm and leg, the `.L` arm and leg, after them) and for the whole body (last), three sines each
+  // on their own periods and phases; the breath now; and each limb's settle, from where to where
+  // (degrees, per angle) and when
+  const LIMB0 = 2 * N, BODY = LIMB0 + 4, bands = IDLE_LIFE.bands, weights = IDLE_LIFE.weights, NORM = Math.hypot(...weights);
+  const nPeriod = new Float64Array((BODY + 1) * 3), nPhase = new Float64Array((BODY + 1) * 3);
+  for (let c = 0; c <= BODY; c++) for (let k = 0; k < 3; k++) {
+    nPeriod[c * 3 + k] = bands[k][0] + Math.random() * (bands[k][1] - bands[k][0]);
+    nPhase[c * 3 + k] = Math.random() * Math.PI * 2;
+  }
+  /** A noise now, about -1..1 (as loud as a sine of 1, at times a little more), on its own clock (slower asleep). */
+  const noise = (c: number) => {
+    let v = 0;
+    for (let k = 0; k < 3; k++) v += weights[k] * Math.sin((2 * Math.PI * tn) / nPeriod[c * 3 + k] + nPhase[c * 3 + k]);
+    return v / NORM;
+  };
+  const limbNoise = new Float64Array(4);
+  /** The noises' clock, and how far asleep it is (0..1, eased), and whether it is. */
+  let tn = 0, sleep = 0, asleep = false;
+  let breath = 0;
+  const settleFrom = new Float64Array(2 * N), settleTo = new Float64Array(2 * N);
+  const settleT0 = [0, 0, 0, 0], settleFor = [1, 1, 1, 1];
+  let nextSettle = IDLE_LIFE.every[0];
+  /** The limb an angle is part of (0..3: the `.R` arm and leg, the `.L` arm and leg). */
+  const limbOf = (i: number) => 2 * Math.floor(i / N) + (i % N < 6 ? 0 : 1);
+  /** Where an angle has settled now (degrees), on its way from one settle to the next. */
+  const settled = (i: number) => {
+    const L = limbOf(i);
+    return settleFrom[i] + (settleTo[i] - settleFrom[i]) * mj((t - settleT0[L]) / settleFor[L]);
+  };
+  /** One limb, picked by IDLE_LIFE.limbs, settles somewhere new: each of its angles a little way from the posture (most of them nearer it than not). */
+  function settle() {
+    let r = Math.random(), L = 0;
+    while (L < 3 && (r -= IDLE_LIFE.limbs[L]) > 0) L++;
+    for (let i = 0; i < 2 * N; i++) {
+      if (limbOf(i) !== L) continue;
+      settleFrom[i] = settled(i);
+      settleTo[i] = (Math.random() + Math.random() - 1) * IDLE_LIFE.settle[DOFS[i % N]];
+    }
+    settleT0[L] = t;
+    settleFor[L] = IDLE_LIFE.over[0] + Math.random() * (IDLE_LIFE.over[1] - IDLE_LIFE.over[0]);
+    nextSettle = t + IDLE_LIFE.every[0] + Math.random() * (IDLE_LIFE.every[1] - IDLE_LIFE.every[0]);
+  }
   /** What the body's motion did this frame, per angle (rad/s²), and its spin for the next. */
   const push = new Float64Array(2 * N);
   let version = 0;
@@ -437,16 +506,23 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
     return true;
   }
 
-  /** The targets now: the posture, its drift and what runs. */
+  /** The targets now: the posture, its life afloat and what runs. */
   function aim() {
     const float = mode === "float";
     let calm = 1;
     for (const r of running) if (r.q.still) calm = Math.min(calm, 1 - r.w);
+    const alive = float && !o.reducedMotion ? life * calm : 0, body = alive > 0 ? noise(BODY) : 0;
+    const size = 1 + (IDLE_LIFE.asleep.size - 1) * sleep;
+    if (alive > 0) for (let L = 0; L < 4; L++) limbNoise[L] = noise(LIMB0 + L);
     for (let s = 0; s < 2; s++) for (let k = 0; k < N; k++) {
       const d = DOFS[k], i = s * N + k;
       const base = float ? (FLOAT[d] ?? 0) * life : 0;
-      const drift = float && !o.reducedMotion ? DRIFT[d] * life * calm * Math.sin((2 * Math.PI * t) / period[i] + phase[i]) : 0;
-      target[i] = (base + drift) * D2R;
+      let own = 0;
+      if (alive > 0) {
+        const l = IDLE_LIFE.limb[d], b = IDLE_LIFE.body[d];
+        own = alive * (IDLE_LIFE.sway[d] * size * (b * body + l * limbNoise[limbOf(i)] + Math.sqrt(Math.max(0, 1 - l * l - b * b)) * noise(i)) + (IDLE_LIFE.breath[d] ?? 0) * breath + settled(i));
+      }
+      target[i] = (base + own) * D2R;
       stiff[i] = 1;
     }
     for (let n = running.length - 1; n >= 0; n--) {
@@ -489,19 +565,22 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
   /** On `dt` seconds: the springs toward the targets, what the body's motion did, the joints' limits. */
   function step(dt: number) {
     t += dt;
+    sleep = Math.max(0, Math.min(1, sleep + (asleep ? dt : -dt) / IDLE_LIFE.asleep.ease));
+    tn += dt * (1 + (IDLE_LIFE.asleep.pace - 1) * sleep);
     if (held) {
       q.set(held);
       vel.fill(0);
       rig.update(q);
       return;
     }
-    if (mode === "float" && !o.reducedMotion && life > 0.5 && t >= next && !running.length && reaching.w === 0) {
+    if (mode === "float" && !o.reducedMotion && !asleep && life > 0.5 && t >= next && !running.length && reaching.w === 0) {
       let total = 0;
       for (const [n, w] of IDLE) if (n !== last) total += w;
       let r = Math.random() * total, pick: QuirkName = IDLE[0][0];
       for (const [n, w] of IDLE) { if (n === last) continue; r -= w; if (r <= 0) { pick = n; break; } }
       play(pick);
     }
+    if (mode === "float" && !o.reducedMotion && !asleep && life > 0.5 && t >= nextSettle) settle();
     reaching.w = Math.max(0, Math.min(1, reaching.w + (reaching.on ? dt / REACH_IN : -dt / REACH_OUT)));
     aim();
     aimReach();
@@ -605,6 +684,16 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
     setMode(m: LimbsMode) { if (m !== mode) { mode = m; if (m === "float") next = t + PACE.first; } },
     /** How much of its own life it has afloat, 0..1: the posture, the drift and the quirks come in with it. */
     setLife(v: number) { life = Math.max(0, Math.min(1, v)); },
+    /** Its breath now (the head's): 1 at the top of an in-breath, -1 at the bottom of an out-breath; afloat, the limbs lift a little with it. */
+    breathe(w: number) { breath = Math.max(-1.5, Math.min(1.5, w)); },
+    /** Asleep or dozing: its limbs drift smaller and slower (see IDLE_LIFE.asleep), and it starts nothing of its own accord. */
+    setAsleep(v: boolean) {
+      if (v === asleep) return;
+      // dozing off, it lets go of what it was doing; woken, it does not go straight into something
+      if (v) for (const r of running) r.q = { ...r.q, dur: Math.min(r.q.dur, t - r.t0 + r.q.ramp[1]) };
+      else next = Math.max(next, t + PACE.first);
+      asleep = v;
+    },
     play,
     /**
      * Reach for a point (the body's space at rest: head space, mesh units, y down), with the arm on
