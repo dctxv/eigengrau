@@ -17,8 +17,9 @@ const SuitSheet = process.env.NODE_ENV === "production" ? null : dynamic(() => i
  * what the head can do), leak (the head never shows outside the helmet, over 236 poses), perf
  * (what a suited frame costs to paint), host (the three.js host with the suit on), and the limbs:
  * limbs (their poses: at rest, afloat and each quirk at its height; ?turn=, ?pose=), quirks (each
- * quirk over its time, a row each; ?only=wave,tap, ?cols=, ?turn=) and strip (one quirk as a film
- * strip: ?quirk=, ?side=, ?every=, ?n=).
+ * quirk over its time, a row each; ?only=wave,tap, ?cols=, ?turn=), strip (one quirk as a film
+ * strip: ?quirk=, ?side=, ?every=, ?n=) and film (it afloat, left alone, a frame at a time for a
+ * script to make a clip of: ?seed=, ?fps=, ?turn=).
  */
 export default function SuitPreview() {
   if (!SuitSheet) notFound();

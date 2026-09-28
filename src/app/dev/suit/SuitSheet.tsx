@@ -229,6 +229,34 @@ function drawStrip(g: CanvasRenderingContext2D, W: number, H: number, dpr: numbe
 }
 
 /**
+ * A film of it afloat (?view=film&seed=7&fps=30&turn=0): from a seeded start (every draw of its own
+ * and its head's the same each time), stepped at 60Hz, a frame every 1/fps seconds, drawn on the
+ * sheet and handed over as a JPEG by window.__filmFrame(); the head its own (breathing, blinking,
+ * tilting, looking ahead), the limbs zero gravity's posture, its drift and the quirks it picks.
+ */
+function runFilm(g: CanvasRenderingContext2D, W: number, H: number) {
+  const q = new URLSearchParams(location.search), fps = Number(q.get("fps")) || 30, turn = Number(q.get("turn")) || 0;
+  let seed = Number(q.get("seed")) || 7;
+  Math.random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const h = Math.min(H * 0.94, (W * 0.94 * WHOLE.h) / WHOLE.w);
+  const ch = createUrchi({ smooth: true, input: false }, { turn });
+  ch.setSuit(1);
+  ch.setResolution(boxFor(WHOLE, h));
+  const L = ch.limbs!;
+  L.setMode("float");
+  L.setLife(1);
+  let t = 0, frame = 0;
+  (window as unknown as { __filmFrame: () => string }).__filmFrame = () => {
+    const to = frame++ / fps;
+    while (t < to - 1e-9) { ch.update(1 / 60); t += 1 / 60; }
+    g.fillStyle = BG;
+    g.fillRect(0, 0, W, H);
+    blit(g, ch, WHOLE, (W - (WHOLE.w * h) / WHOLE.h) / 2, (H - h) / 2, h);
+    return g.canvas.toDataURL("image/jpeg", 0.9);
+  };
+}
+
+/**
  * Every quirk over its time (?view=quirks&cols=7&turn=0): a row each, a frame at even steps from
  * its start to its end, afloat, stepped at 60Hz from zero gravity's posture.
  */
@@ -566,6 +594,7 @@ export function SuitSheet() {
       else if (view === "follow") drawFollow(g, W, H, dpr);
       else if (view === "reveal") drawReveal(g, W, H, dpr);
       else if (view === "one") drawOne(g, W, H);
+      else if (view === "film") runFilm(g, W, H);
       else if (view === "host") { c.style.display = "none"; void runHost(W, H, dpr).then((r) => { setText(JSON.stringify(r, null, 2)); document.documentElement.dataset.sheet = "ready"; }); return; }
       else if (view === "leak") setText(JSON.stringify(runLeak(g, W, H), null, 2));
       else if (view === "perf") setText(JSON.stringify(runPerf(), null, 2));

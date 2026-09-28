@@ -1395,8 +1395,8 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   const VISOR = { inside: "#060608", tint: "rgba(18, 20, 30, 0.1)", sheen: "196, 200, 226", base: 0.06, grow: 0.3, glint: [0.4, 0.72, 0.42] as Vec3, clear: 1.2, step: 0.012 };
   /** The arms' segments (all that can come up in front of the helmet): those hung from a shoulder, an elbow or a wrist. */
   const ARM_SEGMENT = new Set<number>();
-  /** The body's share of a breath's rise (the chest lifts a hair with it) and its zero-g drift. */
-  const SUIT_BODY = { rise: 0.5, drift: { roll: 0.7 * D2R, yaw: 1.1 * D2R, lift: 3, periods: [7.3, 9.1, 6.1] as Vec3 } };
+  /** The body's share of a breath's rise (the chest lifts a hair with it) and its zero-g drift under the head. */
+  const SUIT_BODY = { rise: 0.5, drift: { roll: 1.3 * D2R, yaw: 2 * D2R, lift: 5, periods: [7.3, 9.1, 6.1] as Vec3 } };
   let suit = 0;
   /**
    * The limbs in the suit (see limbs.ts), once its model is here: posed as modelled (arms hanging)
@@ -2160,7 +2160,11 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       drift.yaw = SUIT_BODY.drift.yaw * Math.sin((TAU * S.t) / p1 + 1.3);
       drift.lift = SUIT_BODY.drift.lift * Math.sin((TAU * S.t) / p2 + 0.6);
     } else drift.roll = drift.yaw = drift.lift = 0;
-    if (suit >= 1 && SUIT) limbsNow()!.step(dt);
+    if (suit >= 1 && SUIT) {
+      const L = limbsNow()!;
+      L.breathe(breath.w);
+      L.step(dt);
+    }
     return paint(S.yaw.v + tilt.yaw.v + away.turn.v + extra.yaw, S.pitch.v + tilt.pitch.v + nod + extra.pitch, roll);
   }
   /** Where the head looks while it looks at its own hand, in the pointer's terms (see headAim); null while it does not. */

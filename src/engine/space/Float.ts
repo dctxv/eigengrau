@@ -115,8 +115,9 @@ const FLING = { window: 0.09, cap: 2.2, keep: 0.16 };
 const NUDGE = { speed: 0.45, step: 24 };
 
 /**
- * Its limbs (see limbs.ts): zero gravity's posture and quirks come in with its own life; they feel
- * its body's motion (flung, they trail; spun, they fly out); and it reacts with them: a wave `hello`
+ * Its limbs (see limbs.ts): zero gravity's posture, its drift and its quirks come in with its own
+ * life (asleep or dozing, they drift slower and it starts nothing of its own); they feel its
+ * body's motion (flung, they trail; spun, they fly out); and it reacts with them: a wave `hello`
  * seconds after it has floated in, arms and legs thrown out when grabbed or flung faster than
  * `splay` of the snap speed, braced when its line tugs or it bumps a wall faster than `bump` of its
  * height a second (at most every `braceEvery` seconds), curled up as it tumbles off.
@@ -126,7 +127,7 @@ const LIMBS = { hello: 0.25, splay: 0.35, bump: 0.8, braceEvery: 1.2 };
  * Curious: the pointer resting near it (still `still` seconds), or a mote it watches, within `near`
  * of its height from its middle but off its body (farther than `off` of it), it reaches for, with the
  * arm on that side, a little in front (`z` mesh units), for `hold` seconds at most; then it lets it be
- * for `rest`. Only floating, left alone, not held and doing nothing else.
+ * for `rest`. Only floating, awake, left alone, not held and doing nothing else.
  */
 const REACH_FOR = { still: 1, near: 1.3, off: 0.42, z: 260, hold: 3.4, rest: 8 };
 
@@ -653,6 +654,7 @@ export class Float {
       const u = this.unit, c = Math.cos(b.a), s = Math.sin(b.a);
       const ax = (b.vx - f.vx) / dt, ay = (b.vy - f.vy) / dt, al = (b.w - f.w) / dt;
       L.setLife(this.state === "flying" ? 0 : Math.max(this.life.v, this.arrival ? 0.5 : 0));
+      L.setAsleep(this.att.asleep);
       L.feel((ax * c + ay * s) / u, -(-ax * s + ay * c) / u, -al, -b.w, FIGURE_MIDDLE);
       this.reachOut(L);
     }
@@ -666,7 +668,7 @@ export class Float {
     const f = this.att.focus, you = this.att.you(), p = this.room.float;
     const thing = f?.kind === "mote" ? f.at : you && this.att.stillFor > REACH_FOR.still ? you : null;
     let at: [number, number, number] | null = null;
-    if (p && thing && this.state === "floating" && !this.hold && this.t >= this.calmAt && this.life.v > 0.9) {
+    if (p && thing && this.state === "floating" && !this.hold && !this.att.asleep && this.t >= this.calmAt && this.life.v > 0.9) {
       // into its own frame: mesh units from the head's centre, y down
       const q = this.room.toRoom(thing.x, thing.y), u = this.unit, c = Math.cos(p.angle), s = Math.sin(p.angle), dx = q.x - p.x, dy = q.y - p.y;
       const bx = (dx * c + dy * s) / u, by = (-dx * s + dy * c) / u;
