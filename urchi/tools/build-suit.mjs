@@ -4,17 +4,17 @@
 //   npm run urchi:suit                    # build, check and bake
 //   node urchi/tools/build-suit.mjs --dry # build and check only
 //   --verbose                             # the visor's margin by yaw, the tightest part pairs
-//   --quick                               # the visor and rim checked in a few poses only, for trying shapes
+//   --quick                               # the visor checked in a few poses only, for trying shapes
 //
 // The suit is modelled in the head's own space (mesh.json: x right, y down, z toward the
 // viewer, the same units), after a reference sheet of a chibi low-poly astronaut: a rounded
-// helmet of irregular, chunky facets that fits the head closely, with a big visor framed by a
-// thick rim (the helmet's frontmost part, seen side on) and a comm disc on each side; a slim neck
+// helmet of irregular, chunky facets that fits the head closely, with a big visor of faceted
+// glass set flush in it and a comm disc on each side; a slim neck
 // ring; a short chunky torso (chest, belt, hips) with a chest panel, its buttons and two lights;
 // thick hoses from the panel's sides, round the hips and up into the top of a tall box backpack;
 // shoulders, upper arms and forearms with joint rings and big mittens with thumbs; short legs
 // with knee pads; chunky boots on dark soles. The sheet was generated, so it is not symmetrical,
-// and its helmet has bear ears: this has neither.
+// and its helmet has bear ears and a rim round the visor: this has none of them.
 //
 //  1. Fit. The helmet is sized from the head itself (each half-axis is the reach of the head's
 //     core that way and a margin): its faceted shell must hold every vertex of the core (all of
@@ -34,12 +34,11 @@
 //  3. Checks, printed: exact mirror symmetry (every vertex has a partner at (-x, y, z) and every
 //     face a mirrored face), each part closed and consistently wound, no degenerate faces, the
 //     body's parts convex and apart, the triangle count per part, the helmet's fit, the eyes'
-//     margin inside the visor, the rim whole round the glass in every pose the head reaches, and
-//     the rim in front of the glass seen side on.
+//     margin inside the visor, and the glass meeting the shell with no gap between them in every
+//     pose the head reaches.
 //  4. Bake: vertices, triangles, the plane each belongs to, part and material per vertex, the
 //     faces never seen (inside another part, or flat against one), the planes between the body's
-//     parts (mirrored as the parts are), the head's tucked vertices, the visor's window as seen
-//     from the helmet's middle and its opening (the glass uncapped), when each of the body's planes
+//     parts (mirrored as the parts are), the head's tucked vertices, when each of the body's planes
 //     comes on as the suit builds itself (its growth out from the neck ring), the rig the limbs are
 //     posed by (the segments the body's parts turn in, and the joints they turn at: see 2b, 3b), and
 //     (beside it, in suit-frame.json) the canvas frame that holds the suited figure in any pose, its
@@ -56,7 +55,7 @@ const OUT = resolve(ROOT, 'src/engine/urchi/suit.json');
 const OUT_FRAME = resolve(ROOT, 'src/engine/urchi/suit-frame.json');
 const DRY = process.argv.includes('--dry');
 const VERBOSE = process.argv.includes('--verbose');
-// the visor and rim sweep cut to a few poses (the bake is the same; its checks are not all made)
+// the visor's sweep cut to a few poses (the bake is the same; its checks are not all made)
 const QUICK = process.argv.includes('--quick');
 
 // ------------------------------------------------------------------ vectors
@@ -101,7 +100,7 @@ const RANGE = { yaw: 56, pitchUp: 42, pitchDown: 34, roll: 22 };
  * (41.9 across, 17.5 up or 15 down) with a curious tilt on it (5.5, 3 up or 2 down, 17.5 roll), a
  * breath (3.15), the owl's bob (3), and on top the stretch as it wakes looking at you (9.5 up) or
  * a nod over a pill (4 down). The sleeper's deeper breath and dip come with no gaze to follow, and
- * a startle's kick replaces the stretch, never adds to it. The rim must stay whole all through
+ * a startle's kick replaces the stretch, never adds to it. The visor's seam must hold all through
  * this, and at every yaw of the sweep with the head about level (LEVEL); past it, at the sweep's
  * far corners where every extra comes at once, the tool measures and reports it.
  */
@@ -135,14 +134,14 @@ function headProjector({ yaw, pitch, roll }) {
 }
 
 // ------------------------------------------------------------------ parts
-const MATERIALS = ['fabric', 'grey', 'dark', 'glass', 'accent', 'pack', 'rim'];
+const MATERIALS = ['fabric', 'grey', 'dark', 'glass', 'accent', 'pack'];
 const parts = [];
 /**
  * A part. `centre` parts cross the middle: built as their right half (x >= 0, the middle exactly
  * on x = 0) and mirrored onto themselves; the others are built on the right as `name.R` and get
  * a `name.L` twin. `rigid`: what carries it, the head (the helmet) or the body. `decal` (helmet
- * only): it lies on the shell and is drawn after the glass where the eye sees it past the shell,
- * face by face (1, the rim) or as a whole while it faces the eye (2, a disc).
+ * only): it lies on the shell and is drawn as a whole, after the glass while it faces the eye and
+ * before the shell while it does not (a disc).
  */
 function part(name, material, o = {}) {
   // `ball`: a joint's ball (see 2b), inside what is round it at rest and seen only as it bends
@@ -385,9 +384,9 @@ const helmetFront = (x, y) => helmetAlong([x, y, 0], [0, 0, 1]);
 const VISOR_CORNERS = [[0, -178], [290, -162], [418, -44], [418, 232], [228, 398], [0, 412]];
 /**
  * The outline as it is built: each run cut into pieces no longer than VISOR_PIECE, all on the
- * straight line between its corners in the front view, so the band and the glass's edge bend with
- * the helmet from corner to corner (a band straight from corner to corner would sink into it on
- * the long runs) while the front view shows only the runs.
+ * straight line between its corners in the front view, so the glass's edge bends with the helmet
+ * from corner to corner (straight from corner to corner it would sink into it on the long runs)
+ * while the front view shows only the runs.
  */
 const VISOR_PIECE = 80;
 const VISOR = (() => {
@@ -409,35 +408,41 @@ const inPolygon = (x, y, P) => {
   }
   return inn;
 };
-/** The glass's outline as seen from the helmet's middle, the whole loop. */
+/** The convex hull of [x, y] points, in order round it (Andrew's monotone chain). */
+const hull2d = (pts) => {
+  const P = pts.map((p) => [p[0], p[1]]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const turn = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [], upper = [];
+  for (const p of P) { while (lower.length >= 2 && turn(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop(); lower.push(p); }
+  for (let i = P.length - 1; i >= 0; i--) { const p = P[i]; while (upper.length >= 2 && turn(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop(); upper.push(p); }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+};
+/** The glass's outline as seen from the helmet's middle, the whole loop; and it grown (or shrunk) by `f` about its middle. */
 const GLASS_WINDOW = (() => {
   const half = VISOR.map(([x, y]) => toWindow(helmetFront(x, y)));
   return [...half, ...half.slice(1, -1).reverse().map(([x, y]) => [-x, y])];
 })();
-/** Whether a point on (or near) the shell lies behind the glass, seen from the helmet's middle. */
-const underGlass = (p) => p[2] - H.c[2] > 1 && inPolygon(...toWindow(p), GLASS_WINDOW);
+const glassWindow = (f) => {
+  const [cx, cy] = centroid(GLASS_WINDOW.map(([x, y]) => [x, y, 0]));
+  return GLASS_WINDOW.map(([x, y]) => [cx + (x - cx) * f, cy + (y - cy) * f]);
+};
+/** Whether a point on (or near) the shell lies under the glass, seen from the helmet's middle (its edge counted in). */
+const UNDER_GLASS = glassWindow(1.002);
+const underGlass = (p) => p[2] - H.c[2] > 1 && inPolygon(...toWindow(p), UNDER_GLASS);
+/** Close round the glass, seen from the helmet's middle: a point of the shell here would make slivers of facets against the glass's edge. */
+const ROUND_GLASS = glassWindow(1.14);
 /**
- * How far forward the glass may come at (x, y), and the shell behind it: seen side on, the rim
- * must be the helmet's frontmost part (as the reference's is), yet the smooth surface bulges well
- * past the rim's sides in the middle of the face. So the glass is held back to this cap, a
- * shallow dome in front of the face (the face stays FACE_GAP behind it, checked below), and the
- * shell's points behind the glass another `shell` behind that: the visor is a hole in the shell,
- * and nothing of it may show in front of the rim from the side either. It comes down a little
- * more above the eyes (`up` a unit from `upFrom` up) and under the chin (`low` a unit from
- * `lowFrom` down), level with the ends of the visor's straight sides, where side on the rim is
- * furthest round the helmet's curve: in the middle, where the glass is frontmost, and less and
- * less out to `wide` either side (further out it would only pull the shell in under the rim).
- * Out of the middle the surface is lower than the cap and nothing changes. (The glass's own edge
- * is left where it is, recessed as everywhere: the rim stands over it.)
+ * The shell's points under the glass: a grid this far apart (x, y) in the front view, each strayed
+ * up to `stray` either way (seeded by `seed`), all kept this far inside the glass's edge (seen from
+ * the middle, as a share of it), so the glass (see below) is facets of all sizes.
  */
-const CAP = { z: 442, y: 165, x1: 0.1, x2: 3.5e-4, y2: 2e-4, up: 0.3, upFrom: 10, down: 0.15, low: 0.3, lowFrom: 250, wide: 450, shell: 1.5 };
-const glassCap = (x, y) => CAP.z - CAP.x1 * Math.abs(x) - CAP.x2 * x * x - CAP.y2 * (y - CAP.y) ** 2 - CAP.down * Math.max(0, y - CAP.y) - Math.max(0, 1 - Math.abs(x) / CAP.wide) * (CAP.up * Math.max(0, CAP.upFrom - y) + CAP.low * Math.max(0, y - CAP.lowFrom));
-/** Behind the glass, where the cap flattens the shell, its points on a grid this far apart (x, y), so its facets there follow the cap closely. */
-const GRID = { x: 90, y: 80 };
+const GRID = { x: 90, y: 80, stray: 26, seed: 911, inset: 0.9 };
 
 // The shell: points on the surface at a few latitudes, staggered longitudes (fewer near the
-// top), each jittered (JITTER) and those behind the glass held back to its cap, the lowest ring
-// set level for a flat underside; the shell is their convex hull.
+// top), each jittered (JITTER), the lowest ring set level for a flat underside; round the visor,
+// in place of those under the glass or close round it, the glass's own outline (so the shell's
+// facets meet it exactly at its edge) and a grid inside it (whose facets are the glass). The
+// shell is their convex hull.
 const shell = (() => {
   const rnd = seeded(JITTER.seed);
   const jit = (v) => (rnd() - 0.5) * 2 * v;
@@ -453,87 +458,39 @@ const shell = (() => {
       // every draw is made whether or not it is used, so a change to one ring leaves the rest alone
       const dt = jit(JITTER.theta), dp = jit(JITTER.phi * (Math.PI / count)), skip = rnd() < JITTER.skip;
       if (!middle && skip && deg < 100) continue;
-      const theta = (lowest ? deg : deg + dt) * D2R;
-      const p = helmetAt(theta, middle ? phi : phi + dp);
-      if (underGlass(p)) p[2] = Math.min(p[2], glassCap(p[0], p[1]) - CAP.shell);
-      ring.push(p);
+      const theta = (lowest ? deg : deg + dt) * D2R, p = helmetAt(theta, middle ? phi : phi + dp);
+      if (!(p[2] - H.c[2] > 1 && inPolygon(...toWindow(p), ROUND_GLASS))) ring.push(p);
     }
     if (lowest) last.push(...ring); else pts.push(...ring);
   });
-  // behind the glass, where the cap flattens the front, a denser grid of points, so the facets
-  // there (never seen: the glass covers them) follow the cap closely and keep clear of the face
-  for (let x = 0; x <= 360; x += GRID.x) for (let y = -160; y <= 400; y += GRID.y) {
-    const p = helmetFront(x, y);
-    if (!underGlass(p)) continue;
-    p[2] = Math.min(p[2], glassCap(x, y) - CAP.shell);
-    pts.push(p);
-  }
   const floor = Math.max(...last.map((p) => p[1]));
   pts.push(...last.map(([x, , z]) => [x, floor, z]));
+  const inset = glassWindow(GRID.inset), rg = seeded(GRID.seed);
+  pts.push(...VISOR.map(([x, y]) => helmetFront(x, y)));
+  for (let x = 0; x <= 420; x += GRID.x) for (let y = -180; y <= 420; y += GRID.y) {
+    // every draw is made whether or not it is used, as the rings'
+    const a = (rg() - 0.5) * 2 * GRID.stray, b = (rg() - 0.5) * 2 * GRID.stray;
+    const p = helmetFront(x === 0 ? 0 : Math.max(0, x + a), y + b);
+    if (inPolygon(...toWindow(p), inset)) pts.push(p);
+  }
   return hullPart('helmet', 'fabric', pts, { centre: true, rigid: 'head' });
 })();
 const HELMET_FLOOR = Math.max(...shell.v.map((p) => p[1]));
-/** A point on the smooth surface where the line from the helmet's middle through p leaves it, and `h` out along its normal there. */
-function onShell(p, h = 0) {
-  const s = helmetAlong(H.c, unit(sub(p, H.c)));
-  return add(s, mul(helmetNormal(s), h));
-}
-// The glass sits in the rim, not on it: recessed this far under the smooth surface at its edge,
-// and less toward its middle (the inner ring and the hub, the point at y `hub` its rings close
-// round), so the rim stands well proud of it and frames it from every side, as the reference's
-// does; in the middle of the face it is held back to the cap, so side on it stays behind the rim.
-// The face stays well behind it (checked below). Its inner rings' points stray up to `stray`.
-const GLASS = { edge: 14, middle: 6, hub: 108, stray: 26, seed: 911 };
-/** The point `h` under the smooth surface in front of (x, y), along its normal. */
-const underSurface = ([x, y], h) => { const p = helmetFront(x, y); return add(p, mul(helmetNormal(p), -h)); };
-const lens = part('visor', 'glass', { centre: true, rigid: 'head' });
-/**
- * The visor's opening: where the glass would lie if it followed the helmet's surface, uncapped
- * (its z at each of the glass's points; x and y are the glass's own). It is never drawn: it says
- * which of the rim is seen across the opening, from the far side (drawn under the head) and which
- * stands in front of it (drawn over), as the glass itself said before it was held back.
- */
-const OPENING = new Map();
-const openingKey = (p) => `${Math.abs(p[0])},${p[1]}`;
+// The glass: the shell's own facets inside the visor's outline, glazed. The visor is a window in
+// the shell, with nothing round it, and the glass lies exactly where the shell would: flush with it,
+// convex as it is, meeting it at every point of its edge from every side (the seam, checked below);
+// the face stays well behind it (checked below). The shell's facets it takes are never drawn as the
+// shell's. A shallow cone closes it behind, to a point `back` inside the helmet, never seen.
+const GLASS = { back: [0, 108, 300] };
 {
-  const P = lens;
-  /** A point of the glass: under the surface, held back to the cap; its uncapped z kept for the opening. */
-  const put = (q, h, capped = true) => {
-    const p = underSurface(q, h), z = p[2];
-    if (capped) p[2] = Math.min(z, glassCap(p[0], p[1]));
-    const i = P.vert(p);
-    OPENING.set(openingKey(P.v[i]), z);
-    return i;
-  };
-  // the outline (every piece of it), two rings inside it and the middle, the inner rings' points
-  // strayed a little (as the shell's are, from its own seeded draws), so the glass is facets of all
-  // sizes that catch the light each their own way, as the reference's does; a shallow cone behind
-  const rnd = seeded(GLASS.seed), stray = (x, y, k) => { const a = (rnd() - 0.5) * 2 * GLASS.stray, b = (rnd() - 0.5) * 2 * GLASS.stray; return x === 0 ? [0, y + b] : [x + a * k, y + b * k]; };
-  const ringAt = (f, h, k) => VISOR.map(([x, y]) => put(stray(x * f, GLASS.hub + (y - GLASS.hub) * f, k), h));
-  const O = VISOR.map((p) => put(p, GLASS.edge, false));   // the edge as recessed as anywhere, the cap or not: the rim's wall always reaches under it
-  const M = ringAt(0.72, lerp(GLASS.middle, GLASS.edge, 0.5), 1), I = ringAt(0.4, GLASS.middle, 0.8);
-  const c = put([0, GLASS.hub], GLASS.middle);
-  for (let i = 0; i + 1 < O.length; i++) { P.quad(O[i], O[i + 1], M[i + 1], M[i]); P.quad(M[i], M[i + 1], I[i + 1], I[i]); }
-  for (let i = 0; i + 1 < I.length; i++) P.tri(c, I[i], I[i + 1]);
-  P.back = P.vert(add(helmetFront(0, GLASS.hub), [0, 0, -140]));
-  for (let i = 0; i + 1 < O.length; i++) P.tri(P.back, O[i + 1], O[i]);
+  const P = part('visor', 'glass', { centre: true, rigid: 'head' }), at = new Map();
+  const vert = (i) => { if (!at.has(i)) { at.set(i, P.v.length); P.v.push(shell.v[i]); } return at.get(i); };
+  P.f = shell.f.filter((f) => f.every((i) => underGlass(shell.v[i]))).map((f) => f.map(vert));
+  const edges = new Set(P.f.flatMap(([a, b, c]) => [`${a},${b}`, `${b},${c}`, `${c},${a}`]));
+  P.back = P.v.push(GLASS.back) - 1;
+  for (const [a, b, c] of P.f.slice()) for (const [u, w] of [[a, b], [b, c], [c, a]]) if (!edges.has(`${w},${u}`)) P.f.push([P.back, w, u]);
+  P.whole = true;   // both halves, as the shell's
 }
-
-// The rim: a slim, rounded tube round the visor, sitting on the shell, in a white of its own a
-// shade brighter than the shell's, so it reads as the frame round the glass (as the reference's
-// does) and not as more of the shell. Its section runs from a foot under the glass's edge up an
-// inner wall (what frames the glass when the helmet turns), over a rounded crown and down a
-// short outer side to a foot sunk under the shell's facets (so no gap ever opens between the
-// two). Each point is wrapped onto the curved surface, so the band
-// hugs the helmet all the way round instead of lifting off at the sides. It stands tallest
-// at the visor's sides, which frame the glass as the head turns, and lower across the top and
-// the bottom, which are seen side on from the side, where a tall crown would stick out like a hook;
-// and taller again (LOW) down its lower sides, which side on are what stands in front of the
-// glass's lower half.
-const RIM = { W: 32, UP: 40, UP_MID: 30, IN: 6, SINK: 1, LOW: 1.3, LOW_Y0: 120, LOW_Y1: 224 };
-// [across, up]: across as a fraction of W from the foot inside the glass; up as a fraction of the
-// rim's height there (units, if not within -1..1), or 'foot': on the shell's facets, SINK under them
-const RIM_SECTION = [[0, -GLASS.edge - 8], [0, 0.6], [0.16, 0.94], [0.5, 1], [0.84, 0.92], [0.98, 0.5], [1, 'foot']];
 /** How far a point is inside the faceted shell (negative: outside it). */
 const shellInside = (() => {
   const planes = shell.f.map(([a, b, c]) => {
@@ -543,58 +500,8 @@ const shellInside = (() => {
   });
   return (p) => Math.min(...planes.map(({ n, d }) => d - dot(n, p)));
 })();
-/** A point on the smooth surface taken in along its normal until it is `sink` inside the shell's facets. */
-function ontoFacets(p, sink) {
-  const n = helmetNormal(p);
-  let lo = 0, hi = 80;
-  for (let k = 0; k < 40; k++) { const t = (lo + hi) / 2; if (shellInside(add(p, mul(n, -t))) >= sink) hi = t; else lo = t; }
-  return add(p, mul(n, -hi));
-}
-const smoothstep = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
-/** The rim's height at a point of the visor's outline: UP at the sides, UP_MID in the middle of the top and bottom. */
-const rimUp = (i) => lerp(RIM.UP_MID, RIM.UP, smoothstep(0.2, 0.8, VISOR[i][0] / Math.max(...VISOR.map((p) => p[0])))) * lerp(1, RIM.LOW, smoothstep(RIM.LOW_Y0, RIM.LOW_Y1, VISOR[i][1]));
-/** At each point of the visor's outline: where it lies on the smooth surface, the surface's normal there, and the way out from the glass along the surface. */
-const VISOR_FRAME = VISOR.map(([x, y], i) => {
-  const s = helmetFront(x, y), nrm = helmetNormal(s), flat = (v) => unit(sub(v, mul(nrm, dot(v, nrm))));
-  // the outline runs clockwise on screen: rightward across the top, leftward along the bottom; at
-  // a corner the band turns on the line halving it, and is let out there (its mitre) so that it
-  // stays as wide, square on to either run
-  const run = i === VISOR.length - 1 ? [-1, 0, 0] : flat(sub(helmetFront(...VISOR[i + 1]), s));
-  const tan = i === 0 ? flat([1, 0, 0]) : i === VISOR.length - 1 ? flat([-1, 0, 0]) : flat(add(flat(sub(s, helmetFront(...VISOR[i - 1]))), run));
-  return { s, nrm, out: unit(cross(tan, nrm)), mitre: 1 / Math.max(0.5, dot(tan, flat(run))) };   // out: away from the glass
-});
-const rim = part('rim', 'rim', { centre: true, rigid: 'head', decal: 1 });
-{
-  const P = rim;
-  // across in units (a fraction of the width, from the foot inside the glass), up as a fraction of UP (or units, if not in 0..1)
-  const rings = VISOR_FRAME.map(({ s, out, mitre }, i) => RIM_SECTION.map(([u, h]) => {
-    const at = add(s, mul(out, (u * RIM.W - RIM.IN) * mitre));
-    return h === 'foot' ? ontoFacets(onShell(at), RIM.SINK) : onShell(at, Math.abs(h) <= 1 ? h * rimUp(i) : h);
-  }));
-  for (const r of [rings[0], rings[rings.length - 1]]) for (const p of r) p[0] = 0;   // square on to the middle
-  const ids = rings.map((r) => r.map((p) => P.vert(p)));
-  const k6 = ids[0].length;
-  for (let k = 0; k + 1 < ids.length; k++) for (let j = 0; j < k6; j++) P.quad(ids[k][j], ids[k][(j + 1) % k6], ids[k + 1][(j + 1) % k6], ids[k + 1][j]);
-}
-/**
- * The visor's window on the shell: the glass and the rim's footprint, out to a little past the
- * rim's outer foot, as seen from the helmet's middle: each point of its outline as (x, y) / z
- * from there (a point on the shell is in the window when its own lies inside the loop). A line to
- * the eye that crosses the shell only inside it passes through glass or under the rim, never
- * through the opaque shell: the painter's occlusion test. Seen from the middle, not flattened
- * onto the front view, so the sides of the helmet (which the front view squashes up against the
- * visor's edge) are never taken for the window.
- */
-const WINDOW_MARGIN = 14;
-const WINDOW = (() => {
-  const half = VISOR_FRAME.map(({ s, out, mitre }, i) => {
-    const q = toWindow(onShell(add(s, mul(out, (RIM.W - RIM.IN + WINDOW_MARGIN) * mitre))));
-    return i === 0 || i === VISOR.length - 1 ? [0, q[1]] : q;
-  });
-  return [...half, ...half.slice(1, -1).reverse().map(([x, y]) => [-x, y])];
-})();
 
-// Comm discs on the helmet's sides, level with the eyes, a little behind the rim.
+// Comm discs on the helmet's sides, level with the eyes, a little behind the visor's edge.
 const DISC = { y: 112, z: 26, r: 102, up: 40, bevel: 16, sides: 10 };
 {
   const s = helmetAlong([0, DISC.y, DISC.z], [1, 0, 0]), ax = helmetNormal(s);
@@ -603,7 +510,7 @@ const DISC = { y: 112, z: 26, r: 102, up: 40, bevel: 16, sides: 10 };
   let foot = 16;
   while (ring(add(s, mul(ax, -foot)), u, w, DISC.r, DISC.r, DISC.sides).some((p) => shellInside(p) < 2)) foot += 2;
   const pts = [...ring(add(s, mul(ax, -foot)), u, w, DISC.r, DISC.r, DISC.sides), ...ring(add(s, mul(ax, DISC.up - DISC.bevel)), u, w, DISC.r, DISC.r, DISC.sides), ...ring(add(s, mul(ax, DISC.up)), u, w, DISC.r - DISC.bevel, DISC.r - DISC.bevel, DISC.sides)];
-  hullPart('disc.R', 'grey', pts, { rigid: 'head', decal: 2 });
+  hullPart('disc.R', 'grey', pts, { rigid: 'head', decal: 1 });
 }
 
 // ------------------------------------------------------------------ 2. the body
@@ -1044,7 +951,7 @@ const faceNormal = (fi) => { const [a, b, c] = F[fi].map((i) => V[i]); return mu
 
 // counts per part
 {
-  const groups = [['helmet', ['helmet', 'visor', 'rim', 'disc']], ['torso', ['neck ring', 'torso', 'belt', 'hips', 'chest panel', 'slot', 'button', 'light', 'backpack', 'pack lid']], ['hoses', ['connector', 'hose', 'pack connector']], ['arms', ['shoulder', 'upper arm', 'elbow ring', 'forearm', 'cuff', 'glove', 'palm', 'thumb']], ['legs', ['leg', 'knee', 'ankle cuff', 'boot', 'sole']], ['joints', ['elbow ball', 'wrist ball', 'hip ball', 'ankle ball']]];
+  const groups = [['helmet', ['helmet', 'visor', 'disc']], ['torso', ['neck ring', 'torso', 'belt', 'hips', 'chest panel', 'slot', 'button', 'light', 'backpack', 'pack lid']], ['hoses', ['connector', 'hose', 'pack connector']], ['arms', ['shoulder', 'upper arm', 'elbow ring', 'forearm', 'cuff', 'glove', 'palm', 'thumb']], ['legs', ['leg', 'knee', 'ankle cuff', 'boot', 'sole']], ['joints', ['elbow ball', 'wrist ball', 'hip ball', 'ankle ball']]];
   const count = (P) => P.f.length;
   const line = groups.map(([g, names]) => {
     const ps = all.filter((P) => names.some((n) => P.name.replace(/ \d+/, '').replace(/\.[RL]$/, '') === n) && !P.name.endsWith('.L'));
@@ -1067,11 +974,9 @@ const hidden = new Array(F.length).fill(0);
     const P = all[FP[fi]];
     if (P.ball) return;
     if (P.back !== undefined && f.some((i) => i - partBase[FP[fi]] === P.back)) { hidden[fi] = 1; count++; return; }
-    if (P.name === 'visor') return;   // the glass is recessed into the shell, and always drawn where it faces the eye
-    // the rim's underside, its feet sunk under the smooth surface: in the helmet's wall
-    if (P.name === 'rim' && f.every((i) => outside(V[i]) < 1 - 1e-6)) { hidden[fi] = 1; count++; return; }
-    // the shell behind the glass (the visor's hole in it), which the glass always covers; the
-    // painter still takes its planes for the shell's, which is convex
+    if (P.name === 'visor') return;   // the glass is always drawn where it faces the eye
+    // the shell under the glass (the visor's window in it): the glass's own facets, which it always
+    // draws; the painter still takes their planes for the shell's, which is convex
     if (P.name === 'helmet' && f.every((i) => underGlass(V[i]))) { hidden[fi] = 1; count++; behindGlass++; return; }
     const pts = [...f.map((i) => V[i]), faceCentre(fi)];
     for (let qi = 0; qi < all.length; qi++) {
@@ -1080,7 +985,7 @@ const hidden = new Array(F.length).fill(0);
       if (pts.every((p) => Q.planes.every((pl) => dot(pl.n, p) - pl.d < 0.5))) { hidden[fi] = 1; count++; return; }
     }
   });
-  report.push(`never seen: ${count} faces lie inside another part or flat against it, or behind the glass (${behindGlass} of the shell's)`);
+  report.push(`never seen: ${count} faces lie inside another part or flat against it, or under the glass (${behindGlass} of the shell's)`);
 }
 
 // how many of them the painter draws in the front view at rest: facing the eye, and ever seen
@@ -1201,81 +1106,23 @@ HEAD.v.forEach((p, i) => {
 });
 report.push(`tucked: ${tuck.length} head vertices (the ear tips and the spikes: ${tuck.map((t) => t[0]).join(', ')}) folded flat, under the shell`);
 
-// ------------------------------------------------------------------ 8. the eyes in the visor, the rim round it
-// How the painter draws a plane of the rim, by the lines from its corners and its middle to the
-// eye (a disc goes after the glass while its axis faces the eye, before the shell while it does not):
-//  - behind: any of them crosses the opaque shell (anywhere outside the visor's window, which is
-//    the glass and the rim's footprint as seen from the helmet's middle): drawn before the shell,
-//    which covers what of it is behind (what sticks out past the shell's outline still shows);
-//  - through the glass: the line from its middle crosses the visor's opening (the glass as it
-//    would follow the helmet's surface, uncapped: the far side of the rim, seen across the inside
-//    of the helmet): drawn in the glass, after the helmet's dark inside and before the head, so
-//    the head covers it where it is nearer;
-//  - in front: clear of the opening: drawn after the glass, over the head.
-// So only the rim in front, and a disc facing the eye, can cover the eyes. For every pose of the sweep:
+// ------------------------------------------------------------------ 8. the eyes in the visor, its seam
+// The painter draws the shell's faces that face the eye, then the glass that does over them (the
+// helmet's dark inside, the head, the smoked glass), then a disc while its axis faces the eye; a
+// disc turned away goes before the shell. So only a disc can cover the eyes, and only where the
+// glass does not reach does anything but glass or shell show. For every pose of the sweep:
 //  - each point of each eye's outline (as wide as it ever opens), and a ring of points round it,
-//    must fall inside the visor's front-facing glass and outside every face that covers the eyes
-//    (eyes the painter hides, turned too far, are skipped);
-//  - the rim stays whole, in every pose within the head's reach (REACH, LEVEL: the sweep's poses
-//    in it and the reach's own corners): round every point of the edge of the glass that faces
-//    the eye (its outline, or where it turns away) there is only glass or rim, so the glass never
-//    meets the shell or the helmet's outline and the band round it never breaks. Past the reach,
-//    at the sweep's far corners, how much of the glass shows past the rim is measured and reported.
+//    must fall inside the visor's front-facing glass and outside every disc facing the eye (eyes
+//    the painter hides, turned too far, are skipped);
+//  - the seam holds, in every pose within the head's reach (REACH, LEVEL: the sweep's poses in it
+//    and the reach's own corners): round every point of the edge of the glass that faces the eye
+//    (its outline, or where it turns away) there is only glass, or the shell's faces (or a disc's)
+//    that face it, or the helmet's own edge: the page past its outline, where the visor's edge is
+//    the helmet's and the figure's outline runs, and a hair inside it (EDGE), where the glass turns
+//    away just short of the outline and the shell's underlay, its own shade, shows as its edge
+//    beyond the visor. So the glass and the shell always meet. Past the reach, at the sweep's far
+//    corners, how much of a gap opens there is measured and reported.
 //   POSE=yaw,pitch,roll node urchi/tools/build-suit.mjs --dry   checks that one pose alone
-const inWindow = (p) => p[2] - H.c[2] > 1 && inPolygon(...toWindow(p), WINDOW);
-/** Where the line p + t (e - p), t in 0..1, is inside a convex solid (outward planes): [t0, t1], or null. */
-function clipLine(planes, p, e) {
-  const d = sub(e, p);
-  let t0 = 0, t1 = 1;
-  for (const pl of planes) {
-    const a = dot(pl.n, p) - pl.d, b = dot(pl.n, d);
-    if (Math.abs(b) < 1e-12) { if (a > 0) return null; continue; }
-    const t = -a / b;
-    if (b < 0) t0 = Math.max(t0, t); else t1 = Math.min(t1, t);
-    if (t1 - t0 < 1e-4) return null;
-  }
-  return [t0, t1];
-}
-/** The visor's opening (OPENING) at each vertex of the glass: its z uncapped, rounded as the bake rounds; its own z elsewhere. */
-const openZ = V.map((p, i) => (VP[i] === byName.get('visor') && OPENING.has(openingKey(all[VP[i]].v[i - partBase[VP[i]]])) ? r1(OPENING.get(openingKey(all[VP[i]].v[i - partBase[VP[i]]]))) : p[2]));
-/** The opening's facets (the glass's, not its hidden back, uncapped), as triangles of points. */
-const glassTris = F.flatMap((f, fi) => (FP[fi] === byName.get('visor') && !hidden[fi] ? [f.map((i) => [V[i][0], V[i][1], openZ[i]])] : []));
-/** Whether the segment from p to e crosses a triangle (Moller and Trumbore's test). */
-function crosses(p, e, [a, b, c]) {
-  const d = sub(e, p), e1 = sub(b, a), e2 = sub(c, a), h = cross(d, e2), det = dot(e1, h);
-  if (Math.abs(det) < 1e-12) return false;
-  const s = sub(p, a), u = dot(s, h) / det;
-  if (u < 0 || u > 1) return false;
-  const q = cross(s, e1), v = dot(d, q) / det;
-  if (v < 0 || u + v > 1) return false;
-  const t = dot(e2, q) / det;
-  return t > 1e-6 && t < 1;
-}
-/** Whether the opaque shell stands between p and the eye e: the line crosses it, and not only in the visor's window. */
-function behindShell(p, e) {
-  const s = clipLine(shellP.planes, p, e);
-  return !!s && !(inWindow(add(p, mul(sub(e, p), s[0]))) && inWindow(add(p, mul(sub(e, p), s[1]))));
-}
-/**
- * How the painter draws a rim plane, the eye at e: 0 behind the shell (any of its corners, or its
- * middle), 1 through the glass (the line from its middle to the eye crosses the visor's opening), 2 in front.
- */
-function rimView(g, e) {
-  if (planeCorners[g].some((i) => behindShell(V[i], e)) || behindShell(planeMid[g], e)) return 0;
-  return glassTris.some((t) => crosses(planeMid[g], e, t)) ? 1 : 2;
-}
-// each plane's middle: the mean of the middles of its triangles that can be seen, as the painter takes it
-const planeMid = (() => {
-  const sum = new Map(), n = new Map();
-  F.forEach((_, fi) => { if (hidden[fi]) return; const g = G[fi]; sum.set(g, add(sum.get(g) || [0, 0, 0], faceCentre(fi))); n.set(g, (n.get(g) || 0) + 1); });
-  return Object.fromEntries([...sum].map(([g, v]) => [g, mul(v, 1 / n.get(g))]));
-})();
-// and its corners, from the same triangles
-const planeCorners = (() => {
-  const c = {};
-  F.forEach((f, fi) => { if (!hidden[fi]) (c[G[fi]] ||= new Set()); if (!hidden[fi]) f.forEach((i) => c[G[fi]].add(i)); });
-  return Object.fromEntries(Object.entries(c).map(([g, set]) => [g, [...set]]));
-})();
 /** The eye, in the head's space, for a pose (degrees). */
 function eyeFor(pose) {
   const cy = Math.cos(pose.yaw * D2R), sy = Math.sin(pose.yaw * D2R), cp = Math.cos(pose.pitch * D2R), sp = Math.sin(pose.pitch * D2R), cr = Math.cos(pose.roll * D2R), sr = Math.sin(pose.roll * D2R);
@@ -1288,7 +1135,8 @@ const glassF = F.map((_, fi) => fi).filter((fi) => FP[fi] === byName.get('visor'
 // the head as the suit paints it (tucked)
 const tuckedHead = HEAD.v.map((p, i) => { const t = tuck.find((r) => r[0] === i); return t ? t.slice(1) : p; });
 {
-  const coverF = F.map((_, fi) => fi).filter((fi) => all[FP[fi]].decal && !hidden[fi]);
+  const discF = F.map((_, fi) => fi).filter((fi) => all[FP[fi]].decal && !hidden[fi]);
+  const shellF = F.map((_, fi) => fi).filter((fi) => FP[fi] === byName.get('helmet') && !hidden[fi]);
   const inTri = (p, t) => {
     const [a, b, c] = t;
     const d1 = (p[0] - b[0]) * (a[1] - b[1]) - (a[0] - b[0]) * (p[1] - b[1]);
@@ -1312,11 +1160,21 @@ const tuckedHead = HEAD.v.map((p, i) => { const t = tuck.find((r) => r[0] === i)
   // the glass's edges: each directed edge of a glass face, and the glass face across it (if any)
   const glassSet = new Set(glassF), across = new Map();
   for (const fi of glassF) for (let k = 0; k < 3; k++) across.set(`${F[fi][k]}>${F[fi][(k + 1) % 3]}`, fi);
-  const RIM_ROOM = 1;   // the rim borders each point of the glass's edge with this much to spare round it
-  // glass reaching past the rim by no more than the dark base line (1.5 units) that runs round the whole figure reads as that line
+  const SEAM_ROOM = 1;   // glass or shell round each point of the glass's edge with this much to spare
+  // a shell face or a disc within the dark base line (1.5 units) that runs round every plane counts as meeting it
   const SLOP = 1.5;
-  let worstM = Infinity, worstPose = null, poses = 0, rimSamples = 0, rimWorst = Infinity, rimWorstPose = null, reachPoses = 0, farRim = Infinity, farPose = null, farOpen = 0, farPoses = 0, farYaw = Infinity, farPitch = Infinity;
-  const byYaw = new Map(), rimByYaw = new Map(), views = [0, 0, 0];
+  /** Past the helmet's outline on screen, or within EDGE of it inside (units: a few tenths of a pixel on the page). */
+  const EDGE = 4;
+  const atEdge = (x, outline) => {
+    if (!inPolygon(x[0], x[1], outline)) return true;
+    for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
+      const a = outline[j], b = outline[i], dx = b[0] - a[0], dy = b[1] - a[1], u = Math.max(0, Math.min(1, ((x[0] - a[0]) * dx + (x[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+      if (Math.hypot(a[0] + dx * u - x[0], a[1] + dy * u - x[1]) <= EDGE) return true;
+    }
+    return false;
+  };
+  let worstM = Infinity, worstPose = null, poses = 0, seamSamples = 0, seamWorst = Infinity, seamWorstPose = null, reachPoses = 0, farSeam = Infinity, farPose = null, farOpen = 0, farPoses = 0, farYaw = Infinity, farPitch = Infinity;
+  const byYaw = new Map(), seamByYaw = new Map();
   const failing = [];
   const only = process.env.POSE ? [Object.fromEntries(['yaw', 'pitch', 'roll'].map((k, i) => [k, Number(process.env.POSE.split(',')[i])]))] : null;
   for (const pose of only || (QUICK ? [...poseSweep(0)].filter((p, i) => i % 7 === 0) : [...poseSweep(600), ...reachGrid()])) {
@@ -1326,19 +1184,21 @@ const tuckedHead = HEAD.v.map((p, i) => { const t = tuck.find((r) => r[0] === i)
     const vis = (fi) => { const P3 = F[fi].map(q); let area = 0; for (let k = 0; k < 3; k++) { const a = P3[k], b = P3[(k + 1) % 3]; area += a[0] * b[1] - b[0] * a[1]; } return area > 0 ? P3 : null; };
     const sp = Math.sin(pose.pitch * D2R), cp = Math.cos(pose.pitch * D2R), sy = Math.sin(pose.yaw * D2R), cy = Math.cos(pose.yaw * D2R);
     const E = eyeFor(pose);
-    // the decal faces facing the eye: those drawn over the head, and the rim's seen through the glass
-    const front = [], through = [], viewOf = new Map();
-    for (const fi of coverF) {
+    // the discs facing the eye (drawn after the glass: they cover it) and the shell's faces facing it
+    const front = [], shellT = [];
+    for (const fi of discF) {
       const t = vis(fi);
       if (!t) continue;
-      const P = all[FP[fi]];
-      if (P.decal === 1) { if (!viewOf.has(G[fi])) viewOf.set(G[fi], rimView(G[fi], E)); const v = viewOf.get(G[fi]); views[v]++; if (v === 2) front.push(t); else if (v === 1) through.push(t); }
-      else { const c = P.centre3 || (P.centre3 = centroid(P.v)); if (dot(sub(c, H.c), sub(E, c)) > 0) front.push(t); }
+      const P = all[FP[fi]], c = P.centre3 || (P.centre3 = centroid(P.v));
+      if (dot(sub(c, H.c), sub(E, c)) > 0) front.push(t);
     }
+    for (const fi of shellF) { const t = vis(fi); if (t) shellT.push(t); }
     const facing = new Set(glassF.filter((fi) => vis(fi)));
-    const glass = boxed([...facing].map(vis)), cover = boxed(front), behind = boxed(through);
+    const glass = boxed([...facing].map(vis)), cover = boxed(front), shellB = boxed(shellT);
+    // the helmet's outline on screen: the shell is convex, so it is the hull of its points there
+    const outline = hull2d(shellP.v.map((_, k) => q(partBase[byName.get('helmet')] + k)));
     const kb = Math.round(pose.yaw / 20) * 20;
-    let poseEye = Infinity, poseRim = Infinity;
+    let poseEye = Infinity, poseSeam = Infinity;
     for (const e of HEAD.eyes) {
       if (-e.n[1] * sp + (-e.n[0] * sy + e.n[2] * cy) * cp < 0.15) continue;
       for (const p of eyeRing(e, EYE_GROW, 32)) {
@@ -1349,7 +1209,7 @@ const tuckedHead = HEAD.v.map((p, i) => { const t = tuck.find((r) => r[0] === i)
         poseEye = Math.min(poseEye, lo);
       }
     }
-    // the rim round the glass: the edge of what of the glass faces the eye, every few units
+    // the seam: the edge of what of the glass faces the eye, every few units
     for (const fi of facing) for (let k = 0; k < 3; k++) {
       const a = F[fi][k], b = F[fi][(k + 1) % 3], other = across.get(`${b}>${a}`);
       if (other !== undefined && glassSet.has(other) && facing.has(other)) continue;
@@ -1358,29 +1218,29 @@ const tuckedHead = HEAD.v.map((p, i) => { const t = tuck.find((r) => r[0] === i)
         // on the edge, a hair inside its own triangle (toward its middle), so it counts as glass
         const T = vis(fi), mx = (T[0][0] + T[1][0] + T[2][0]) / 3, my = (T[0][1] + T[1][1] + T[2][1]) / 3, e0 = [lerp(A[0], B[0], j / n), lerp(A[1], B[1], j / n)], el = Math.hypot(mx - e0[0], my - e0[1]) || 1;
         const s = [e0[0] + ((mx - e0[0]) / el) * 0.05, e0[1] + ((my - e0[1]) / el) * 0.05];
-        const C2 = nearTo(cover, s, 40), T2 = nearTo(behind, s, 40), G2 = nearTo(glass, s, 40);
-        rimSamples++;
-        const lo = room(s, (x) => inAny(G2, x) || nearAny(C2, x, SLOP) || nearAny(T2, x, SLOP), 40, 16, 7);
-        if (!inReach(pose) && !only) { if (lo < farRim) { farRim = lo; farPose = { ...pose, at: s.map(Math.round) }; } }
-        else if (lo < rimWorst) { rimWorst = lo; rimWorstPose = { ...pose, at: s.map(Math.round) }; }
-        rimByYaw.set(kb, Math.min(rimByYaw.get(kb) ?? Infinity, lo));
-        poseRim = Math.min(poseRim, lo);
+        const C2 = nearTo(cover, s, 40), S2 = nearTo(shellB, s, 40), G2 = nearTo(glass, s, 40);
+        seamSamples++;
+        const lo = room(s, (x) => inAny(G2, x) || nearAny(S2, x, SLOP) || nearAny(C2, x, SLOP) || atEdge(x, outline), 40, 16, 7);
+        if (!inReach(pose) && !only) { if (lo < farSeam) { farSeam = lo; farPose = { ...pose, at: s.map(Math.round) }; } }
+        else if (lo < seamWorst) { seamWorst = lo; seamWorstPose = { ...pose, at: s.map(Math.round) }; }
+        seamByYaw.set(kb, Math.min(seamByYaw.get(kb) ?? Infinity, lo));
+        poseSeam = Math.min(poseSeam, lo);
       }
     }
-    failing.push([pose.yaw, pose.pitch, pose.roll, poseEye, poseRim]);
+    failing.push([pose.yaw, pose.pitch, pose.roll, poseEye, poseSeam]);
     if (inReach(pose)) reachPoses++;
-    else { farPoses++; if (poseRim < RIM_ROOM) { farOpen++; farYaw = Math.min(farYaw, Math.abs(pose.yaw)); farPitch = Math.min(farPitch, Math.abs(pose.pitch)); } }
+    else { farPoses++; if (poseSeam < SEAM_ROOM) { farOpen++; farYaw = Math.min(farYaw, Math.abs(pose.yaw)); farPitch = Math.min(farPitch, Math.abs(pose.pitch)); } }
   }
   const fmt = (p) => `yaw ${p.yaw.toFixed(0)}, pitch ${p.pitch.toFixed(0)}, roll ${p.roll.toFixed(0)}, the ${p.eye} eye at (${p.at})`;
-  const fmtRim = (p) => `yaw ${p.yaw.toFixed(0)}, pitch ${p.pitch.toFixed(0)}, roll ${p.roll.toFixed(0)}, at (${p.at}) on screen`;
+  const fmtSeam = (p) => `yaw ${p.yaw.toFixed(0)}, pitch ${p.pitch.toFixed(0)}, roll ${p.roll.toFixed(0)}, at (${p.at}) on screen`;
   const byYawText = (m) => [...m].sort((a, b) => a[0] - b[0]).map(([k, v]) => `${k}: ${v.toFixed(0)}`).join(', ');
-  if (VERBOSE) { const bad = failing.filter((f) => f[3] < 12 || (f[4] < RIM_ROOM && inReach({ yaw: f[0], pitch: f[1], roll: f[2] }))); console.log(`  poses failing: ${bad.length} of ${failing.length}:`, bad.slice(0, 40).map((f) => `[${f.slice(0, 3).map((v) => v.toFixed(0))}] eye ${f[3].toFixed(0)} rim ${f[4].toFixed(0)}`).join("; ")); }
-  if (VERBOSE || only) console.log('  visor margin by yaw:', byYawText(byYaw), '\n  rim cover by yaw:', byYawText(rimByYaw), '\n  rim faces drawn behind / through the glass / in front:', views.join(' / '));
+  if (VERBOSE) { const bad = failing.filter((f) => f[3] < 12 || (f[4] < SEAM_ROOM && inReach({ yaw: f[0], pitch: f[1], roll: f[2] }))); console.log(`  poses failing: ${bad.length} of ${failing.length}:`, bad.slice(0, 40).map((f) => `[${f.slice(0, 3).map((v) => v.toFixed(0))}] eye ${f[3].toFixed(0)} seam ${f[4].toFixed(0)}`).join("; ")); }
+  if (VERBOSE || only) console.log('  visor margin by yaw:', byYawText(byYaw), '\n  seam by yaw:', byYawText(seamByYaw));
   if (worstM < 12) (process.env.DRAFT ? console.log : fail)(`the visor does not frame the eyes: margin ${worstM.toFixed(1)} at ${fmt(worstPose)}`);
-  if (rimWorst < RIM_ROOM) (process.env.DRAFT ? console.log : fail)(`the rim breaks: the glass's edge is ${rimWorst < 0 ? 'bare' : `covered by only ${rimWorst.toFixed(1)}`} at ${fmtRim(rimWorstPose)}`);
-  report.push(`visor: both eyes (${EYE_GROW}x as wide as drawn) whole inside the glass and clear of the rim and discs in all ${poses} poses of the sweep (yaw to ${RANGE.yaw}, pitch ${RANGE.pitchUp} up to ${RANGE.pitchDown} down, roll to ${RANGE.roll}); least margin ${worstM.toFixed(0)} units (${fmt(worstPose)})`);
-  report.push(`rim: whole round the glass in all ${reachPoses} poses within the head's reach (yaw to ${REACH.yaw}, pitch ${REACH.pitchUp} up to ${REACH.pitchDown} down, roll to ${RANGE.roll}; and every yaw to ${RANGE.yaw} with the head within ${LEVEL} of level): round every point of the glass's visible edge (${rimSamples} in all) only glass or rim, the rim at least ${rimWorst.toFixed(1)} units wide (${fmtRim(rimWorstPose)})`);
-  if (farPoses) report.push(`rim, past the reach (${farPoses} poses of the sweep, where it adds every extra at once): whole in ${farPoses - farOpen}; in ${farOpen}, all with yaw ${farYaw.toFixed(0)} or more and pitch ${farPitch.toFixed(0)} or more, a sliver of glass shows past the far rim${farOpen ? ` (the worst at ${fmtRim(farPose)})` : ''}`);
+  if (seamWorst < SEAM_ROOM) (process.env.DRAFT ? console.log : fail)(`the seam opens: the glass's edge is ${seamWorst < 0 ? 'bare' : `met by only ${seamWorst.toFixed(1)}`} at ${fmtSeam(seamWorstPose)}`);
+  report.push(`visor: both eyes (${EYE_GROW}x as wide as drawn) whole inside the glass and clear of the discs in all ${poses} poses of the sweep (yaw to ${RANGE.yaw}, pitch ${RANGE.pitchUp} up to ${RANGE.pitchDown} down, roll to ${RANGE.roll}); least margin ${worstM.toFixed(0)} units (${fmt(worstPose)})`);
+  report.push(`seam: the glass meets the shell in all ${reachPoses} poses within the head's reach (yaw to ${REACH.yaw}, pitch ${REACH.pitchUp} up to ${REACH.pitchDown} down, roll to ${RANGE.roll}; and every yaw to ${RANGE.yaw} with the head within ${LEVEL} of level): round every point of the glass's visible edge (${seamSamples} in all) only glass or shell, at least ${seamWorst.toFixed(1)} units of it (${fmtSeam(seamWorstPose)})`);
+  if (farPoses) report.push(`seam, past the reach (${farPoses} poses of the sweep, where it adds every extra at once): ${farOpen ? `whole in ${farPoses - farOpen}; in ${farOpen}, all with yaw ${farYaw.toFixed(0)} or more and pitch ${farPitch.toFixed(0)} or more, a gap opens (the worst at ${fmtSeam(farPose)})` : `whole in all ${farPoses}`}`);
 }
 // The face stays behind the glass: every vertex of the head (as painted, tucked) under the glass
 // in the front view is at least FACE_GAP behind it, so nothing of the head is ever in front of it.
@@ -1400,11 +1260,11 @@ const FACE_GAP = 16;
     }
   }
   if (least < FACE_GAP) fail(`the face comes through the glass: (${at.map(Math.round)}) is ${least.toFixed(1)} behind it (want ${FACE_GAP})`);
-  report.push(`glass: recessed ${GLASS.edge} (at its edge) to ${GLASS.middle} units under the helmet's surface, inside the rim, and held back to the cap in the middle (at most ${Math.round(Math.max(...glassF.flatMap((fi) => F[fi].map((i) => V[i][2]))))} forward); the face at least ${least.toFixed(0)} behind it (${at.map(Math.round)})`);
+  report.push(`glass: the shell's own facets, flush with it (its front at z ${Math.round(Math.max(...glassF.flatMap((fi) => F[fi].map((i) => V[i][2]))))}); the face at least ${least.toFixed(0)} behind it (${at.map(Math.round)})`);
 }
-// Side on, the rim is the helmet's frontmost part, as the reference's is: with the whole figure
-// turned (the sheet's side view, and the turns either side of it), row by row across the screen,
-// how far the glass, or the shell behind it, reaches in front of the rim. None of it at 90.
+// Side on, the glass is the helmet's own surface: how far it stands out of the shell (the faces it
+// takes the place of too), row by row across the screen with the whole figure turned 90: no more
+// than the shell's flat facets are cut inside the smooth surface it lies on.
 {
   const rowFront = (tris, y) => {
     let m = -Infinity;
@@ -1414,18 +1274,12 @@ const FACE_GAP = 16;
     }
     return m;
   };
-  const past = [];
-  for (const turn of [60, 65, 70, 75, 80, 85, 90]) {
-    const pr = headProjector({ yaw: turn, pitch: 0, roll: 0 }), Q = V.map((p) => pr(p));
-    const trisOf = (keep) => F.flatMap((f, fi) => (!hidden[fi] && keep(FP[fi], f) ? [f.map((i) => Q[i])] : []));
-    const glass = trisOf((pi) => pi === byName.get('visor')), front = trisOf((pi, f) => pi === byName.get('helmet') && f.every((i) => underGlass(V[i]))), rimT = trisOf((pi) => pi === byName.get('rim'));
-    let worst = 0;
-    for (let y = -300; y <= 520; y += 2) { const r = rowFront(rimT, y); for (const T of [glass, front]) { const g = rowFront(T, y); if (g > -Infinity) worst = Math.max(worst, g - (r > -Infinity ? r : -1e9)); } }
-    past.push([turn, worst]);
-  }
-  const at90 = past.find(([t]) => t === 90)[1];
-  if (at90 > 0) (process.env.DRAFT ? console.log : fail)(`side on, the glass stands ${at90.toFixed(1)} in front of the rim`);
-  report.push(`side on: the rim the helmet's frontmost part with the figure turned 90 (the glass and the shell behind it ${at90 > 0 ? at90.toFixed(1) + ' in front' : 'wholly behind it'}); how far in front of the rim they reach, turned ${past.map(([t, w]) => `${t}: ${w.toFixed(0)}`).join(', ')}`);
+  const pr = headProjector({ yaw: 90, pitch: 0, roll: 0 }), Q = V.map((p) => pr(p));
+  const trisOf = (pi) => F.flatMap((f, fi) => (FP[fi] === pi && (pi === byName.get('helmet') || !hidden[fi]) ? [f.map((i) => Q[i])] : []));
+  const glass = trisOf(byName.get('visor')), shellT = trisOf(byName.get('helmet'));
+  let out = 0;
+  for (let y = -300; y <= 520; y += 2) { const g = rowFront(glass, y), r = rowFront(shellT, y); if (g > -Infinity && r > -Infinity) out = Math.max(out, g - r); }
+  report.push(`side on: the glass stands at most ${out.toFixed(1)} out of the shell, turned 90`);
 }
 // ------------------------------------------------------------------ 9. the frame
 // It holds the suited figure in every pose of the sweep at any turn of the whole figure (the sheet's views).
@@ -1658,7 +1512,7 @@ const suit = {
   vp: VP,
   vm: VM,
   materials: MATERIALS,
-  // per part: its material, what carries it (1 the head), how it lies on the shell (1 plane by plane, 2 as a whole), and whether it is convex
+  // per part: its material, what carries it (1 the head), whether it lies on the shell as a whole (a disc), and whether it is convex
   parts: all.map((P) => ({ name: P.name, material: MATERIALS.indexOf(P.material), rigid: P.rigid === 'head' ? 1 : 0, decal: P.decal, convex: P.convex ? 1 : 0, seg: P.seg, ball: P.ball ? 1 : 0 })),
   // the rig (see 3b): the segments the body's parts turn in, each hung from its parent at its joint
   // (half as far, a ring or a ball), and per joint its pivot, the way its child hangs from it, the way
@@ -1673,13 +1527,8 @@ const suit = {
   neck: NECK,
   body: BODY,
   tuck,
-  // the visor's window on the shell as seen from the helmet's middle `hub` (each point's x and y over
-  // its z from there, flat, the whole loop): a line to the eye that crosses the shell only inside it
-  // passes through glass or under the rim (the occlusion test)
+  // the helmet's middle: a disc faces the eye while its own middle, seen from here, does
   hub: H.c,
-  // the visor's opening: per vertex of the glass (in order), its z were it not held back to the cap
-  opening: openZ.filter((_, i) => VP[i] === byName.get('visor')),
-  window: WINDOW.flatMap(([x, y]) => [x, y].map((c) => Math.round(c * 1e5) / 1e5 + 0)),
 };
 // ------------------------------------------------------------------ 10. the growth
 // Per plane, how far the growth from the neck ring has travelled when it comes on as the suit builds

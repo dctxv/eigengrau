@@ -59,12 +59,10 @@ const MESH = MESH_DATA as unknown as Mesh;
  * The spacesuit, in the head's space (see urchi/tools/build-suit.mjs), flat: vertices, triangles
  * wound as the head's, the plane each belongs to; per vertex its part and material (a triangle's
  * part is its corners'); faces never seen; the planes between the body's parts; the head's
- * vertices it tucks in; the visor's window on the shell (as seen from the helmet's middle,
- * `hub`: each point's x and y over its z from there, flat); and the visor's opening, the z of
- * each of the glass's points were it not held back to its cap (the glass as it would follow the
- * helmet's surface), which says what of the rim is seen across the opening; and per plane how far
- * the growth out from the neck ring has travelled when it comes on as the suit builds itself (baked
- * by the build, see its growthOf: a page would take tens of milliseconds to work it out).
+ * vertices it tucks in; the helmet's middle, `hub` (a disc faces the eye while its own middle,
+ * seen from there, does); and per plane how far the growth out from the neck ring has travelled
+ * when it comes on as the suit builds itself (baked by the build, see its growthOf: a page would
+ * take tens of milliseconds to work it out).
  */
 type Suit = {
   v: number[];
@@ -83,8 +81,6 @@ type Suit = {
   body: { yaw: number; roll: number };
   tuck: [number, number, number, number][];
   hub: Vec3;
-  window: number[];
-  opening: number[];
   grow: number[];
 };
 /** The suit's model, once loaded (it is not part of the page until the suit is first wanted). */
@@ -116,10 +112,8 @@ export function preloadSuit(): Promise<void> {
  * The suit's colours, per material: the flat shade of a plane runs from `dark` (turned from
  * the light) to `lit` (square on to it) on the head's own curve. The fabric tops out at the
  * site's ink, never white; its shadows are warm light greys. The backpack is a grey of its own,
- * a step darker than the fabric, so it reads as a separate box from behind. The visor's rim is a
- * white of its own, a shade brighter than the fabric in any light, so it reads as the frame round
- * the glass rather than more of the shell. The glass is not filled: it is the head behind a
- * smoked tint, with a soft sheen on the facets that face the light.
+ * a step darker than the fabric, so it reads as a separate box from behind. The glass is not
+ * filled: it is the head behind a smoked tint, with a soft sheen on the facets that face the light.
  */
 const SUIT_COLOUR: Record<string, { dark: Vec3; lit: Vec3 }> = {
   fabric: { dark: [150, 145, 136], lit: [233, 233, 226] },
@@ -128,7 +122,6 @@ const SUIT_COLOUR: Record<string, { dark: Vec3; lit: Vec3 }> = {
   dark: { dark: [34, 34, 37], lit: [88, 88, 92] },
   accent: { dark: [176, 104, 40], lit: [246, 172, 76] },
   glass: { dark: [0, 0, 0], lit: [0, 0, 0] },
-  rim: { dark: [178, 178, 174], lit: [252, 252, 249] },
 };
 /**
  * How the suit builds itself (setSuit between 0 and 1): the body's facets switch on over the
@@ -140,8 +133,8 @@ const SUIT_COLOUR: Record<string, { dark: Vec3; lit: Vec3 }> = {
  */
 const SUIT_BUILD = { helmet: 0.5, over: 1.12, tuck: 0.16 };
 /**
- * A part's planes, its vertices (first and count), its middle; `decal`: 1 on the shell plane by
- * plane (the rim), 2 as a whole (a disc); `convex`: its outline on screen is the hull of its points.
+ * A part's planes, its vertices (first and count), its middle; `decal`: it lies on the shell and is
+ * drawn as a whole (a disc); `convex`: its outline on screen is the hull of its points.
  */
 type SuitPart = { planes: Int32Array; v0: number; vn: number; mid: Vec3; decal: number; rigid: boolean; convex: boolean; material: number };
 type SuitModel = {
@@ -153,15 +146,11 @@ type SuitModel = {
   loopAt: Int32Array; loopLen: Int32Array; corner: Int32Array; across: Int32Array;
   /** Per plane: when it switches on as the suit builds itself, 0..1 (see SUIT_BUILD; the helmet's rise is apart). */
   reveal: Float32Array;
-  /**
-   * The shell's facets, as planes (outward normal, offset: it is convex); the visor's opening (the
-   * glass uncapped: its points) and its facets (three corners each, into those points); the visor's
-   * window, seen from `hub`.
-   */
-  shellPlanes: Float64Array; open: Float64Array; glassTris: Int32Array; window: Float64Array; hub: Vec3;
+  /** The helmet's middle (see Suit). */
+  hub: Vec3;
   parts: SuitPart[];
-  /** The helmet's shell, glass and rim, its decals (the rim, the discs), and the body's parts. */
-  shell: number; glass: number; rim: number; decals: number[]; body: number[];
+  /** The helmet's shell and glass, its decals (the discs), and the body's parts. */
+  shell: number; glass: number; decals: number[]; body: number[];
   /** The planes between the body's parts that turn together: [a, b, nx, ny, nz, d] each, part a on the side n.p < d (at rest). */
   sep: Float64Array;
   /**
@@ -296,23 +285,6 @@ function* buildModel(D: Suit): Generator<void, SuitModel, void> {
   let near = Infinity, far = 0;
   for (let g = 0; g < np; g++) if (loops[g] && !D.parts[planePart[g]].rigid) { near = Math.min(near, grown[g]); far = Math.max(far, grown[g]); }
   for (let g = 0; g < np; g++) reveal[g] = D.parts[planePart[g]].rigid ? SUIT_BUILD.helmet : SUIT_BUILD.helmet * Math.max(0, (grown[g] - near) / (far - near || 1));
-  // the shell's facets: from one triangle of each of its planes (those behind the glass too, never drawn: the shell is convex)
-  const shellPlanes: number[] = [], taken = new Uint8Array(np);
-  for (let i = 0; i < nf; i++) {
-    if (planePart[D.g[i]] !== shell || taken[D.g[i]]) continue;
-    taken[D.g[i]] = 1;
-    const A = corner(i, 0) * 3, B = corner(i, 1) * 3, C = corner(i, 2) * 3;
-    const ux = sv[B] - sv[A], uy = sv[B + 1] - sv[A + 1], uz = sv[B + 2] - sv[A + 2], vx = sv[C] - sv[A], vy = sv[C + 1] - sv[A + 1], vz = sv[C + 2] - sv[A + 2];
-    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-    const l = Math.hypot(nx, ny, nz) || 1;
-    nx /= l; ny /= l; nz /= l;   // outward: wound as the head, by the right hand
-    shellPlanes.push(nx, ny, nz, nx * sv[A] + ny * sv[A + 1] + nz * sv[A + 2]);
-  }
-  // the visor's opening, for the "through the glass" test: the glass's points uncapped, and its
-  // own facets (its back is never seen), into those points
-  const visor = named("visor"), gp = parts[visor], open = new Float64Array(gp.vn * 3), glassTris: number[] = [];
-  for (let k = 0; k < gp.vn; k++) { open[k * 3] = sv[(gp.v0 + k) * 3]; open[k * 3 + 1] = sv[(gp.v0 + k) * 3 + 1]; open[k * 3 + 2] = D.opening[k]; }
-  for (let i = 0; i < nf; i++) if (planePart[D.g[i]] === visor && !hidden[i]) glassTris.push(corner(i, 0) - gp.v0, corner(i, 1) - gp.v0, corner(i, 2) - gp.v0);
   const V = MESH.v, F = MESH.f, G = MESH.g;   // the head's, for its tucked vertices and the planes they touch
   const tucked = V.slice(), tuckPlanes = new Set<number>(), moved = new Set<number>();
   for (const [i, x, y, z] of D.tuck) { tucked[i] = [x, y, z]; moved.add(i); }
@@ -333,8 +305,8 @@ function* buildModel(D: Suit): Generator<void, SuitModel, void> {
     vseg, partSeg, pairSep, pairJoint, ball: Uint8Array.from(D.parts, (p) => p.ball), tubeBalls, ballJoint,
     data: D, sv, rigid, planeMat, planePart, loop0, loops, planeMid,
     loopAt: Int32Array.from(loopAt), loopLen: Int32Array.from(loopLen), corner: Int32Array.from(corners), across: Int32Array.from(across),
-    reveal, shellPlanes: Float64Array.from(shellPlanes), open, glassTris: Int32Array.from(glassTris), window: Float64Array.from(D.window), hub: D.hub, parts,
-    shell, glass: visor, rim: named("rim"),
+    reveal, hub: D.hub, parts,
+    shell, glass: named("visor"),
     decals: D.parts.flatMap((p, i) => (p.rigid && p.decal ? [i] : [])),
     body: D.parts.flatMap((p, i) => (p.rigid ? [] : [i])),
     sep: Float64Array.from(D.sep.flat()), tucked, tuckPlanes,
@@ -537,9 +509,8 @@ export type UrchiDevOptions = {
   /**
    * The leak check's layers: paint one layer of the suited figure alone, flat white, instead of
    * the figure: "head", the head as the suit shows it (through the visor); "helmet", the helmet's
-   * silhouette (shell, visor, rim and discs); "tucked", the head with its ears and spikes tucked
-   * in but not clipped; "eyes", the eyes alone; "glass", what of the visor the rim and discs
-   * leave to be seen.
+   * silhouette (shell, visor and discs); "tucked", the head with its ears and spikes tucked in but
+   * not clipped; "eyes", the eyes alone; "glass", what of the visor the discs leave to be seen.
    */
   suitLayer?: "head" | "helmet" | "tucked" | "eyes" | "glass";
   /** The close-ups: "helmet" paints the suited figure's helmet alone, without the body. */
@@ -1307,14 +1278,11 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   // next to nothing new.
   /** This painter's rig: the page's suit model (suitModel) and what its frames fill in, kept between them. */
   type SuitRig = SuitModel & {
-    /** Per frame: where the visor's opening is on screen, and its facets' boxes there; the points, the planes' normals and depths, and which are drawn. */
-    openPost: Float64Array; glassBox: Float64Array;
+    /** Per frame: the points, the planes' normals and depths, and which are drawn. */
     post: Float64Array; normals: Float64Array; planeZ: Float64Array; on: Uint8Array;
-    /** The planes drawn this frame; per part those in front and behind (a disc turned away, the rim behind the shell); the rim seen through the glass. */
-    drawn: number[]; front: number[][]; behind: number[][]; through: number[];
+    /** The planes drawn this frame; per part those in front and behind (a disc turned away). */
+    drawn: number[]; front: number[][]; behind: number[][];
     box: Float64Array; colours: Map<number, string>;
-    /** Per vertex of the rim, this frame: 0 not asked yet, 1 in the eye's clear view, 2 behind the shell; and the shell's plane to ask first. */
-    seen: Uint8Array; hint: Int32Array;
     // scratch: the eyes on screen, the body's parts drawn and their order, the decals in order, the sheen's steps
     eyeAt: Float64Array; bodyNow: number[]; order: number[]; deg: Int32Array; slot: Int32Array; after: number[][]; partZ: Float64Array; done: Uint8Array;
     decalNow: number[]; level: Int32Array; byLevel: number[];
@@ -1337,10 +1305,9 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     const M = suitModel(), D = M.data, nv = M.sv.length / 3, np = M.planeMat.length;
     rig = {
       ...M,
-      openPost: new Float64Array(M.open.length), glassBox: new Float64Array((M.glassTris.length / 3) * 4),
       post: new Float64Array(nv * 3), normals: new Float64Array(np * 3), planeZ: new Float64Array(np), on: new Uint8Array(np),
-      drawn: [], front: D.parts.map(() => []), behind: D.parts.map(() => []), through: [],
-      box: new Float64Array(D.parts.length * 4), colours: new Map(), seen: new Uint8Array(nv), hint: new Int32Array(nv),
+      drawn: [], front: D.parts.map(() => []), behind: D.parts.map(() => []),
+      box: new Float64Array(D.parts.length * 4), colours: new Map(),
       eyeAt: new Float64Array(EYES.length * 2), bodyNow: [], order: [], deg: new Int32Array(D.parts.length), slot: new Int32Array(D.parts.length),
       after: D.parts.map(() => []), partZ: new Float64Array(D.parts.length), done: new Uint8Array(D.parts.length),
       decalNow: [], level: new Int32Array(np), byLevel: [],
@@ -1426,89 +1393,6 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     revealMask = null; revealDist = null; lastPx = null; lastHead = null; lastDrawn = null; suitHit = null;
   }
   const smooth01 = (a: number, b: number, v: number) => { const u = clamp((v - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
-  /** Where a line lies inside a convex solid, clipLine's result: t from .. to, along it. */
-  const span = new Float64Array(2);
-  /** The plane (its offset in the list) that last showed a line missing a solid: asked first next time, as a point that missed by it last frame mostly misses by it again. */
-  let missedBy = 0;
-  /** Whether the line p + t d (t in 0..1) passes through a convex solid (flat outward planes, n and offset), its planes asked from `from` on; where, in `span`. */
-  function clipLine(planes: Float64Array, px: number, py: number, pz: number, dx: number, dy: number, dz: number, from = 0) {
-    let t0 = 0, t1 = 1;
-    const L = planes.length;
-    for (let i = 0; i < L; i += 4) {
-      const k = (from + i) % L;
-      const a = planes[k] * px + planes[k + 1] * py + planes[k + 2] * pz - planes[k + 3], b = planes[k] * dx + planes[k + 1] * dy + planes[k + 2] * dz;
-      if (Math.abs(b) < 1e-12) { if (a > 0) { missedBy = k; return false; } continue; }
-      const t = -a / b;
-      if (b < 0) { if (t > t0) t0 = t; } else if (t < t1) t1 = t;
-      if (t1 - t0 < 1e-4) { missedBy = k; return false; }
-    }
-    span[0] = t0; span[1] = t1;
-    return true;
-  }
-  /**
-   * Whether a point on the shell (the head's space) is in the visor's window: seen from the
-   * helmet's middle, inside the outline of the glass and the rim's footprint.
-   */
-  function inWindow(R: SuitRig, x: number, y: number, z: number) {
-    const W = R.window, dz = z - R.hub[2];
-    if (dz <= 1) return false;
-    const u = (x - R.hub[0]) / dz, v = (y - R.hub[1]) / dz;
-    let inside = false;
-    for (let i = 0, j = W.length - 2; i < W.length; j = i, i += 2) {
-      const xi = W[i], yi = W[i + 1], xj = W[j], yj = W[j + 1];
-      if (yi > v !== yj > v && u < ((xj - xi) * (v - yi)) / (yj - yi) + xi) inside = !inside;
-    }
-    return inside;
-  }
-  /** Whether the opaque shell stands between a point and the eye (both in the head's space): the line crosses it, and not only in the visor's window. */
-  function behindShell(R: SuitRig, px: number, py: number, pz: number, ex: number, ey: number, ez: number, hint = 0) {
-    const dx = ex - px, dy = ey - py, dz = ez - pz;
-    if (!clipLine(R.shellPlanes, px, py, pz, dx, dy, dz, hint)) return false;
-    const t0 = span[0], t1 = span[1];
-    return !inWindow(R, px + dx * t0, py + dy * t0, pz + dz * t0) || !inWindow(R, px + dx * t1, py + dy * t1, pz + dz * t1);
-  }
-  /**
-   * How a plane of the rim is drawn, by the lines from its corners and its middle to the eye (the
-   * head's space): 0 behind the shell (any of them crosses the opaque shell: drawn before it,
-   * which covers what of the plane is behind it; what sticks out past the shell's outline still
-   * shows); 1 through the glass (the visor's opening lies between its middle, mx my on screen at
-   * depth mz, and the eye: the far side of the rim, seen across the inside of the helmet, under
-   * the head); 2 in front (clear of the opening: over the head).
-   */
-  function rimView(R: SuitRig, g: number, ex: number, ey: number, ez: number, mx: number, my: number, mz: number): 0 | 1 | 2 {
-    const SV = R.sv, seen = R.seen, hint = R.hint;
-    for (let l = R.loop0[g]; l < R.loop0[g] + R.loops[g]; l++) {
-      const at = R.loopAt[l], n = R.loopLen[l];
-      for (let k = 0; k < n; k++) {
-        const v = R.corner[at + k];
-        if (!seen[v]) { seen[v] = behindShell(R, SV[v * 3], SV[v * 3 + 1], SV[v * 3 + 2], ex, ey, ez, hint[v]) ? 2 : 1; hint[v] = missedBy; }
-        if (seen[v] === 2) return 0;
-      }
-    }
-    const M = R.planeMid, px = M[g * 3], py = M[g * 3 + 1], pz = M[g * 3 + 2];
-    if (behindShell(R, px, py, pz, ex, ey, ez)) return 0;
-    return glassBefore(R, mx, my, mz) ? 1 : 2;
-  }
-  /**
-   * Whether the visor's opening (the glass uncapped) lies between the eye and a point, from where
-   * the point is on screen (x, y) and its depth z: on the line of sight through it, a facet of the
-   * opening nearer the eye. (The same as the line from the point to the eye crossing it, as the
-   * eye is where the projection looks from.)
-   */
-  function glassBefore(R: SuitRig, x: number, y: number, z: number) {
-    const T = R.glassTris, B = R.glassBox, P = R.openPost;
-    for (let k = 0, j = 0; k < T.length; k += 3, j += 4) {
-      if (x < B[j] || x > B[j + 2] || y < B[j + 1] || y > B[j + 3]) continue;
-      const a = T[k] * 3, b = T[k + 1] * 3, c = T[k + 2] * 3;
-      const d = (P[b + 1] - P[c + 1]) * (P[a] - P[c]) + (P[c] - P[b]) * (P[a + 1] - P[c + 1]);
-      if (Math.abs(d) < 1e-9) continue;
-      const u = ((P[b + 1] - P[c + 1]) * (x - P[c]) + (P[c] - P[b]) * (y - P[c + 1])) / d, v = ((P[c + 1] - P[a + 1]) * (x - P[c]) + (P[a] - P[c]) * (y - P[c + 1])) / d;
-      if (u < 0 || v < 0 || u + v > 1) continue;
-      if (u * P[a + 2] + v * P[b + 2] + (1 - u - v) * P[c + 2] > z + 1e-6) return true;
-    }
-    return false;
-  }
-
 
   /**
    * One suited frame. The helmet turns with the head (the same projection, point for point); the
@@ -1520,13 +1404,12 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
    * are put in order (see orderBody): by the plane baked between them, their joint, or a plane found
    * between them as they are posed. An arm's parts in front of the helmet (a glove held up to the
    * chin) go last of all, after the helmet. Then
-   * the helmet: the rim behind the shell and a disc turned away (so the shell covers what of them
-   * is behind it); the shell; the glass: the helmet's dark inside, the far side of the rim seen
-   * across it, the head as ever (clipped to the glass, so no ear, spike or pixel of it can show
-   * anywhere else, and in front of that far rim where it is nearer), the smoked tint and the
-   * sheen; last the rim in front and the discs that face the eye. Under each part's planes goes
-   * an underlay of its middle shade, so the anti-aliased joins between its planes (and against
-   * its neighbours) close up instead of letting the page show through as seams.
+   * the helmet: a disc turned away (so the shell covers what of it is behind it); the shell; the
+   * glass, which meets the shell edge to edge: the helmet's dark inside, the head as ever
+   * (clipped to the glass, so no ear, spike or pixel of it can show anywhere else), the smoked
+   * tint and the sheen; last the discs that face the eye. Under each part's planes goes an
+   * underlay of its middle shade, so the anti-aliased joins between its planes (and against its
+   * neighbours) close up instead of letting the page show through as seams.
    */
   function renderSuit(yaw: number, pitch: number, roll: number, head: Path2D, eyeClip: Path2D, items: Item[], toCanvas: CanvasTransform6) {
     const R = suitRig(), D = R.data, POST = R.post, SV = R.sv, RP = TILT.pivot, nv = SV.length / 3, whole = suit >= 1;
@@ -1559,20 +1442,6 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       VIEW[i * 3] = X; VIEW[i * 3 + 1] = Y; VIEW[i * 3 + 2] = Z;
     }
     poseJoints(R, T);
-    // the visor's opening on screen, and its facets' boxes, for the rim's "through the glass" test
-    const OP = R.openPost;
-    for (let k = 0, O = R.open; k < O.length; k += 3) {
-      const x = O[k], y = O[k + 1] - PIVOT_Y, z = O[k + 2];
-      const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
-      const y2 = y * cp + z1 * sp, Z = -y * sp + z1 * cp;
-      const s = PERSPECTIVE === Infinity ? 1 : PERSPECTIVE / (PERSPECTIVE - Z);
-      OP[k] = (x1 * cr - (y2 - RP) * sr) * s; OP[k + 1] = (x1 * sr + (y2 - RP) * cr + RP + PIVOT_Y) * s; OP[k + 2] = Z;
-    }
-    for (let k = 0, j = 0, T = R.glassTris, B = R.glassBox; k < T.length; k += 3, j += 4) {
-      const a = T[k] * 3, b = T[k + 1] * 3, c = T[k + 2] * 3;
-      B[j] = Math.min(OP[a], OP[b], OP[c]); B[j + 1] = Math.min(OP[a + 1], OP[b + 1], OP[c + 1]);
-      B[j + 2] = Math.max(OP[a], OP[b], OP[c]); B[j + 3] = Math.max(OP[a + 1], OP[b + 1], OP[c + 1]);
-    }
     // the eyes' centres on screen (the highlight keeps off them), as the helmet's points
     const eyeAt = R.eyeAt;
     EYES.forEach(({ c: [ex, ey0, ez] }, k) => {
@@ -1599,12 +1468,11 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       for (let i = 0; i < nv; i++) if (R.rigid[i]) { const y = POST[i * 3 + 1]; if (y < top) top = y; if (y > bottom) bottom = y; }
       level = bottom - risen * (bottom - top);
     }
-    const N = R.normals, PZ = R.planeZ, on = R.on, drawn = R.drawn, front = R.front, behind = R.behind, through = R.through, M = R.planeMid;
+    const N = R.normals, PZ = R.planeZ, on = R.on, drawn = R.drawn, front = R.front, behind = R.behind;
     on.fill(0);
-    drawn.length = 0; through.length = 0;
+    drawn.length = 0;
     for (const l of front) l.length = 0;
     for (const l of behind) l.length = 0;
-    { const P = R.parts[R.rim]; R.seen.fill(0, P.v0, P.v0 + P.vn); }
     const visor = new Path2D();
     // while the suit builds itself, the visor's opening is there from the start (the head shows
     // through all of it), and the glass's dark inside and smoke come in as its facets do
@@ -1615,7 +1483,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       if (dev.suitPart === "helmet" && !P.rigid) return;
       // a disc goes after the glass while it faces the eye, and before the shell while it does not
       const [mx, my, mz] = P.mid;
-      const farPart = P.decal === 2 && (mx - hub[0]) * (ehx - mx) + (my - hub[1]) * (ehy - my) + (mz - hub[2]) * (ehz - mz) < 0;
+      const farPart = P.decal === 1 && (mx - hub[0]) * (ehx - mx) + (my - hub[1]) * (ehy - my) + (mz - hub[2]) * (ehz - mz) < 0;
       const ball = R.ball[pi] === 1;
       for (const g of P.planes) {
         const unrevealed = P.rigid ? risen <= 0 : R.reveal[g] > shown;
@@ -1641,14 +1509,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
         PZ[g] = z / count;
         on[g] = 1; drawn.push(g);
         if (pi === R.glass) { glassOn++; planeInto(R, visor, g, POST); }
-        if (P.decal === 1) {
-          // its middle on screen, as the helmet's points
-          const x = M[g * 3], y = M[g * 3 + 1] - PIVOT_Y, z0 = M[g * 3 + 2];
-          const x1 = x * cy + z0 * sy, z1 = -x * sy + z0 * cy, y2 = y * cp + z1 * sp, Z = -y * sp + z1 * cp;
-          const s = PERSPECTIVE === Infinity ? 1 : PERSPECTIVE / (PERSPECTIVE - Z);
-          const view = rimView(R, g, ehx, ehy, ehz, (x1 * cr - (y2 - RP) * sr) * s, (x1 * sr + (y2 - RP) * cr + RP + PIVOT_Y) * s, Z);
-          if (view === 1) through.push(g); else (view ? front : behind)[pi].push(g);
-        } else (farPart ? behind : front)[pi].push(g);
+        (farPart ? behind : front)[pi].push(g);
       }
     });
     // the body's order: every pair that overlaps on screen goes far side of its plane first
@@ -1810,15 +1671,10 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     underlay(R.shell, front[R.shell]);
     for (const g of front[R.shell]) fillPlane(g);
     if (glassAll) {
-      // through the visor: the helmet's dark inside, the far side of the rim across it, the head, the smoked glass
+      // through the visor: the helmet's dark inside, the head, the smoked glass
       const glass = glassOn / glassAll;
       ctx.save(); ctx.clip(opening);
       ctx.globalAlpha = glass; ctx.fillStyle = VISOR.inside; ctx.fill(opening); ctx.globalAlpha = 1;
-      ctx.restore();
-      ctx.lineWidth = CELL;
-      underlay(R.rim, through);
-      for (const g of through.sort(byDepth)) fillPlane(g);
-      ctx.save(); ctx.clip(opening);
       headItems();
       ctx.globalAlpha = glass; ctx.fillStyle = VISOR.tint; ctx.fill(opening); ctx.globalAlpha = 1;
       sheen(R, front[R.glass], light, eyeAt);
