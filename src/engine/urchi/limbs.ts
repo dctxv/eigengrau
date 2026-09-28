@@ -396,9 +396,10 @@ export type LimbsMode = "rest" | "float";
 
 /**
  * The limbs' state: the angles (both sides' ten, radians), their springs, the quirk running and the
- * rig's transforms for them. `step` moves it on; `transforms` then has each segment's.
+ * rig's transforms for them. `step` moves it on; `transforms` then has each segment's. `onQuirk`
+ * hears each quirk as it starts, and the side doing it (the head joins in: see character.ts).
  */
-export function createLimbs(data: RigData, o: { reducedMotion: boolean }) {
+export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?(name: QuirkName, side: Side): void }) {
   const rig = createRig(data);
   const q = new Float64Array(2 * N), vel = new Float64Array(2 * N), target = new Float64Array(2 * N);
   const stiff = new Float64Array(2 * N);
@@ -427,8 +428,10 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean }) {
     if (o.reducedMotion) return false;
     const Q = QUIRKS[name] as Quirk;
     for (const r of running) r.q = { ...r.q, dur: Math.min(r.q.dur, t - r.t0 + r.q.ramp[1]) };
-    running.push({ q: Q, name, t0: t, flip: side === undefined ? Math.random() < 0.5 : side === 1, w: 0 });
+    const flip = side === undefined ? Math.random() < 0.5 : side === 1;
+    running.push({ q: Q, name, t0: t, flip, w: 0 });
     last = name;
+    o.onQuirk?.(name, flip ? 1 : 0);
     // nothing of its own accord until a while after it
     next = Math.max(next, t + Q.dur + PACE.gap[0] + Math.random() * (PACE.gap[1] - PACE.gap[0]));
     return true;

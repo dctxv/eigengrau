@@ -181,7 +181,8 @@ function drawLimbs(g: CanvasRenderingContext2D, W: number, H: number, dpr: numbe
 
 /**
  * A quirk as a film strip (?view=strip&quirk=wave&side=0&every=0.25&n=16&turn=0): the limbs afloat,
- * the quirk played at 0.5s, a frame every `every` seconds, stepped at 60Hz, left to right and down.
+ * the quirk played at 0.5s, a frame every `every` seconds, stepped at 60Hz, left to right and down;
+ * the head held facing you, or (?free) left to breathe and look where it looks.
  * ?push=ax,ay,for[,spin]: from 0.5s the body is felt accelerating that much (mesh units/s², its own
  * frame, y down) for `for` seconds (and spinning, rad/s), as a fling or a stop would.
  */
@@ -192,10 +193,9 @@ function drawStrip(g: CanvasRenderingContext2D, W: number, H: number, dpr: numbe
   const every = Number(q.get("every")) || 0.25, n = Number(q.get("n")) || 16, turn = Number(q.get("turn")) || 0;
   const cols = Math.min(n, Math.max(1, Math.round(Math.sqrt((n * W) / H * (WHOLE.h / WHOLE.w))))), rows = Math.ceil(n / cols);
   const labelPx = Math.round(11 * dpr), cellW = W / cols, cellH = H / rows, h = Math.min(cellH - labelPx * 2, (cellW * WHOLE.h) / WHOLE.w);
-  // the head held facing you (?yaw=0: no breath, no look), the limbs left to move
+  // the head held facing you (?yaw=0: no breath, no look), the limbs left to move; ?free leaves the head its own
   const was = location.search, qq = new URLSearchParams(was);
-  qq.set("yaw", "0");
-  qq.set("pitch", "0");
+  if (!qq.has("free")) { qq.set("yaw", "0"); qq.set("pitch", "0"); }
   history.replaceState(history.state, "", `?${qq}`);
   let ch: UrchiCharacter;
   try {

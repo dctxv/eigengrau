@@ -1,4 +1,4 @@
-import { createLimbs, type Limbs, type RigData } from "./limbs";
+import { createLimbs, type Limbs, type QuirkName, type RigData, type Side } from "./limbs";
 import MESH_DATA from "./mesh.json";
 import SUIT_FRAME from "./suit-frame.json";
 
@@ -1400,7 +1400,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
    * until a host asks for more (Space's float, for zero gravity's posture and its quirks).
    */
   let limbs: Limbs | null = null;
-  const limbsNow = () => (limbs ??= SUIT ? createLimbs(SUIT, { reducedMotion: reduceMotion }) : null);
+  const limbsNow = () => (limbs ??= SUIT ? createLimbs(SUIT, { reducedMotion: reduceMotion, onQuirk: (q, side) => headJoins(q, side) }) : null);
   const turn = (dev.turn ?? 0) * D2R;
   /** The suit is painted: wanted, and its model is here. */
   const suited = () => suit > 0 && SUIT !== null;
@@ -2178,6 +2178,43 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   }
   /** Its hand looked at from this far in front of the head's middle (about where the eyes are). */
   const HAND_LOOK = { from: 250 };
+  // ---- head moves (the attention hooks' own, and the limbs' quirks ask for some)
+  function slowBlink(hold?: number) {
+    if (!lively() || lid.v > 0) return;
+    blink.start = S.t; blink.timing = hold === undefined ? SLOW_BLINK : { ...SLOW_BLINK, hold };
+  }
+  function widen(amount: number, seconds: number) {
+    if (reduceMotion) return;
+    wide.target = 1 + amount; wideUntil = S.t + seconds;
+  }
+  function tiltToward(dir: number, degrees?: number) {
+    if (reduceMotion || reveal < 1) return;
+    const side = dir < 0 ? -1 : 1;
+    tilt.streak = side === tilt.lastSide ? tilt.streak + 1 : 1; tilt.lastSide = side;
+    tiltTo(side, degrees); tilt.resettled = false;
+    tilt.speed = rand(6, 8);   // a perk rather than a lean
+    tilt.at = S.t;
+    if (tilts.on) tilt.next = S.t + rand(tilts.min, tilts.max);
+    else cuedUntil = S.t + rand(...CUED_HOLD);
+  }
+  function stretch() {
+    if (reduceMotion) return;
+    stretchStart = S.t;
+  }
+  /**
+   * The head joins in with what the limbs do (see limbs.ts), by the quirk and the side doing it (0
+   * the `.R`, on the viewer's right): a wave comes with a tilt toward the hand, taps on the helmet
+   * with a thinking tilt toward them, hands on its cheeks with a slow, pleased blink, a clap with
+   * its eyes widened a moment, a stretch with its own stretch.
+   */
+  function headJoins(quirk: QuirkName, side: Side) {
+    const toward = side === 0 ? 1 : -1;
+    if (quirk === "wave") tiltToward(toward, 9);
+    else if (quirk === "tap") tiltToward(toward, 12);
+    else if (quirk === "cheeks") slowBlink(0.35);
+    else if (quirk === "clap") widen(0.08, 1.4);
+    else if (quirk === "stretch") stretch();
+  }
   /** Until dispose: a suit model arriving after it has nothing to repaint. */
   let alive = true;
   blinkAmount = FORCED_BLINK ?? 0;
@@ -2194,10 +2231,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       lid.from = lid.v; lid.start = S.t; lid.dur = reduceMotion ? 0 : seconds;
       if (blink.start < 0) blink.next = Math.max(blink.next, S.t + lid.dur + WAKE_BLINK_GAP);
     },
-    slowBlink(hold) {
-      if (!lively() || lid.v > 0) return;
-      blink.start = S.t; blink.timing = hold === undefined ? SLOW_BLINK : { ...SLOW_BLINK, hold };
-    },
+    slowBlink,
     glance() {
       if (!lively()) return;
       const dir = S.yaw.v + tilt.yaw.v > 0 ? -1 : 1;   // away from where it was looking
@@ -2317,10 +2351,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     converge(amount) {
       gaze.conv.target = clamp(amount, 0, 1);
     },
-    widen(amount, seconds) {
-      if (reduceMotion) return;
-      wide.target = 1 + amount; wideUntil = S.t + seconds;
-    },
+    widen,
     dip() {
       if (!lively()) return;
       gaze.h.target = 0.9; gaze.undip = S.t + 0.3;
@@ -2349,16 +2380,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       const dur = reduceMotion ? 0 : seconds;
       easeTo(eyeLids[0], clamp(left, 0, 1), dur); easeTo(eyeLids[1], clamp(right, 0, 1), dur);
     },
-    tiltToward(dir, degrees) {
-      if (reduceMotion || reveal < 1) return;
-      const side = dir < 0 ? -1 : 1;
-      tilt.streak = side === tilt.lastSide ? tilt.streak + 1 : 1; tilt.lastSide = side;
-      tiltTo(side, degrees); tilt.resettled = false;
-      tilt.speed = rand(6, 8);   // a perk rather than a lean
-      tilt.at = S.t;
-      if (tilts.on) tilt.next = S.t + rand(tilts.min, tilts.max);
-      else cuedUntil = S.t + rand(...CUED_HOLD);
-    },
+    tiltToward,
     setTilts(gap) {
       tilts.on = !!gap;
       if (gap) { tilts.min = gap[0]; tilts.max = Math.max(gap[0], gap[1]); tilt.next = Math.min(tilt.next, S.t + tilts.max); cuedUntil = -1; }
@@ -2375,10 +2397,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       tilt.next = Math.max(tilt.next, S.t + BOB.cycles / BOB.hz + BOB.after);
       return true;
     },
-    stretch() {
-      if (reduceMotion) return;
-      stretchStart = S.t;
-    },
+    stretch,
     pose(yaw, pitch, roll, speed = 6) {
       pose.yaw.target = yaw * D2R; pose.pitch.target = pitch * D2R; pose.roll.target = roll * D2R; pose.speed = speed;
     },
