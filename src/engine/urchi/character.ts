@@ -9,15 +9,15 @@ import SUIT_FRAME from "./suit-frame.json";
  * follow, breathing, curious head tilt, darting pupils and blinks. Only the
  * page around it is gone (the floor, the hint and its own frame loop: the host
  * calls update(dt)). The site adds its hooks: eyes shut until opened, a slow
- * blink and a glance away, alphaAt for hit tests,
- * and for the Space intro a reveal (the eyes alone, then the head built
- * outward from them), one ordinary blink on cue, a deep breath and a gaze
- * target. Space's attention system (attention.ts) drives the rest of them:
- * eyes that lead the head, fixation, lids of its own for each eye, a resting
- * lid, a breath whose pace and depth it sets, widening, converging, a pose,
- * a sway, an owl's bob and a stretch. With none of them called it behaves
- * exactly as the standalone page (About and the favicon rely on that). The
- * query-string knobs still work on any page.
+ * blink and a glance away, alphaAt for hit tests, and for the Space intro a
+ * reveal (the eyes alone, then the head built outward from them), one ordinary
+ * blink on cue, a deep breath and a gaze target. Space's attention system
+ * (attention.ts) drives the rest of them: eyes that lead the head, fixation,
+ * lids of its own for each eye, a resting lid, a breath whose pace and depth
+ * it sets, widening, converging, a pose, a sway, an owl's bob and a stretch.
+ * With none of them called it behaves exactly as the standalone page (About
+ * and the favicon rely on that). The query-string knobs still work on any
+ * page.
  *
  * `smooth` paints the same head without the pixels, for the site's Space and
  * About: the canvas follows the size it is shown at (setResolution), edges keep

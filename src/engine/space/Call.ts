@@ -35,15 +35,16 @@ const MATCH = { share: 0.25, ms: 90, within: 15000 };
 /** Soft eyes once its version comes back, in seconds. */
 const SOFT_FOR = 20;
 /**
- * Its blinks: at most the site's slow blink (0.35s closing, 0.2s shut, 0.35s opening), which the first beat's closing and the last beat's shut and opening always are. Between
- * two beats, the lids stay shut for `holdShare` of the gap, never under `holdMin` (a beat has to
- * read as a closed moment, not a flicker) nor over `holdMost` of it; of the time left, a fifth is
- * spent at their most open and the rest opening and closing. Where that is too quick for them to
- * open all the way without moving faster than a full `stroke` in 0.12s, they part only as far as
- * that pace takes them, but always to `partMost` or wider, so that each beat still shows: at the
- * 250-500ms most people tap, a heavy, deliberate flutter rather than a string of quick blinks.
- * Under reduced motion the lids go at once, shut for `reducedShare` of the gap, `reducedMin` to
- * `reducedHold` seconds.
+ * Its blinks: at most the site's slow blink (0.35s closing, 0.2s shut, 0.35s opening), which the
+ * first beat's closing and the last beat's shut and opening always are. Between two beats, the
+ * lids stay shut for `holdShare` of the gap, never under `holdMin` (a beat has to read as a closed
+ * moment, not a flicker) nor over `holdMost` of it; of the time left, a fifth is spent at their
+ * most open and the rest opening and closing. Where that is too quick for them to open all the way
+ * without moving faster than a full `stroke` in 0.12s, they part only as far as that pace takes
+ * them, but always to `partMost` or wider, so that each beat still shows: at the 250-500ms most
+ * people tap, a heavy, deliberate flutter rather than a string of quick blinks. Under reduced
+ * motion the lids go at once, shut for `reducedShare` of the gap, `reducedMin` to `reducedHold`
+ * seconds.
  */
 const BLINK = {
   close: 0.35, hold: 0.2, open: 0.35,
