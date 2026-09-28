@@ -231,6 +231,7 @@ export const NOTES_FOLD_AFTER = 100;
 
 /** The notes column, any order; the page sorts newest first. Log lines carry the tag "site". */
 export const NOTES: Note[] = [
+  { id: "2026-09-28-hi", date: "2026-09-28", kind: "note", tags: ["random"], body: "hi" },
 ];
 
 export type SpaceItem = {
