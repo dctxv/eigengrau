@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "note": "node scripts/add-note.mjs",
     "gen:assets": "node scripts/gen-assets.mjs",
     "urchi:sync": "node scripts/sync-urchi.mjs",
     "urchi:suit": "node urchi/tools/build-suit.mjs"

@@ -16,6 +16,7 @@ import {
   dot,
   findSentence,
   groupsOf,
+  hasTag,
   indexSentence,
   lastVisitDay,
   localDay,
@@ -1089,7 +1090,7 @@ export function NotesPanel() {
   }, []);
 
   const fresh = (n: Note) => lastVisit !== null && n.date > lastVisit;
-  const entry = (n: Note, c: string) => <Entry key={n.id} n={n} c={c} fresh={fresh(n)} pressed={tag && n.tags.includes(tag) ? tag : null} />;
+  const entry = (n: Note, c: string) => <Entry key={n.id} n={n} c={c} fresh={fresh(n)} pressed={tag && hasTag(n, tag) ? tag : null} />;
   const group = (g: { id: string; label: string; entries: Note[] }, kind: "month" | "year", parent: string | null, children: ReactNode) => {
     const s = summary(g.entries, tag, query, match);
     return (
