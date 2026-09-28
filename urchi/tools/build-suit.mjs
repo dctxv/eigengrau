@@ -40,8 +40,10 @@
 //     faces never seen (inside another part, or flat against one), the planes between the body's
 //     parts (mirrored as the parts are), the head's tucked vertices, the visor's window as seen
 //     from the helmet's middle and its opening (the glass uncapped), when each of the body's planes
-//     comes on as the suit builds itself (its growth out from the neck ring), and (beside it, in
-//     suit-frame.json) the canvas frame that holds the suited figure in any pose.
+//     comes on as the suit builds itself (its growth out from the neck ring), the rig the limbs are
+//     posed by (the segments the body's parts turn in, and the joints they turn at: see 2b, 3b), and
+//     (beside it, in suit-frame.json) the canvas frame that holds the suited figure in any pose, its
+//     arms raised.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -143,7 +145,8 @@ const parts = [];
  * face by face (1, the rim) or as a whole while it faces the eye (2, a disc).
  */
 function part(name, material, o = {}) {
-  const P = { name, material, centre: !!o.centre, rigid: o.rigid || 'body', decal: o.decal || 0, v: [], f: [], hide: new Set(), whole: false };
+  // `ball`: a joint's ball (see 2b), inside what is round it at rest and seen only as it bends
+  const P = { name, material, centre: !!o.centre, rigid: o.rigid || 'body', decal: o.decal || 0, ball: !!o.ball, v: [], f: [], hide: new Set(), whole: false };
   P.vert = (p) => {
     let x = p[0];
     if (P.centre) {
@@ -687,6 +690,9 @@ const armRing = (t, ru, rw, sides = 8) => ring(along(t), ARM_OUT, Z, ru, rw, sid
   hullPart('shoulder.R', 'fabric', pts);
 }
 const ARM = { upper: 104, elbow: 34, fore: 72, cuff: 38 };
+// The joints the arm turns at (see 2b): the shoulder in the middle of its cap, the elbow and the
+// wrist in the middle of their rings.
+const ELBOW_T = ARM.upper + ARM.elbow / 2, WRIST_T = ARM.upper + ARM.elbow + ARM.fore + ARM.cuff / 2;
 hullPart('upper arm.R', 'fabric', [...armRing(0, 82, 90), ...armRing(ARM.upper * 0.5, 86, 94), ...armRing(ARM.upper, 80, 88)]);
 /** A grey joint ring from t for h along the arm: a band wider than the arm. */
 function jointRing(name, t, h, r, rz) {
@@ -727,6 +733,10 @@ const GLOVE = { t, hx: 92, hz: 122, c: 46 };
 // The legs: short, straight and a little tapered, from the torso's underside to the boots; a
 // flat front for the knee pad.
 const LEG = { x: 140, top: TORSO_FLOOR, bottom: 1172 };
+// The joints the leg turns at (see 2b): the hip in the middle of the leg's top, flat under the hips
+// (so a swing forward tips its front up inside them, never above them), and the ankle in the middle
+// of its cuff.
+const HIP = { x: LEG.x, y: LEG.top }, ANKLE_Y = (LEG.bottom + LEG.bottom + 24) / 2;
 hullPart('leg.R', 'fabric', [...octagon([LEG.x, LEG.top, 0], X, Z, 94, 104, 36), ...octagon([LEG.x, LEG.bottom, 0], X, Z, 88, 98, 34)]);
 {
   // the knee pad: flat on the leg's front, which leans back a hair toward the ankle
@@ -805,6 +815,33 @@ const HOSE = { r: 24, sides: 6, collar: 28, collarH: 18 };
   }
 }
 
+// ------------------------------------------------------------------ 2b. the joints
+// The limbs turn (character.ts poses them) at five joints a side: the shoulder in the middle of its
+// cap, the elbow and the wrist in the middle of their rings, the hip up inside the hips and the ankle
+// in the middle of its cuff. Each is a pivot, the way its child hangs from it at rest (`axis`), the
+// way a bend forward turns about (`out`: a bend brings the child toward the front) and the way back
+// to its parent (`up`). A ring round a joint turns half as far as the joint does, as a bellows
+// would. A bend opens a wedge on its outer side, between the end of a tube and the ring (or the
+// hips): a ball in the middle of each joint fills it (inside what is round it at rest, so never seen
+// there, and drawn before the rest of its joint, which covers it but for the wedge). The hip's ball
+// is cut flat on top, inside the hips.
+const JOINT = {
+  shoulder: { pivot: along(-62), axis: ARM_AXIS, out: ARM_OUT, up: mul(Y, -1) },
+  elbow: { pivot: along(ELBOW_T), axis: ARM_AXIS, out: ARM_OUT, up: mul(ARM_AXIS, -1) },
+  wrist: { pivot: along(WRIST_T), axis: ARM_AXIS, out: ARM_OUT, up: mul(ARM_AXIS, -1) },
+  hip: { pivot: [HIP.x, HIP.y, 0], axis: Y, out: X, up: mul(Y, -1) },
+  ankle: { pivot: [BOOT.x, ANKLE_Y, 0], axis: Y, out: X, up: mul(Y, -1) },
+};
+/** A low-poly ball of radius r round c, its poles along `axis`: rings of eight at each latitude (degrees, toward the axis's end positive), and a pole at 90. */
+function ballPoints(c, axis, r, lats) {
+  const u = unit(cross(axis, Math.abs(axis[2]) < 0.9 ? Z : X)), w = cross(axis, u);
+  return [...lats.flatMap((lat, k) => ring(add(c, mul(axis, r * Math.sin(lat * D2R))), u, w, r * Math.cos(lat * D2R), r * Math.cos(lat * D2R), 8, k % 2 ? 0 : 0.5)), add(c, mul(axis, r))];
+}
+hullPart('elbow ball.R', 'fabric', ballPoints(JOINT.elbow.pivot, ARM_AXIS, 76, [-90, -55, -18, 18, 55]), { ball: true });
+hullPart('wrist ball.R', 'fabric', ballPoints(JOINT.wrist.pivot, ARM_AXIS, 72, [-90, -55, -18, 18, 55]), { ball: true });
+hullPart('hip ball.R', 'fabric', ballPoints(JOINT.hip.pivot, Y, 92, [-24, 0, 30, 60]), { ball: true });
+hullPart('ankle ball.R', 'fabric', ballPoints(JOINT.ankle.pivot, Y, 80, [-90, -55, -18, 18, 55]), { ball: true });
+
 // ------------------------------------------------------------------ 3. mirror and orient
 const isBody = (P) => P.rigid === 'body';
 const signedVolume = (v, f) => f.reduce((s, [a, b, c]) => s + dot(v[a], cross(v[b], v[c])) / 6, 0);
@@ -831,6 +868,54 @@ for (const P of parts) {
   }
 }
 const byName = new Map(all.map((P, i) => [P.name, i]));
+
+// ------------------------------------------------------------------ 3b. the rig
+// What turns at each joint (see 2b): the body's parts in segments, each hung from its parent at its
+// joint (the torso, segment 0, from nothing: it is the body). A ring and a joint's ball turn half as
+// far as their joint (`half`). Per joint, as the painter orders them: the parent's and the child's
+// tubes either side of it, its ring (`cover`) and its ball; the shoulder's ring is its cap (which
+// stays on the torso; the arm and the torso beside it are ordered as any two parts apart), and the
+// hip's parent the hips, over the leg's top (it has no ring).
+const SEGMENT_OF = [
+  // [segment, its joint, its parent, half, its parts]
+  ['upper arm', 'shoulder', 'torso', 0, ['upper arm']],
+  ['elbow ring', 'elbow', 'upper arm', 1, ['elbow ring', 'elbow ball']],
+  ['forearm', 'elbow', 'upper arm', 0, ['forearm']],
+  ['cuff', 'wrist', 'forearm', 1, ['cuff', 'wrist ball']],
+  ['hand', 'wrist', 'forearm', 0, ['glove', 'palm', 'thumb']],
+  ['leg', 'hip', 'torso', 0, ['leg', 'knee']],
+  ['hip ball', 'hip', 'torso', 1, ['hip ball']],
+  ['ankle cuff', 'ankle', 'leg', 1, ['ankle cuff', 'ankle ball']],
+  ['foot', 'ankle', 'leg', 0, ['boot', 'sole']],
+];
+const JOINT_PARTS = { shoulder: [null, 'upper arm', 'shoulder', null], elbow: ['upper arm', 'forearm', 'elbow ring', 'elbow ball'], wrist: ['forearm', 'glove', 'cuff', 'wrist ball'], hip: ['hips', 'leg', null, 'hip ball'], ankle: ['leg', 'boot', 'ankle cuff', 'ankle ball'] };
+const SIDES = ['R', 'L'];
+const segments = [{ name: 'torso', joint: -1, parent: -1, half: 0 }];
+const joints = [];
+for (const side of SIDES) {
+  const m = side === 'R' ? (p) => p : mirror, lift = (p) => [p[0], p[1] + BODY_DY, p[2]];
+  const partOf = (n) => (n === null ? -1 : byName.has(n) ? byName.get(n) : byName.get(`${n}.${side}`));
+  for (const [name, J] of Object.entries(JOINT)) {
+    const [parent, child, cover, ball] = JOINT_PARTS[name];
+    joints.push({ name: `${name}.${side}`, pivot: lift(m(J.pivot)).map((c) => Math.round(c * 100) / 100 + 0), axis: m(J.axis), out: m(J.out), up: m(J.up), parent: partOf(parent), child: partOf(child), cover: partOf(cover), ball: partOf(ball) });
+  }
+  for (const [name, joint, parent] of SEGMENT_OF) {
+    const pi = parent === 'torso' ? 0 : segments.findIndex((S) => S.name === `${parent}.${side}`);
+    segments.push({ name: `${name}.${side}`, joint: joints.findIndex((J) => J.name === `${joint}.${side}`), parent: pi, half: SEGMENT_OF.find((S) => S[0] === name)[3] });
+  }
+}
+for (const P of all) {
+  const m = P.name.match(/^(.*)\.([RL])$/), S = m && SEGMENT_OF.find((S) => S[4].includes(m[1]));
+  P.seg = S ? segments.findIndex((T) => T.name === `${S[0]}.${m[2]}`) : 0;
+  if (P.ball && !S) fail(`${P.name}: a ball in no segment`);
+}
+/**
+ * Two parts either side of a joint that turn apart, or its ball and any of it: the painter orders
+ * them by the joint, not by a plane (a ball goes first: it is inside them). Two balls (the elbow's
+ * and the wrist's reach into each other, inside the forearm) come before what is round them,
+ * whichever of them goes first.
+ */
+const atJoint = (a, b) => (all[a].ball && all[b].ball) || ((all[a].seg !== all[b].seg || all[a].ball || all[b].ball) && joints.some((J) => { const r = [J.parent, J.child, J.cover, J.ball]; return r.includes(a) && r.includes(b); }));
 
 // ------------------------------------------------------------------ 4. checks
 const report = [];
@@ -927,7 +1012,7 @@ const faceNormal = (fi) => { const [a, b, c] = F[fi].map((i) => V[i]); return mu
 
 // counts per part
 {
-  const groups = [['helmet', ['helmet', 'visor', 'rim', 'disc']], ['torso', ['neck ring', 'torso', 'belt', 'hips', 'chest panel', 'slot', 'button', 'light', 'backpack', 'pack lid']], ['hoses', ['connector', 'hose', 'pack connector']], ['arms', ['shoulder', 'upper arm', 'elbow ring', 'forearm', 'cuff', 'glove', 'palm', 'thumb']], ['legs', ['leg', 'knee', 'ankle cuff', 'boot', 'sole']]];
+  const groups = [['helmet', ['helmet', 'visor', 'rim', 'disc']], ['torso', ['neck ring', 'torso', 'belt', 'hips', 'chest panel', 'slot', 'button', 'light', 'backpack', 'pack lid']], ['hoses', ['connector', 'hose', 'pack connector']], ['arms', ['shoulder', 'upper arm', 'elbow ring', 'forearm', 'cuff', 'glove', 'palm', 'thumb']], ['legs', ['leg', 'knee', 'ankle cuff', 'boot', 'sole']], ['joints', ['elbow ball', 'wrist ball', 'hip ball', 'ankle ball']]];
   const count = (P) => P.f.length;
   const line = groups.map(([g, names]) => {
     const ps = all.filter((P) => names.some((n) => P.name.replace(/ \d+/, '').replace(/\.[RL]$/, '') === n) && !P.name.endsWith('.L'));
@@ -939,13 +1024,16 @@ const faceNormal = (fi) => { const [a, b, c] = F[fi].map((i) => V[i]); return mu
 
 // ------------------------------------------------------------------ 5. what is never seen
 // A face inside another convex part carried by the same thing, or flat against one of its faces
-// (a leg's top on the torso's underside, a disc's foot inside the shell), is never drawn; nor is
-// the glass's back.
+// (a sole's top under its boot, a disc's foot inside the shell), is never drawn; nor is the glass's
+// back. Only a part that turns with it hides it: one that turns at a joint of its own (a leg's top
+// up inside the hips, a tube's end in its ring) may leave it bare as the joint bends, so it is
+// drawn, and covered by what is in front of it where it is not bare. A joint's ball is always drawn.
 const hidden = new Array(F.length).fill(0);
 {
   let count = 0, behindGlass = 0;
   F.forEach((f, fi) => {
     const P = all[FP[fi]];
+    if (P.ball) return;
     if (P.back !== undefined && f.some((i) => i - partBase[FP[fi]] === P.back)) { hidden[fi] = 1; count++; return; }
     if (P.name === 'visor') return;   // the glass is recessed into the shell, and always drawn where it faces the eye
     // the rim's underside, its feet sunk under the smooth surface: in the helmet's wall
@@ -956,7 +1044,7 @@ const hidden = new Array(F.length).fill(0);
     const pts = [...f.map((i) => V[i]), faceCentre(fi)];
     for (let qi = 0; qi < all.length; qi++) {
       const Q = all[qi];
-      if (qi === FP[fi] || Q.rigid !== P.rigid || !Q.planes) continue;
+      if (qi === FP[fi] || Q.rigid !== P.rigid || Q.seg !== P.seg || Q.ball || !Q.planes) continue;
       if (pts.every((p) => Q.planes.every((pl) => dot(pl.n, p) - pl.d < 0.5))) { hidden[fi] = 1; count++; return; }
     }
   });
@@ -975,7 +1063,11 @@ const hidden = new Array(F.length).fill(0);
 // ------------------------------------------------------------------ 6. the planes between the body's parts
 // Two convex parts that do not overlap have a plane between them (a face of one, or the plane
 // through an edge of each): the painter draws the one on the far side of it from the eye first.
-// Only pairs that can overlap on screen are kept: any turn of the figure, its roll, its sway.
+// Only pairs that can overlap on screen are kept: any turn of the figure, its roll, its sway; and
+// only pairs that turn together (in one segment, see 3b): the painter finds its own between two
+// that do not, as they are posed (though at rest they must have one too, and are checked), and
+// orders two at a joint by the joint. A limb's segment can be turned to be seen from any side, so
+// every two of its parts keep theirs.
 const sep = [];
 {
   const body = all.map((P, i) => ({ P, i })).filter(({ P }) => isBody(P));
@@ -999,8 +1091,8 @@ const sep = [];
   const planeOf = new Map();
   for (let a = 0; a < info.length; a++) for (let b = a + 1; b < info.length; b++) {
     pairs++;
-    if (!overlaps(a, b)) continue;
-    const A = info[a], B = info[b];
+    const A = info[a], B = info[b], together = A.P.seg === B.P.seg;
+    if (atJoint(A.i, B.i) || (!overlaps(a, b) && !(together && A.P.seg > 0))) continue;
     const ta = twinOf[A.i], tb = twinOf[B.i], m = planeOf.get(`${ta}|${tb}`) || (planeOf.has(`${tb}|${ta}`) && (({ n, d }) => ({ n: mul(n, -1), d: -d }))(planeOf.get(`${tb}|${ta}`)));
     // the gap along a plane between the two (n.p < d on A's side), to check it and report the closest
     const gapAlong = (n, d) => Math.min(...B.pts.map((p) => dot(n, p) - d)) + Math.min(...A.pts.map((p) => d - dot(n, p)));
@@ -1011,7 +1103,7 @@ const sep = [];
       if (gap < 0.5) touching++;
       tight.push([gap, A.P.name, B.P.name]);
       planeOf.set(`${A.i}|${B.i}`, { n, d });
-      sep.push([A.i, B.i, ...n, d]);
+      if (together) sep.push([A.i, B.i, ...n, d]);
     };
     if (m) { keep([-m.n[0] + 0, m.n[1], m.n[2]], m.d); continue; }
     // a part and its own twin (a side part lies wholly right of the middle): the middle plane
@@ -1036,7 +1128,7 @@ const sep = [];
     const ok = (m && m.n[0] === -nx && m.n[1] === ny && m.n[2] === nz && m.d === d) || (w && w.n[0] === nx && w.n[1] === -ny && w.n[2] === -nz && w.d === -d) || (w && twinOf[a] === b && w.n[0] === nx && w.n[1] === -ny && w.n[2] === -nz && w.d === -d);
     if (!ok) fail(`symmetry: the plane between ${all[a].name} and ${all[b].name} has no mirror`);
   }
-  report.push(`apart: every two of the body's ${info.length} parts that can overlap on screen (${sep.length} of ${pairs} pairs) have a plane between them, mirrored as the parts are; ${touching} pairs meet flat on, the closest others are ${tight.filter((p) => p[0] >= 0.5).sort((p, q) => p[0] - q[0])[0][0].toFixed(1)} apart`);
+  report.push(`apart: every two of the body's ${info.length} parts that can overlap on screen (${tight.length} of ${pairs} pairs; ${sep.length} of them turn together, and keep their plane) have a plane between them at rest, mirrored as the parts are, but for two at a joint; ${touching} pairs meet flat on, the closest others are ${tight.filter((p) => p[0] >= 0.5).sort((p, q) => p[0] - q[0])[0][0].toFixed(1)} apart`);
 }
 
 // ------------------------------------------------------------------ 7. fit
@@ -1316,7 +1408,10 @@ let frame;
   // room for the head's shift (the owl's bob, 10) and rise (breath and stretch, about 24), the
   // body's sway and the widest rim (a canvas pixel and a quarter on a small figure)
   const PAD = 64, step = (v) => Math.ceil(v / 7.5) * 7.5;   // whole art pixels, as the head's frame
-  const X = step(Math.max(-b.x0, b.x1) + PAD), top = step(-b.y0 + PAD), bottom = step(b.y1 + PAD);
+  // and an arm turned out straight from its shoulder (character.ts never turns one higher than a
+  // little over level, nor the body more than its sway): the farthest of its glove from the shoulder
+  const S = joints.find((J) => J.name === 'shoulder.R'), reach = S.pivot[0] + Math.max(...all[byName.get('glove.R')].v.map((p) => len(sub(p, S.pivot))));
+  const X = step(Math.max(-b.x0, b.x1, reach) + PAD), top = step(-b.y0 + PAD), bottom = step(b.y1 + PAD);
   frame = { x: -X, y: -top, w: 2 * X, h: top + bottom };
   const figure = Math.max(...V.map((p) => p[1])) - Math.min(...shellP.v.map((p) => p[1]));
   report.push(`proportions: the figure ${Math.round(figure)} units tall at rest, the helmet ${Math.round(HELMET_FLOOR - Math.min(...shellP.v.map((p) => p[1])))} of it (${Math.round((100 * (HELMET_FLOOR - Math.min(...shellP.v.map((p) => p[1])))) / figure)}%)`);
@@ -1521,6 +1616,7 @@ function closestOnTriangle(V, a, b, c, px, py, pz) {
 
 // ------------------------------------------------------------------ bake
 const flat = (a) => a.flat();
+const r5 = (c) => Math.round(c * 1e5) / 1e5 + 0;
 const suit = {
   // vertices in the head's space, flat [x, y, z, ...]; triangles wound as the head's (outward), flat; the plane of each
   v: flat(V),
@@ -1531,7 +1627,13 @@ const suit = {
   vm: VM,
   materials: MATERIALS,
   // per part: its material, what carries it (1 the head), how it lies on the shell (1 plane by plane, 2 as a whole), and whether it is convex
-  parts: all.map((P) => ({ name: P.name, material: MATERIALS.indexOf(P.material), rigid: P.rigid === 'head' ? 1 : 0, decal: P.decal, convex: P.convex ? 1 : 0 })),
+  parts: all.map((P) => ({ name: P.name, material: MATERIALS.indexOf(P.material), rigid: P.rigid === 'head' ? 1 : 0, decal: P.decal, convex: P.convex ? 1 : 0, seg: P.seg, ball: P.ball ? 1 : 0 })),
+  // the rig (see 3b): the segments the body's parts turn in, each hung from its parent at its joint
+  // (half as far, a ring or a ball), and per joint its pivot, the way its child hangs from it, the way
+  // a bend forward turns about and the way back to its parent (all at rest), and its parts: the
+  // parent's and the child's tubes, the ring and the ball (-1: none)
+  segments: segments.map(({ joint, parent, half }) => [joint, parent, half]),
+  joints: joints.map(({ name, pivot, axis, out, up, parent, child, cover, ball }) => ({ name, pivot, axis: axis.map(r5), out: out.map(r5), up: up.map(r5), parts: [parent, child, cover, ball] })),
   // faces never seen (inside another part, or flat against one)
   hidden: hidden.flatMap((h, fi) => (h ? [fi] : [])),
   // the planes between the body's parts that can overlap: [a, b, nx, ny, nz, d], part a on the side n.p < d
@@ -1553,6 +1655,14 @@ const suit = {
 {
   const t0 = performance.now();
   suit.grow = Array.from(growthOf(suit), (d) => Math.round(d * 10) / 10);
+  // a joint's ball comes on with the last of its joint (it is inside them: before, it would stand alone)
+  const partPlanes = (pi) => [...new Set(suit.g.filter((_, fi) => suit.vp[suit.f[fi * 3]] === pi))];
+  for (const J of suit.joints) {
+    const [, , , ball] = J.parts;
+    if (ball < 0) continue;
+    const last = Math.max(...J.parts.slice(0, 3).filter((pi) => pi >= 0).flatMap(partPlanes).map((g) => suit.grow[g]));
+    for (const g of partPlanes(ball)) suit.grow[g] = last;
+  }
   const body = suit.grow.filter((d) => d > 0);
   report.push(`growth: ${suit.grow.length} planes, the body's coming on ${Math.min(...body).toFixed(0)} to ${Math.max(...body).toFixed(0)} units out from the neck ring (${(performance.now() - t0).toFixed(0)} ms here, none on the page)`);
 }
