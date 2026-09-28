@@ -3,7 +3,6 @@
 import { useImperativeHandle, useRef, type Ref } from "react";
 import { TABS } from "@/content/site";
 import { COLOR } from "@/lib/color";
-import { mulberry32 } from "@/lib/threshold";
 import { lastVisit } from "@/lib/visits";
 
 /**
@@ -99,6 +98,18 @@ function visitSeed(): number {
 function inView(w: number, h: number): number {
   const n = STARS.count * Math.pow((w * h) / STARS.area, STARS.curve);
   return Math.round(Math.min(STARS.max, Math.max(STARS.min, n)));
+}
+
+/** mulberry32: a small seeded generator, uniform in 0..1, so a visit's seed always lays the same sky. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 function pickLevel(r: number): number {

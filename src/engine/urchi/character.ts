@@ -9,7 +9,7 @@ import SUIT_FRAME from "./suit-frame.json";
  * follow, breathing, curious head tilt, darting pupils and blinks. Only the
  * page around it is gone (the floor, the hint and its own frame loop: the host
  * calls update(dt)). The site adds its hooks: eyes shut until opened, a slow
- * blink and a glance away (Threshold's yes and no), alphaAt for hit tests,
+ * blink and a glance away, alphaAt for hit tests,
  * and for the Space intro a reveal (the eyes alone, then the head built
  * outward from them), one ordinary blink on cue, a deep breath and a gaze
  * target. Space's attention system (attention.ts) drives the rest of them:
@@ -563,9 +563,9 @@ export type UrchiCharacter = {
   /** Eyes shut (the closed-lid arc) until openEyes. */
   closeEyes(): void;
   openEyes(seconds: number): void;
-  /** A slow, deliberate blink: Threshold's yes. `hold` keeps it shut longer (a long, patient blink). */
+  /** A slow, deliberate blink, a cat's. `hold` keeps it shut longer (a long, patient blink). */
   slowBlink(hold?: number): void;
-  /** A look away, head and pupils, for a moment: Threshold's no. */
+  /** A look away, head and pupils, for a moment. */
   glance(): void;
   /** One ordinary blink now (never a double); the next random one waits its usual gap after it. */
   blink(): void;
@@ -983,7 +983,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   // every 2.5-6s, now and then twice in a row.
   type BlinkTiming = { close: number; hold: number; open: number };
   const BLINK: BlinkTiming = { close: 0.09, hold: 0.15, open: 0.14 };
-  /** The site's slow blink (Threshold's yes): the same curves, drawn out. */
+  /** The site's slow blink: the same curves, drawn out. */
   const SLOW_BLINK: BlinkTiming = { close: 0.35, hold: 0.2, open: 0.35 };
   const blink = { start: -1, next: 1.2 + Math.random() * 2, double: false, timing: BLINK, cued: false, twice: false, gap: [2.5, 6] as Vec2 };
   function stepBlink(t: number) {
@@ -1011,7 +1011,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     if (u >= 1) lid.start = -1;
     return lid.v;
   }
-  // The glance away (Threshold's no): the head turns off and the pupils follow for a moment.
+  // The glance away: the head turns off and the pupils follow for a moment.
   const GLANCE = { yaw: 22 * D2R, hold: 0.6 };
   const away = { turn: spring(), until: -1, eyes: 0, eyesUntil: -1 };
   // No stray blink straight after the eyes open: the first comes at least this long after the lids are up.

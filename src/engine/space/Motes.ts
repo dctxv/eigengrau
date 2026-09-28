@@ -2,20 +2,18 @@ import * as THREE from "three";
 import { rawColor } from "@/engine/common/color";
 import { closeBy, restOn, windUp } from "@/engine/urchi/acts";
 import type { Attention, Point } from "@/engine/urchi/attention";
-import { readResult, squareColor, todayUTC } from "@/lib/threshold";
+import { COLOR } from "@/lib/color";
 import type { RoomScene } from "./RoomScene";
 
 /**
  * Motes (spec S3): zero to three faint specks in Urchi's room, each exactly
- * one of its art pixels, only a few levels of 255 above eigengrau (Threshold's
- * scale), so they sit at the edge of what a screen shows. They drift slowly,
- * the pointer's air pushes them, and one that touches Urchi rests on it until
- * the next breath lifts it off. Urchi watches them through its attention: once
- * the pointer has been still a while, the faintest one; a mote too near its
- * face gets a cross-eyed look and a slow blink, and is gone when the lids
- * open. Tapping empty space releases one there. Once today's Threshold is
- * played, new ones are born at the level the visitor reached, so Urchi
- * watches the ones they can only just see.
+ * one of its art pixels, only a few levels of 255 above eigengrau, so they
+ * sit at the edge of what a screen shows. They drift slowly, the pointer's
+ * air pushes them, and one that touches Urchi rests on it until the next
+ * breath lifts it off. Urchi watches them through its attention: once the
+ * pointer has been still a while, the faintest one; a mote too near its face
+ * gets a cross-eyed look and a slow blink, and is gone when the lids open.
+ * Tapping empty space releases one there.
  */
 const MOTE = {
   max: 3,
@@ -84,6 +82,13 @@ type Mote = {
 };
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
+const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+/** A mote's colour: eigengrau moved `level` of 255 toward ink on every channel, rounded. */
+function levelColor(level: number): string {
+  const bg = channels(COLOR.bg), ink = channels(COLOR.ink);
+  return `#${bg.map((c, i) => Math.round(c + ((ink[i] - c) * level) / 255).toString(16).padStart(2, "0")).join("")}`;
+}
 
 export class Motes {
   private room: RoomScene;
@@ -94,7 +99,6 @@ export class Motes {
   private t = 0;
   private next = -1;
   private count = 0;
-  private hidden = false;
   private stopFrame: () => void;
   private rect: DOMRect | null = null;
 
@@ -110,32 +114,18 @@ export class Motes {
     if (this.next < 0) this.next = this.t + rand(...MOTE.first);
   }
 
-  /** Hidden while the game is open: they fade at once and none arrive. */
-  hide(on: boolean) {
-    this.hidden = on;
-    if (on) this.motes.forEach((m) => this.fadeOut(m, 0.3));
-    else this.next = this.t + rand(...MOTE.first);
-  }
-
   /**
    * A tap on empty space: a mote there, and Urchi winds up and turns to it. `heeding`: the tap is
    * one of a rhythm Urchi is listening to, so the mote still goes but is no more interesting than
    * any other, and Urchi keeps its eyes on you. Returns the mote's target id, or null.
    */
   release(clientX: number, clientY: number, heeding = false): string | null {
-    if (this.hidden || this.next < 0) return null;
+    if (this.next < 0) return null;
     const p = this.room.toRoom(clientX, clientY);
-    const m = this.make(p.x, p.y, this.levelNow(MOTE.released), true, heeding);
+    const m = this.make(p.x, p.y, MOTE.released, true, heeding);
     this.att.quiet("pointer");
     if (!heeding) this.att.play("windUp", 3, () => windUp(this.att, () => this.clientOf(m, 0)), { queue: 0.5 });
     return m.id;
-  }
-
-  /** What a new mote's level is: the visitor's Threshold result once today's is played. */
-  private levelNow(fallback?: number) {
-    const played = readResult(todayUTC());
-    if (played !== null && played > 0) return played;
-    return fallback ?? Math.round(rand(MOTE.levels[0], MOTE.levels[1]));
   }
 
   private make(x: number, y: number, level: number, released = false, quiet = false): Mote {
@@ -144,7 +134,7 @@ export class Motes {
     if (live.length >= MOTE.max) this.fadeOut(live[0], MOTE.fade);
     const mesh = new THREE.Mesh(
       this.geo,
-      new THREE.MeshBasicMaterial({ color: rawColor(squareColor(level)), transparent: true, opacity: 0, depthTest: false, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: rawColor(levelColor(level)), transparent: true, opacity: 0, depthTest: false, depthWrite: false }),
     );
     mesh.renderOrder = -1; // behind Urchi
     this.room.scene.add(mesh);
@@ -183,7 +173,7 @@ export class Motes {
   /** An arrival: from an edge, drifting in, or out of nothing in the open room. */
   private arrive() {
     const w = this.room.width / 2, h = this.room.height / 2;
-    const level = this.levelNow();
+    const level = Math.round(rand(MOTE.levels[0], MOTE.levels[1]));
     if (!this.reduced && Math.random() < 0.5) {
       const edge = Math.floor(Math.random() * 4);
       const along = rand(-0.7, 0.7);
@@ -229,16 +219,16 @@ export class Motes {
 
   /** A mote's centre in client px; null while it is fainter than `seen` of itself (still fading in or out). */
   private clientOf(m: Mote, seen: number): Point | null {
-    if (!this.motes.includes(m) || m.alpha < seen || this.hidden) return null;
+    if (!this.motes.includes(m) || m.alpha < seen) return null;
     const r = this.rect ?? this.room.canvas.getBoundingClientRect();
     return { x: r.left + r.width / 2 + m.x, y: r.top + r.height / 2 - m.y };
   }
 
   private frame(dt: number) {
     this.t += dt;
-    if (!this.motes.length && (this.next < 0 || this.hidden)) return;
+    if (!this.motes.length && this.next < 0) return;
     this.rect = this.room.canvas.getBoundingClientRect();
-    if (this.next >= 0 && !this.hidden && this.t >= this.next) {
+    if (this.next >= 0 && this.t >= this.next) {
       this.next = this.t + rand(...MOTE.every);
       if (this.room.interactive) this.arrive();
     }

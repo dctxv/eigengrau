@@ -100,11 +100,6 @@ export class Tether {
     gsap.to(this.material, { opacity: on ? ROPE.alpha : 0, duration: seconds, ease: "power2.out", onComplete: () => { if (!on) this.shown.v = 0; } });
   }
 
-  /** Faded out of the way (the game is up), or back, keeping its shape. */
-  dim(on: boolean) {
-    gsap.to(this.material, { opacity: on ? 0 : ROPE.alpha, duration: on ? 0.3 : 0.5, ease: "power2.out", overwrite: true });
-  }
-
   /** The nodes along a lazy S between its ends now, as long as the rope is, at rest. */
   private lay() {
     const a = this.from(), b = this.to();

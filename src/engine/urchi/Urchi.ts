@@ -82,7 +82,7 @@ export class Urchi {
   width = 1;
   /** 0 hidden .. 1 full size. */
   appear = 0;
-  /** A size for a moment, on top of `appear`: the game's stack shrinks it to fit above the board, and sleep settles it. */
+  /** A size for a moment, on top of `appear`: sleep settles it, and leaning in brings it closer. */
   zoom = 1;
   /** Device pixels per host unit, which a smooth Urchi paints its canvas to match. */
   pixelRatio = 1;
@@ -237,16 +237,6 @@ export class Urchi {
 
   openEyes(seconds: number) {
     this.character.openEyes(seconds);
-  }
-
-  /** Threshold's yes. */
-  slowBlink() {
-    this.character.slowBlink();
-  }
-
-  /** Threshold's no. */
-  glance() {
-    this.character.glance();
   }
 
   dispose() {

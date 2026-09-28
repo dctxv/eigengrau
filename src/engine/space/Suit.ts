@@ -112,12 +112,9 @@ export class Suit {
   private att: Attention;
   private reduced: boolean;
   private state: State = "home";
-  /** The peg has been asked for (show), and has appeared: painted, and on the wall unless the game is up. */
+  /** The peg has been asked for (show), and has appeared: painted, and on the wall. */
   private shown = false;
   private up = false;
-  /** The game is up (see away), and an appearance held back until it closes (show's `now`), or null. */
-  private aside = false;
-  private held: boolean | null = null;
   /** Pressed while suiting up or leaving it home: it goes back the other way once that is done (a second press takes it back). */
   private queued = false;
   /** How far down the panel the ring hangs, px (see PEG and layout). */
@@ -174,9 +171,9 @@ export class Suit {
     return this.state === "suiting" || this.state === "unsuiting";
   }
 
-  /** The peg is on the wall (painted, and not out of the way of the game). */
+  /** The peg is on the wall (painted). */
   get pegShown() {
-    return this.up && !this.aside;
+    return this.up;
   }
 
   // ---------------------------------------------------------------- the peg
@@ -230,8 +227,7 @@ export class Suit {
 
   /**
    * Paints the peg's helmet (the model first, the first time), then shows the peg: faded in, or
-   * `now` (quicker, and without the helmet settling onto it). With the game up it waits, out of the
-   * way, and appears as the game closes (see away). Each step in a moment of its own (whenIdle):
+   * `now` (quicker, and without the helmet settling onto it). Each step in a moment of its own (whenIdle):
    * the suit's rig (once for the page, a slice at a time: warmSuitIdle), the helmet's painter, its
    * first paint; the glint's painter after it is up.
    */
@@ -247,8 +243,7 @@ export class Suit {
         if (this.state === "home") this.size(this.onPeg().unit, null);
         this.draw();
         this.place();
-        if (this.aside) this.held = now;
-        else this.appear(now);
+        this.appear(now);
         this.ready = true;
         this.onPainted.splice(0).forEach((fn) => fn());
         step(() => this.glassPainter());
@@ -271,29 +266,6 @@ export class Suit {
       gsap.to(this.flight, { lift: 0, duration: 1.1, ease: "power3.out" });
     }
     this.att.add({ id: "peg", kind: "interest", weight: 0.25, at: () => (this.state === "home" ? this.helmetAt() : this.ringAt()) });
-  }
-
-  /**
-   * Out of the way while the game is up, as the motes are (the room is cleared for the board), and
-   * back after: the peg and, suited, its tether with it, so no line runs to a peg that is not there.
-   * A peg due to appear meanwhile (its ten seconds up, or its model late) waits for the game to close.
-   */
-  away(on: boolean) {
-    this.aside = on;
-    this.o.peg.inert = on;
-    if (this.state === "suited") {
-      this.tether.dim(on);
-      // stacked above the board it holds still (its soles keep their gap to the plate), and floats again after
-      this.room.floatUrchi(!on);
-    }
-    if (!on && this.held !== null) {
-      const now = this.held;
-      this.held = null;
-      this.appear(now);
-      return;
-    }
-    if (!this.up) return;
-    gsap.to(this.o.wall, { autoAlpha: on ? 0 : 1, duration: on ? 0.3 : 0.5, ease: "power2.out", overwrite: true });
   }
 
   /** A glint on the helmet's glass, as Urchi looks at it. */
@@ -695,7 +667,6 @@ export class Suit {
     gsap.killTweensOf(this.amount);
     gsap.killTweensOf(this.o.wall);
     gsap.set(this.o.wall, { autoAlpha: 0 });
-    this.o.peg.inert = false;
     this.stopFrame();
     this.tether.dispose();
     this.att.remove("peg");

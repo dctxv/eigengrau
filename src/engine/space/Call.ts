@@ -35,8 +35,7 @@ const MATCH = { share: 0.25, ms: 90, within: 15000 };
 /** Soft eyes once its version comes back, in seconds. */
 const SOFT_FOR = 20;
 /**
- * Its blinks: at most the site's slow blink (Threshold's yes, 0.35s closing, 0.2s shut, 0.35s
- * opening), which the first beat's closing and the last beat's shut and opening always are. Between
+ * Its blinks: at most the site's slow blink (0.35s closing, 0.2s shut, 0.35s opening), which the first beat's closing and the last beat's shut and opening always are. Between
  * two beats, the lids stay shut for `holdShare` of the gap, never under `holdMin` (a beat has to
  * read as a closed moment, not a flicker) nor over `holdMost` of it; of the time left, a fifth is
  * spent at their most open and the rest opening and closing. Where that is too quick for them to

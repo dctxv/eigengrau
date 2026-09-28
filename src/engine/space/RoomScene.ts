@@ -37,7 +37,7 @@ const SIZE = { narrow: 640, height: 0.48, width: 0.45, max: 600 };
  * How far a head turned to look into a corner reaches past its outline at rest, as shares of its
  * height (measured on the drawn silhouette, rim and roll included): the ear tips rise up to `rise`
  * above where they rest, and the chin drops up to `drop` below. Whatever sits at the head's limits
- * (the caption under it here, the tab bar over the game's stack) leaves it that much room.
+ * (the caption under it) leaves it that much room.
  */
 export const URCHI_TURN = { rise: 0.15, drop: 0.11 } as const;
 /**
@@ -70,7 +70,6 @@ const LEAN = { closer: 0.04, in: 0.45, out: 0.7 };
  * one is held.
  */
 const RISE = { share: 0.03, long: 0.05, narrow: 0.02 };
-const DIM_FADE = 0.15;
 /**
  * The suited figure at rest (panel 2, the spacesuit), in mesh units from the head's centre (y down),
  * rim included, as the painter draws it facing you: the helmet's crown, the soles, and half its
@@ -144,8 +143,6 @@ export class RoomScene {
   private home = 0;
   /** How far the settled head sinks (CSS px). */
   private sink = 0;
-  /** The game's stack: how far into it (0 home, 1 stacked), the head's centre above the room's centre there, and its size. Tweened. */
-  private stack = { k: 0, y: 0, zoom: 1 };
   /** The night's settle, 0 awake .. 1 on its pillow. Tweened. */
   private settle = { v: 0 };
   /** Leaning in, 0 .. 1. Tweened. */
@@ -280,22 +277,6 @@ export class RoomScene {
     return 1 + (this.fitZoom - 1) * this.suited.v;
   }
 
-  /**
-   * What the game's stack stacks, in CSS px at rest: the head (ear tips to chin) or, suited, the
-   * whole figure (crown to soles), how far down it the head's centre is (a share of it), how far a
-   * turn lifts its top (a share), the smallest it may be drawn, and what it dims to where not even
-   * that fits. Suited, the whole figure may be drawn as small as the bare head's smallest (wave 4
-   * shows it smaller still, docked), so it stacks wherever the head would, on a short laptop too;
-   * where neither fits it fades right out behind the board, as at the head's 15% its helmet and
-   * boots would show round the plate.
-   */
-  stackShape() {
-    const unit = (this.pixel * HEAD_ART) / (URCHI_HEAD.bottom - URCHI_HEAD.top);
-    if (this.suited.v < 0.5) return { h: this.urchiSize.h, centre: 0.5, rise: URCHI_TURN.rise, min: this.minHead, dim: DIM_FADE };
-    const tall = URCHI_FIGURE.bottom - URCHI_FIGURE.top;
-    return { h: tall * unit * this.fitZoom, centre: -URCHI_FIGURE.top / tall, rise: FIGURE_TURN.rise / tall, min: this.minHead, dim: 0 };
-  }
-
   /** Into the suited framing (true) or back to wave 1's head (false), over `seconds` (0 at once). */
   frameSuited(on: boolean, seconds: number, ease = "power2.inOut") {
     gsap.killTweensOf(this.suited);
@@ -397,7 +378,7 @@ export class RoomScene {
 
   /**
    * Where the eyes are now, in room px: the midpoint between them and how far from it they reach,
-   * wherever the head sits and at whatever size (the stack, the night's settle). The intro closes
+   * wherever the head sits and at whatever size (the night's settle, leaning in). The intro closes
    * its ring around this before the head is drawn, and attention looks out from it.
    */
   eyes() {
@@ -429,15 +410,6 @@ export class RoomScene {
     this.interactive = true;
   }
 
-  /**
-   * For the game's stack: the head's centre rises to `px` above the room's centre at `zoom` of its
-   * size. null takes it home again, full size.
-   */
-  liftUrchi(px: number | null, duration: number, zoom = 1) {
-    if (px !== null) this.stack.y = px;
-    gsap.to(this.stack, { k: px === null ? 0 : 1, zoom: px === null ? 1 : zoom, duration, ease: "power3.inOut", overwrite: true });
-  }
-
   /** Asleep for the night it settles onto its pillow; awake, it rises again (`now`: already there, as on arrival). */
   settleUrchi(asleep: boolean, now = false) {
     const duration = now || this.opts.reducedMotion ? 0 : asleep ? SETTLE.down : SETTLE.up;
@@ -458,11 +430,6 @@ export class RoomScene {
     else gsap.to(this.risen, { v: on ? 1 : 0, duration: seconds, ease: "sine.inOut" });
   }
 
-  /** On a short viewport Urchi dims instead of rising: to `to` (the head's 15%, unless the stack's shape says otherwise). */
-  dimUrchi(on: boolean, to = DIM_FADE) {
-    this.urchi.fade(on ? to : 1, 0.6, on ? 0 : 0.2);
-  }
-
   /** Whether a client point is on Urchi: its drawn pixels, rim included. */
   urchiHit(clientX: number, clientY: number): boolean {
     if (!this.interactive) return false;
@@ -471,15 +438,15 @@ export class RoomScene {
     return this.urchi.hit(p.x, p.y);
   }
 
-  /** The head's centre above the room's centre, and its size against rest: home (settled, at night) blended into the stack, leaning in or not, risen or not. */
+  /** The head's centre above the room's centre, and its size against rest: home (settled, at night), leaning in or not, risen or not. */
   private pose() {
-    const s = this.settle.v, k = this.stack.k, f = this.suited.v;
+    const s = this.settle.v, f = this.suited.v;
     // suited, it stands where the whole figure fits (and does not sink on its pillow: its soles are on their line)
     const rest = f > 0 ? this.home + (this.fitY - this.home) * f - this.sink * s * (1 - f) : this.home - this.sink * s;
-    const zoom = this.stack.zoom * (1 - SETTLE.smaller * s) * (1 + LEAN.closer * this.lean.v) * (f > 0 ? 1 + (this.fitZoom - 1) * f : 1);
+    const zoom = (1 - SETTLE.smaller * s) * (1 + LEAN.closer * this.lean.v) * (f > 0 ? 1 + (this.fitZoom - 1) * f : 1);
     // risen, and taller about the head's centre: lifted by half of that too, so the chin stays put
     const risen = (RISE.share + RISE.long / 2) * this.pixel * HEAD_ART * zoom * this.risen.v;
-    return { y: rest + (this.stack.y - rest) * k + risen, zoom };
+    return { y: rest + risen, zoom };
   }
 
   /**
@@ -532,7 +499,6 @@ export class RoomScene {
   dispose() {
     this.disposed = true;
     gsap.ticker.remove(this.tick);
-    gsap.killTweensOf(this.stack);
     gsap.killTweensOf(this.settle);
     gsap.killTweensOf(this.lean);
     gsap.killTweensOf(this.risen);

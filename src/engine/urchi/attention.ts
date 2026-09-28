@@ -136,7 +136,6 @@ export class Attention {
   private o: AttentionOptions;
   private started = false;
   private startedAt = 0;
-  private paused = false;
   private targets = new Map<string, Target>();
   private current: Target | null = null;
   private currentSince = 0;
@@ -217,15 +216,6 @@ export class Attention {
     this.apply(true);
   }
 
-  /** The game is up: it just watches the pointer, and nothing else happens until it closes (nor after: what was waiting is dropped). */
-  pause(on: boolean) {
-    this.paused = on;
-    if (on) {
-      this.stopAct();
-      this.queue = [];
-    }
-  }
-
   /** He is playing something now (or not). */
   setListening(on: boolean) {
     if (on === this.listening) return;
@@ -281,7 +271,7 @@ export class Attention {
 
   /** A doze can be broken once it has settled (not while its lids are still closing). */
   private canStir() {
-    return this.started && !this.paused && !this.act?.sleeping && this.t - this.moodAt > 1;
+    return this.started && !this.act?.sleeping && this.t - this.moodAt > 1;
   }
 
   // ---------------------------------------------------------------- targets
@@ -350,7 +340,6 @@ export class Attention {
    * only acts marked `sleeping` run.
    */
   play(name: string, priority: number, make: () => Act, o: { queue?: number; sleeping?: boolean } = {}): boolean {
-    if (this.paused) return false;
     const sleeping = !!o.sleeping;
     if (this.mood !== "awake" && !sleeping) return false;
     if (!this.started || (this.act && this.act.priority >= priority)) {
@@ -600,10 +589,6 @@ export class Attention {
     if (this.t < this.blinksHeld) this.ch.openEyes(0); // see holdBlinks
     this.sense(dt);
     this.moodStep();
-    if (this.paused) {
-      this.aim(this.you(), false);
-      return;
-    }
     this.stepAct(dt);
     let gaze: Point | null;
     let fixate = true;
@@ -780,7 +765,7 @@ export class Attention {
         this.applied = "";
       }
     }
-    if (this.paused || this.act?.sleeping) return this.apply();
+    if (this.act?.sleeping) return this.apply();
     const still = this.stillFor;
     if (this.mood === "awake" && !this.listening && this.t - this.wokeAt > 2) {
       if (this.hours === "night" && still > IDLE.night) this.play("dozeOff", 8, () => dozeOff(this), { sleeping: true });
