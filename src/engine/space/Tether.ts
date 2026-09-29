@@ -27,6 +27,9 @@ const DEEPEST = 3;
  */
 const SNAP = { at: 0.6, recoil: 2600, shrink: 0.6, shrinkFor: 0.3, fade: 0.7, damping: 0.9 };
 
+/** How the line looks, for what is drawn to match it (Space's zoom slider): its width in CSS px and its ink's opacity. */
+export const LINE_LOOK = { width: ROPE.width, alpha: ROPE.alpha } as const;
+
 /** The S the slack lies in: two lobes, the second smaller, so it comes to the backpack nearly straight. */
 const lobe = (u: number) => Math.sin(2 * Math.PI * u) * (1 - u);
 /** How long the S is, over the distance between its ends, at depths 0 .. DEEPEST in 64 steps. */
@@ -45,6 +48,28 @@ function depthFor(ratio: number) {
   let j = 1;
   while (LONG[j] < ratio) j++;
   return (DEEPEST * (j - 1 + (ratio - LONG[j - 1]) / (LONG[j] - LONG[j - 1]))) / 64;
+}
+
+/**
+ * Nodes `from` .. `to` of xs, ys (either way round) as a Catmull-Rom curve, ROPE.smooth samples a
+ * span: into sx, sy; returns how many.
+ */
+function curve(xs: Float64Array, ys: Float64Array, from: number, to: number, sx: Float64Array, sy: Float64Array) {
+  const count = Math.abs(to - from) + 1, dir = to >= from ? 1 : -1;
+  const S = ROPE.smooth, node = (i: number) => from + dir * Math.min(count - 1, Math.max(0, i));
+  for (let i = 0; i < count - 1; i++) {
+    const i0 = node(i - 1), i1 = node(i), i2 = node(i + 1), i3 = node(i + 2);
+    for (let s = 0; s < S; s++) {
+      const u = s / S, u2 = u * u, u3 = u2 * u;
+      const c = (p0: number, p1: number, p2: number, p3: number) => 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3);
+      sx[i * S + s] = c(xs[i0], xs[i1], xs[i2], xs[i3]);
+      sy[i * S + s] = c(ys[i0], ys[i1], ys[i2], ys[i3]);
+    }
+  }
+  const samples = (count - 1) * S + 1, last = node(count - 1);
+  sx[samples - 1] = xs[last];
+  sy[samples - 1] = ys[last];
+  return samples;
 }
 
 /** A curve through some of the nodes, drawn as a ribbon ROPE.width wide, in the room's scene behind Urchi. */
@@ -74,23 +99,11 @@ class Ribbon {
 
   /** Nodes `from` .. `to` of xs, ys (either way round) as a Catmull-Rom curve, at `opacity` of the rope's ink. */
   draw(xs: Float64Array, ys: Float64Array, from: number, to: number, opacity: number) {
-    const count = Math.abs(to - from) + 1, dir = to >= from ? 1 : -1;
+    const count = Math.abs(to - from) + 1;
     this.mesh.visible = opacity > 0 && count > 1;
     if (!this.mesh.visible) return;
     this.mesh.material.opacity = ROPE.alpha * opacity;
-    const S = ROPE.smooth, sx = this.sx, sy = this.sy, node = (i: number) => from + dir * Math.min(count - 1, Math.max(0, i));
-    for (let i = 0; i < count - 1; i++) {
-      const i0 = node(i - 1), i1 = node(i), i2 = node(i + 1), i3 = node(i + 2);
-      for (let s = 0; s < S; s++) {
-        const u = s / S, u2 = u * u, u3 = u2 * u;
-        const c = (p0: number, p1: number, p2: number, p3: number) => 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3);
-        sx[i * S + s] = c(xs[i0], xs[i1], xs[i2], xs[i3]);
-        sy[i * S + s] = c(ys[i0], ys[i1], ys[i2], ys[i3]);
-      }
-    }
-    const samples = (count - 1) * S + 1, last = node(count - 1);
-    sx[samples - 1] = xs[last];
-    sy[samples - 1] = ys[last];
+    const sx = this.sx, sy = this.sy, samples = curve(xs, ys, from, to, sx, sy);
     const P = this.positions, half = ROPE.width / 2;
     for (let i = 0; i < samples; i++) {
       // the ribbon's width across the curve here
@@ -113,6 +126,95 @@ class Ribbon {
   }
 }
 
+/** The room's pixelation grid: its cell in device px, device px per CSS px across and up, and the room's size (CSS px). */
+type Grid = { cell: number; sx: number; sy: number; w: number; h: number };
+
+/**
+ * The same curve pixelated (Urchi zoomed out afloat, see RoomScene's ZOOM): drawn in whole cells of
+ * the room's pixelation grid, the one gl_FragCoord cuts the screen into from its bottom left, so
+ * Urchi's own. A cell is drawn if its centre is within half a cell of the curve, which makes a line
+ * a cell thick, and each is drawn once, however the curve doubles back.
+ */
+class Cells {
+  readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  private positions = new Float32Array(0);
+  private sx: Float64Array;
+  private sy: Float64Array;
+  /** The cells drawn this frame, as keys (see key). */
+  private on = new Set<number>();
+
+  constructor(scene: THREE.Scene, nodes: number) {
+    const most = (nodes - 1) * ROPE.smooth + 1;
+    this.sx = new Float64Array(most);
+    this.sy = new Float64Array(most);
+    const material = new THREE.MeshBasicMaterial({ color: GL.ink, transparent: true, opacity: 0, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+    this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+    this.mesh.renderOrder = -0.5; // where the ribbon is: behind Urchi, over the motes
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+    this.fit(256);
+    scene.add(this.mesh);
+  }
+
+  /** Room for `cells` squares. */
+  private fit(cells: number) {
+    this.positions = new Float32Array(cells * 4 * 3);
+    const index = new Uint32Array(cells * 6);
+    for (let k = 0; k < cells; k++) index.set([k * 4, k * 4 + 1, k * 4 + 2, k * 4 + 2, k * 4 + 1, k * 4 + 3], k * 6);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setIndex(new THREE.BufferAttribute(index, 1));
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = geo;
+  }
+
+  /** A cell's key, from its column and row (a room a few thousand cells across, the root's just past its left edge). */
+  private static key = (i: number, j: number) => (i + 1024) * 8192 + (j + 1024);
+
+  /** Nodes `from` .. `to` of xs, ys (either way round), the curve as the ribbon has it, in cells of `g`, at `opacity` of the rope's ink. */
+  draw(xs: Float64Array, ys: Float64Array, from: number, to: number, opacity: number, g: Grid) {
+    this.mesh.visible = opacity > 0 && from !== to;
+    if (!this.mesh.visible) return;
+    this.mesh.material.opacity = ROPE.alpha * opacity;
+    const n = curve(xs, ys, from, to, this.sx, this.sy), c = g.cell, half = c / 2, on = this.on;
+    on.clear();
+    // each piece of the curve, in device px from the bottom left: the cells whose centres are near it
+    const X = (k: number) => (this.sx[k] + g.w / 2) * g.sx, Y = (k: number) => (this.sy[k] + g.h / 2) * g.sy;
+    let ax = X(0), ay = Y(0);
+    for (let k = 1; k < n; k++) {
+      const bx = X(k), by = Y(k), dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+      const i0 = Math.ceil(Math.min(ax, bx) / c - 1), i1 = Math.floor(Math.max(ax, bx) / c);
+      const j0 = Math.ceil(Math.min(ay, by) / c - 1), j1 = Math.floor(Math.max(ay, by) / c);
+      for (let i = i0; i <= i1; i++) {
+        for (let j = j0; j <= j1; j++) {
+          const cx = (i + 0.5) * c, cy = (j + 0.5) * c;
+          const t = l2 > 0 ? Math.min(1, Math.max(0, ((cx - ax) * dx + (cy - ay) * dy) / l2)) : 0;
+          if (Math.hypot(cx - ax - t * dx, cy - ay - t * dy) <= half) on.add(Cells.key(i, j));
+        }
+      }
+      ax = bx;
+      ay = by;
+    }
+    if (on.size * 12 > this.positions.length) this.fit(Math.max(on.size, (this.positions.length / 12) * 2));
+    // the squares, back in room px
+    const P = this.positions, w = c / g.sx, h = c / g.sy;
+    let q = 0;
+    for (const key of on) {
+      const x = (Math.floor(key / 8192) - 1024) * w - g.w / 2, y = ((key % 8192) - 1024) * h - g.h / 2;
+      P.set([x, y, 0, x + w, y, 0, x, y + h, 0, x + w, y + h, 0], q * 12);
+      q++;
+    }
+    this.mesh.geometry.setDrawRange(0, q * 6);
+    this.mesh.geometry.attributes.position.needsUpdate = true;
+  }
+
+  dispose(scene: THREE.Scene) {
+    scene.remove(this.mesh);
+    this.mesh.geometry.dispose();
+    this.mesh.material.dispose();
+  }
+}
+
 /**
  * Urchi's line (Space, taken with you): from its root just past the left edge to the clip on the
  * backpack, a rope `length` long, a 1.5px ink line at 35% in the room's own scene, behind Urchi, so
@@ -120,6 +222,7 @@ class Ribbon {
  * curves; pulled to its length it runs straight (the float gives the pull its give, see Float.ts).
  * Snapped, it is two ropes: the root's end recoils away off the left edge and fades, and the other
  * end trails behind Urchi. Under reduced motion it holds its curve still, and a snap takes it away.
+ * While Urchi is pixelated (zoomed out afloat) it is drawn in the same cells (see Cells).
  */
 export class Tether {
   private room: RoomScene;
@@ -150,6 +253,9 @@ export class Tether {
   private broken: { k: number; span: { v: number }; fade: { v: number } } | null = null;
   private line: Ribbon;
   private rootEnd: Ribbon;
+  /** The two pieces again, pixelated. */
+  private lineCells: Cells;
+  private rootCells: Cells;
   private stop: () => void;
 
   constructor(room: RoomScene, o: { root: () => Point; clip: () => Point | null; length: () => number; reducedMotion: boolean }) {
@@ -160,6 +266,8 @@ export class Tether {
     this.reduced = o.reducedMotion;
     this.line = new Ribbon(room.scene, ROPE.nodes);
     this.rootEnd = new Ribbon(room.scene, ROPE.nodes);
+    this.lineCells = new Cells(room.scene, ROPE.nodes);
+    this.rootCells = new Cells(room.scene, ROPE.nodes);
     const p0 = Math.random() * Math.PI * 2;
     for (let i = 0; i < this.n; i++) this.phase[i] = p0 + (2 * Math.PI * ROPE.wave * i) / (this.n - 1);
     this.stop = room.afterUrchi((dt) => this.frame(dt));
@@ -303,7 +411,7 @@ export class Tether {
     const on = this.shown.v > 0;
     const b = on ? this.clip() : null;
     if (!b) {
-      this.line.mesh.visible = this.rootEnd.mesh.visible = false;
+      this.line.mesh.visible = this.rootEnd.mesh.visible = this.lineCells.mesh.visible = this.rootCells.mesh.visible = false;
       return;
     }
     const a = this.root(), n = this.n;
@@ -333,7 +441,22 @@ export class Tether {
       ny[i] = this.py[i] + (this.y[i] - this.py[i]) * k;
     }
     nx[0] = a.x; ny[0] = a.y; nx[n - 1] = b.x; ny[n - 1] = b.y;
-    const br = this.broken;
+    const br = this.broken, cell = this.room.pixelCell;
+    if (cell > 0) {
+      // Urchi pixelated: the line in its cells
+      const c = this.room.canvas, room = this.room;
+      const g: Grid = { cell, sx: c.width / room.width, sy: c.height / room.height, w: room.width, h: room.height };
+      this.line.mesh.visible = this.rootEnd.mesh.visible = false;
+      if (!br) {
+        this.lineCells.draw(nx, ny, 0, n - 1, this.shown.v, g);
+        this.rootCells.mesh.visible = false;
+      } else {
+        this.lineCells.draw(nx, ny, n - 1, br.k + 1, this.shown.v, g);
+        this.rootCells.draw(nx, ny, 0, br.k, this.shown.v * br.fade.v, g);
+      }
+      return;
+    }
+    this.lineCells.mesh.visible = this.rootCells.mesh.visible = false;
     if (!br) {
       this.line.draw(nx, ny, 0, n - 1, this.shown.v);
       this.rootEnd.mesh.visible = false;
@@ -352,5 +475,7 @@ export class Tether {
     }
     this.line.dispose(this.room.scene);
     this.rootEnd.dispose(this.room.scene);
+    this.lineCells.dispose(this.room.scene);
+    this.rootCells.dispose(this.room.scene);
   }
 }

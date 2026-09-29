@@ -4,9 +4,10 @@ import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import { MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
 import { Call } from "@/engine/space/Call";
-import { Float, type FloatState } from "@/engine/space/Float";
+import { FLOAT_IN, Float, type FloatState } from "@/engine/space/Float";
 import { Motes } from "@/engine/space/Motes";
-import { RoomScene } from "@/engine/space/RoomScene";
+import { RoomScene, ZOOM } from "@/engine/space/RoomScene";
+import { LINE_LOOK } from "@/engine/space/Tether";
 import { runIntro } from "@/engine/space/intro";
 import { caught, comeBack, glanceAt, glanceDown, read, tug, type Caught } from "@/engine/urchi/acts";
 import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
@@ -55,6 +56,17 @@ const NEWS = { after: 2.4, afterIntro: 0.8, still: 1, dwell: 4 };
 const PHONE_CAPTION = { after: 3, dwell: 5, afterCall: 4 };
 /** While he is listening: a look at the "4" first after this long, then every 60-90s. */
 const LISTEN_GLANCE = { first: [8, 20] as [number, number], every: [60, 90] as [number, number] };
+/**
+ * Afloat, zooming: a wheel's turn (or a trackpad's scroll), per px, `scroll`, and a trackpad's pinch
+ * (a wheel with ctrl held, in much smaller steps) `pinch`, both on the logarithm; the slider shows it
+ * in `steps` from farthest to nearest. Floating in, the slider fades in with it; flying home, it
+ * fades out over `out` seconds.
+ */
+const ZOOMING = { scroll: 0.0015, pinch: 0.01, steps: 100, out: 0.8 };
+/** The zoom as the slider has it (0 .. ZOOMING.steps, even on the logarithm), and back. */
+const zoomAt = (v: number) => ZOOM.min * (ZOOM.max / ZOOM.min) ** (v / ZOOMING.steps);
+const sliderAt = (zoom: number) => (ZOOMING.steps * Math.log(zoom / ZOOM.min)) / Math.log(ZOOM.max / ZOOM.min);
+
 /** A song "playing" for longer than this is a stale now-playing, and treated as nothing. */
 const STALE_MS = 15 * 60 * 1000;
 /** The listening line is his; longer than this, it is the shorter one. */
@@ -124,6 +136,7 @@ function wordsOf(span: HTMLElement): Point[] {
 export function CreativeSpacePanel({ intro }: { intro: boolean }) {
   const panel = useRef<HTMLDivElement>(null);
   const control = useRef<HTMLButtonElement>(null);
+  const zoom = useRef<HTMLInputElement>(null);
   const stage = useRef<HTMLElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const side = useRef<HTMLDivElement>(null);
@@ -138,6 +151,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const stageEl = stage.current!;
     const panelEl = panel.current!;
     const controlEl = control.current!;
+    const zoomEl = zoom.current!;
     // Taken with you within the visit: a reload finds it floating in from the left again, so the
     // intro, which builds the bare head from its eyes, gives way to the room as a return shows it.
     const along = alongOn();
@@ -182,12 +196,48 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       controlEl.setAttribute("aria-label", controlName());
       controlEl.setAttribute("aria-disabled", String(fl.busy || begun < 0));
       controlEl.toggleAttribute("data-afloat", fl.afloat);
+      // afloat, a pinch on the room zooms it, not the page (globals.css: the canvas's touch-action)
+      panelEl.toggleAttribute("data-afloat", fl.afloat);
       const hand = fl.holding ? "grabbing" : overUrchi && fl.afloat && !att.asleep ? "grab" : "";
       if ((panelEl.dataset.cursor ?? "") !== hand) panelEl.dataset.cursor = hand;
     };
     let flew = false;
+    // ---- afloat, the zoom: the slider on the right edge, a wheel or trackpad, or a pinch
+    zoomEl.style.setProperty("--zoom-line", `${LINE_LOOK.width}px`);
+    zoomEl.style.setProperty("--zoom-ink", `color-mix(in srgb, var(--ink) ${LINE_LOOK.alpha * 100}%, transparent)`);
+    /** The slider shows the level asked for, and says it as a percentage. */
+    const showZoom = () => {
+      zoomEl.value = String(Math.round(sliderAt(room.zoomLevel)));
+      zoomEl.setAttribute("aria-valuetext", `${Math.round(room.zoomLevel * 100)}%`);
+    };
+    /** Zoom to a level (held within its bounds), and the slider with it. Only afloat. */
+    const zoomTo = (level: number) => {
+      if (!fl.afloat) return;
+      room.zoomTo(level);
+      // under reduced motion nothing moves it, so a size it cannot float at is put right at once
+      if (reducedMotion) fl.resize();
+      showZoom();
+    };
+    let sliderOn = false;
+    /** The slider in (true) or out over `seconds` (0 at once, as always under reduced motion). */
+    const slider = (on: boolean, seconds = 0, ease = "sine.out") => {
+      if (on === sliderOn) return;
+      sliderOn = on;
+      gsap.killTweensOf(zoomEl);
+      if (reducedMotion || seconds <= 0) gsap.set(zoomEl, { autoAlpha: on ? 1 : 0 });
+      else gsap.to(zoomEl, { autoAlpha: on ? 1 : 0, duration: seconds, ease });
+    };
+    showZoom();
     const onFloat = (state: FloatState) => {
       labelUrchi();
+      // the slider comes in with the float-in, goes as it flies home, and is back at the middle for next time
+      if (state === "arriving") slider(true, FLOAT_IN);
+      else if (state === "floating") slider(true);
+      else if (state === "flying") slider(false, ZOOMING.out, "sine.in");
+      else {
+        slider(false);
+        showZoom();
+      }
       if (state === "floating" && live.current) live.current.textContent = SAID.out;
       // the snap is said as it happens, and "home" only once the head is back with its eyes open
       // (home without ever getting out, its suit never having come, is nothing to announce)
@@ -486,6 +536,13 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     // gets an answer. The whole panel listens, the control over Urchi included, so what a press
     // does is decided by where Urchi is drawn, not by the control's box.
     let down = { x: 0, y: 0, t: 0, id: -1, held: false, woke: false };
+    /** The fingers on the panel (client px), and afloat, a pinch between the first two: their distance and the zoom when it began. */
+    const touches = new Map<number, Point>();
+    let pinch: { d: number; zoom: number } | null = null;
+    const spread = () => {
+      const [a, b] = [...touches.values()];
+      return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+    };
     /** Reduced motion: the last click or tap on Urchi afloat, for a second one (see TWICE). */
     let lastTap = { t: -Infinity, x: 0, y: 0 };
     // Afloat, Urchi drifts under a pointer that is not moving (and out from under it): every few
@@ -501,6 +558,12 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     // Quick taps must stay taps: no double-tap zoom on a phone (a pinch still zooms).
     stageEl.style.touchAction = "manipulation";
     const onMove = (e: PointerEvent) => {
+      if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch) {
+        const d = spread();
+        if (d > 0 && pinch.d > 0) zoomTo((pinch.zoom * d) / pinch.d);
+        return;
+      }
       if (down.held && e.pointerId === down.id) {
         fl.drag(e.clientX, e.clientY, eventTime(e));
         return;
@@ -517,6 +580,20 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     };
     const onDown = (e: PointerEvent) => {
       if (e.button > 0) return;
+      if (e.pointerType === "touch") touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch) return;
+      // afloat, a second finger makes it a pinch: a hold, or a tap on the way, ends without a fling
+      if (touches.size === 2 && fl.afloat) {
+        if (down.held) {
+          down.held = false;
+          fl.release(eventTime(e), false);
+        }
+        call.abort();
+        down.id = -1;
+        pinch = { d: spread(), zoom: room.zoomLevel };
+        labelUrchi();
+        return;
+      }
       down = { x: e.clientX, y: e.clientY, t: eventTime(e), id: e.pointerId, held: false, woke: false };
       // Afloat, a press on it holds it (asleep, the press only wakes it, as a click at home does).
       if (fl.afloat && room.urchiHit(e.clientX, e.clientY)) {
@@ -538,7 +615,13 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       }
       call.press(down.t);
     };
+    /** A finger off the panel: a pinch ends when fewer than two are left (and the one left does nothing when it lifts). */
+    const lift = (e: PointerEvent) => {
+      touches.delete(e.pointerId);
+      if (pinch && touches.size < 2) pinch = null;
+    };
     const onUp = (e: PointerEvent) => {
+      lift(e);
       if (e.pointerId !== down.id) return;
       const t = eventTime(e), click = Math.hypot(e.clientX - down.x, e.clientY - down.y) <= CLICK.slop && t - down.t <= CLICK.ms;
       if (down.held) {
@@ -571,6 +654,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     };
     /** The system took the pointer (a gesture of its own): a hold simply ends, and any rhythm with it. */
     const onCancel = (e: PointerEvent) => {
+      lift(e);
       if (e.pointerId !== down.id) return;
       if (down.held) fl.release(eventTime(e), false);
       down.held = false;
@@ -607,6 +691,34 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       controlEl.style.height = `${b.h}px`;
       controlEl.style.transform = `translate(${left}px, ${top}px) rotate(${-b.angle}rad)`;
     });
+    // A wheel or a trackpad zooms it afloat (a trackpad's pinch is a wheel with ctrl held); Safari's
+    // trackpad pinches come as gestures of their own. Neither zooms the page while it floats.
+    const onWheel = (e: WheelEvent) => {
+      if (!fl.afloat) return;
+      e.preventDefault();
+      const px = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 600 : 1);
+      zoomTo(room.zoomLevel * Math.exp(-px * (e.ctrlKey ? ZOOMING.pinch : ZOOMING.scroll)));
+    };
+    let gestureFrom = 1;
+    const onGestureStart = (e: Event) => {
+      if (!fl.afloat) return;
+      e.preventDefault();
+      gestureFrom = room.zoomLevel;
+    };
+    const onGestureChange = (e: Event) => {
+      if (!fl.afloat) return;
+      e.preventDefault();
+      // (a phone's pinch is the pointers' above; iOS sends it as a gesture as well)
+      const scale = (e as Event & { scale?: number }).scale;
+      if (!pinch && scale) zoomTo(gestureFrom * scale);
+    };
+    // The slider's own presses are its own: not a tap on the room, a hold or a rhythm.
+    const own = (e: Event) => e.stopPropagation();
+    const onSlide = () => {
+      room.zoomTo(zoomAt(Number(zoomEl.value)));
+      if (reducedMotion) fl.resize();
+      zoomEl.setAttribute("aria-valuetext", `${Math.round(room.zoomLevel * 100)}%`);
+    };
     const onResize = () => {
       room.resize();
       fl.resize();
@@ -638,6 +750,12 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     panelEl.addEventListener("pointercancel", onCancel);
     controlEl.addEventListener("click", onControl);
     controlEl.addEventListener("keydown", onControlKey);
+    panelEl.addEventListener("wheel", onWheel, { passive: false });
+    panelEl.addEventListener("gesturestart", onGestureStart);
+    panelEl.addEventListener("gesturechange", onGestureChange);
+    const OWN = ["pointerdown", "pointermove", "pointerup", "pointercancel"] as const;
+    OWN.forEach((t) => zoomEl.addEventListener(t, own));
+    zoomEl.addEventListener("input", onSlide);
     window.addEventListener("resize", onResize);
 
     return () => {
@@ -657,6 +775,12 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       panelEl.removeEventListener("pointercancel", onCancel);
       controlEl.removeEventListener("click", onControl);
       controlEl.removeEventListener("keydown", onControlKey);
+      panelEl.removeEventListener("wheel", onWheel);
+      panelEl.removeEventListener("gesturestart", onGestureStart);
+      panelEl.removeEventListener("gesturechange", onGestureChange);
+      OWN.forEach((t) => zoomEl.removeEventListener(t, own));
+      zoomEl.removeEventListener("input", onSlide);
+      gsap.killTweensOf(zoomEl);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
       cursor.destroy();
@@ -704,6 +828,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
 
       {/* Urchi's own control, over it wherever it is: beside the stage, so the keyboard and a screen reader reach it. */}
       <button ref={control} type="button" className="space-urchi" aria-label="Take Urchi with you" aria-disabled="true" />
+
+      {/* Afloat, the zoom: a real range input (the arrow keys, a screen reader), on the right edge, shown only while Urchi floats. */}
+      <input ref={zoom} type="range" className="space-zoom" min={0} max={ZOOMING.steps} step={1} defaultValue={ZOOMING.steps / 2} aria-label="Zoom" aria-orientation="vertical" />
 
       {/* Beside the stage rather than inside it, so it is not aria-hidden: what's new, and Urchi going out and coming home, are read out here. */}
       <p ref={live} className="sr-only" aria-live="polite" />

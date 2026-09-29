@@ -33,13 +33,29 @@ void main() {
   gl_FragColor = vec4(c.rgb, uFade);
 }`;
 
-/** Smooth paint: the canvas's own anti-aliased edges, premultiplied so they blend without a dark fringe. */
+/**
+ * Smooth paint: the canvas's own anti-aliased edges, premultiplied so they blend without a dark
+ * fringe. Pixelated (`uPix`, a cell in device pixels, 0 for none), the screen is cut into cells that
+ * square on the same grid as the dither's, and each cell shows the one texel under its centre with a
+ * hard edge: the uv at the centre is found from how the uv changes across the screen, so the plane
+ * may be turned any way.
+ */
 const fragSmooth = /* glsl */ `
 uniform sampler2D uMap;
 uniform float uFade;
+uniform float uPix;
 varying vec2 vUv;
 ${dither}
 void main() {
+  if (uPix > 0.0) {
+    vec2 at = (floor(gl_FragCoord.xy / uPix) + 0.5) * uPix - gl_FragCoord.xy;
+    vec2 uv = vUv + dFdx(vUv) * at.x + dFdy(vUv) * at.y;
+    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) discard;
+    vec4 p = texture2D(uMap, uv);
+    if (p.a < 0.5 || dithered()) discard;
+    gl_FragColor = vec4(p.rgb / p.a, 1.0) * uFade;
+    return;
+  }
   vec4 c = texture2D(uMap, vUv);
   if (c.a < 0.004 || dithered()) discard;
   gl_FragColor = c * uFade;
@@ -56,10 +72,26 @@ const RES_MAX = 1400;
 const SIDE_MAX = Math.max(URCHI_FRAME.w, URCHI_FRAME.h);
 /** One art pixel in mesh units: the width a rim is when nobody holds it (see UrchiHostOptions.rim). */
 const ART_PIXEL = 7.5;
+/** A pixelated Urchi's rim, in its canvas's pixels (see pixelCell). */
+const PIXEL_RIM = 2;
 
 type Frame = UrchiCharacter["frame"];
-/** Where the head's centre (mesh y 0) sits in a canvas frame, as a fraction of its height from the middle. */
-const centreUp = (f: Frame) => -(f.y + f.h / 2) / f.h;
+/**
+ * A plane over a frame, in its own units (1 its width and height), placed from the head's centre
+ * (mesh y 0, y up); `mx`, `my` of its size more on each side (a pixelated plane's: see fitFrame),
+ * where its uv runs past 0 .. 1.
+ */
+function planeFor(f: Frame, mx = 0, my = 0) {
+  const g = new THREE.PlaneGeometry(1, 1);
+  if (mx || my) {
+    g.scale(1 + 2 * mx, 1 + 2 * my, 1);
+    const uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) - 0.5) * (1 + 2 * mx) + 0.5, (uv.getY(i) - 0.5) * (1 + 2 * my) + 0.5);
+  }
+  return g.translate(f.x / f.w + 0.5, -f.y / f.h - 0.5, 0);
+}
+/** A pixelated plane reaches this many of the canvas's pixels past it, so a cell at its edge is never cut on the slant as it turns. */
+const PIXEL_MARGIN = 2;
 
 export type UrchiHostOptions = {
   /** Write depth, for a perspective scene whose other objects pass in front of and behind it. */
@@ -94,8 +126,11 @@ export type UrchiHostOptions = {
 export class Urchi {
   readonly character: UrchiCharacter;
   readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
-  /** The canvas; the fade (the dim); how far through the dither it has gone (0 all there, 1 gone), and the dither's cell in device px. */
-  readonly uniforms: { uMap: { value: THREE.Texture }; uFade: { value: number }; uDither: { value: number }; uCell: { value: number } };
+  /**
+   * The canvas; the fade (the dim); how far through the dither it has gone (0 all there, 1 gone), and
+   * the dither's cell in device px; and the pixelation's cell (see pixelCell).
+   */
+  readonly uniforms: { uMap: { value: THREE.Texture }; uFade: { value: number }; uDither: { value: number }; uCell: { value: number }; uPix: { value: number } };
   /** The mascot's box width in host units. */
   width = 1;
   /** 0 hidden .. 1 full size. */
@@ -104,6 +139,13 @@ export class Urchi {
   zoom = 1;
   /** Device pixels per host unit, which a smooth Urchi paints its canvas to match. */
   pixelRatio = 1;
+  /**
+   * Smooth only: pixelated in square cells this many device pixels across (0, the default, not at
+   * all). The canvas is then painted at one of its pixels per cell and sampled nearest, the plane
+   * covers the canvas itself (a whole number of its pixels, a little past the frame) so a pixel is
+   * exactly a cell, and the shader shows each cell's texel with a hard edge (see fragSmooth).
+   */
+  pixelCell = 0;
   private texture: THREE.CanvasTexture;
   private readonly smooth: boolean;
   private readonly rim: readonly [number, number] | null;
@@ -111,6 +153,10 @@ export class Urchi {
   private resolution = 0;
   /** The canvas's frame the plane is laid out for (the suit's is taller). */
   private frame: Frame = URCHI_FRAME;
+  /** What the plane covers, mesh units from the head's centre (y down): the frame, or pixelated, the canvas itself. */
+  private covered: Frame = URCHI_FRAME;
+  /** The texture is sampled nearest (a pixel paint, or pixelated). */
+  private nearest = false;
   /** The canvas's size the texture was made for. */
   private texSize = [0, 0];
 
@@ -119,7 +165,7 @@ export class Urchi {
     this.rim = this.smooth && o.rim ? o.rim : null;
     this.character = createUrchi({ reducedMotion: o.reducedMotion, cell: o.cell, smooth: this.smooth });
     this.texture = this.makeTexture();
-    this.uniforms = { uMap: { value: this.texture }, uFade: { value: 1 }, uDither: { value: 0 }, uCell: { value: 3 } };
+    this.uniforms = { uMap: { value: this.texture }, uFade: { value: 1 }, uDither: { value: 0 }, uCell: { value: 3 }, uPix: { value: 0 } };
     const material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
       vertexShader: vert,
@@ -130,26 +176,30 @@ export class Urchi {
       depthTest: !!o.depth,
     });
     // The plane covers the canvas's frame; its origin is the head's centre, where hosts put it.
-    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).translate(0, centreUp(this.frame), 0), material);
+    this.mesh = new THREE.Mesh(planeFor(this.covered), material);
     this.mesh.scale.set(1e-4, 1e-4, 1);
   }
 
   /** A texture over the character's canvas: raw colour, as every texture on the site; smooth or hard pixels when scaled. */
   private makeTexture() {
     this.texSize = [this.character.canvas.width, this.character.canvas.height];
+    this.nearest = !this.smooth || this.pixelated;
     const tex = new THREE.CanvasTexture(this.character.canvas);
     tex.colorSpace = THREE.NoColorSpace;
-    tex.magFilter = this.smooth ? THREE.LinearFilter : THREE.NearestFilter;
-    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = this.nearest ? THREE.NearestFilter : THREE.LinearFilter;
+    tex.minFilter = this.pixelated ? THREE.NearestFilter : THREE.LinearFilter;
     tex.generateMipmaps = false;
     tex.premultiplyAlpha = this.smooth;
     return tex;
   }
 
-  /** A smooth canvas follows the size it is shown at: a new size resizes it, and the texture is rebuilt to match. */
+  /**
+   * A smooth canvas follows the size it is shown at: a new size resizes it, and the texture is rebuilt
+   * to match. Pixelated, it is exactly one of its pixels per cell.
+   */
   private fitResolution() {
-    const f = this.character.frame, cap = (RES_MAX * SIDE_MAX) / Math.max(f.w, f.h);
-    const px = Math.min(cap, Math.max(RES_STEP, Math.ceil((this.width * this.zoom * this.pixelRatio) / RES_STEP) * RES_STEP));
+    const f = this.character.frame, cap = (RES_MAX * SIDE_MAX) / Math.max(f.w, f.h), shown = this.width * this.zoom * this.pixelRatio;
+    const px = this.pixelated ? shown / this.pixelCell : Math.min(cap, Math.max(RES_STEP, Math.ceil(shown / RES_STEP) * RES_STEP));
     if (px === this.resolution) return;
     this.resolution = px;
     this.character.setResolution(px);
@@ -170,20 +220,26 @@ export class Urchi {
   }
 
   private fitFrame() {
-    const f = this.character.frame;
-    if (f !== this.frame) {
-      this.frame = f;
-      const old = this.mesh.geometry;
-      this.mesh.geometry = new THREE.PlaneGeometry(1, 1).translate(0, centreUp(f), 0);
-      old.dispose();
-    }
+    this.frame = this.character.frame;
     const c = this.character.canvas;
-    if (c.width !== this.texSize[0] || c.height !== this.texSize[1]) this.remakeTexture();
+    if (c.width !== this.texSize[0] || c.height !== this.texSize[1] || this.nearest !== (!this.smooth || this.pixelated)) this.remakeTexture();
+    // pixelated, the plane covers the canvas's whole pixels (the frame, rounded up to them)
+    const cell = URCHI_BOX.w / Math.max(8, this.resolution);
+    const f = this.pixelated ? { x: this.frame.x, y: this.frame.y, w: c.width * cell, h: c.height * cell } : this.frame;
+    const was = this.covered;
+    if (f.x === was.x && f.y === was.y && f.w === was.w && f.h === was.h) return;
+    this.covered = f;
+    const old = this.mesh.geometry;
+    this.mesh.geometry = this.pixelated ? planeFor(f, PIXEL_MARGIN / c.width, PIXEL_MARGIN / c.height) : planeFor(f);
+    old.dispose();
   }
 
-  /** A held rim follows the head's size as shown: one art pixel, within its bounds. */
+  /**
+   * A held rim follows the head's size as shown: one art pixel, within its bounds. Pixelated, it is
+   * PIXEL_RIM of the canvas's pixels: any narrower, cut to cells, it breaks up into dots.
+   */
   private fitRim() {
-    const r = this.rimFor(this.unit * this.zoom);
+    const r = this.pixelated ? (PIXEL_RIM * URCHI_BOX.w) / Math.max(8, this.resolution) : this.rimFor(this.unit * this.zoom);
     if (r !== null) this.character.setRim(r);
   }
 
@@ -194,9 +250,24 @@ export class Urchi {
     return Math.min(max / shown, Math.max(min / shown, ART_PIXEL));
   }
 
+  /** Pixelated now (see pixelCell). */
+  private get pixelated() {
+    return this.smooth && this.pixelCell > 0;
+  }
+
   /** Host units per mesh unit. */
   private get unit() {
     return this.width / URCHI_BOX.w;
+  }
+
+  /** Host units per mesh unit as the plane is drawn now (its size for a moment included). */
+  get shownUnit() {
+    return this.mesh.scale.x / this.covered.w;
+  }
+
+  /** What the plane covers, mesh units from the head's centre (y down): the canvas's frame, or pixelated, its whole pixels. */
+  get cover(): Frame {
+    return this.covered;
   }
 
   /** The head's visible height, ear tips to chin, in host units. */
@@ -212,8 +283,9 @@ export class Urchi {
     }
     this.fitFrame();
     if (this.character.update(dt)) this.texture.needsUpdate = true;
+    this.uniforms.uPix.value = this.pixelated ? this.pixelCell : 0;
     const s = Math.max(this.appear * this.zoom, 1e-4);
-    this.mesh.scale.set(this.frame.w * this.unit * s, this.frame.h * this.unit * s, 1);
+    this.mesh.scale.set(this.covered.w * this.unit * s, this.covered.h * this.unit * s, 1);
   }
 
   /** Whether a point in the mesh's parent space falls on the head or its rim (or the suited figure), turned with the plane (a suited drift rolls it). */
@@ -223,8 +295,9 @@ export class Urchi {
     let dx = x - this.mesh.position.x, dy = y - this.mesh.position.y;
     const r = this.mesh.rotation.z;
     if (r) [dx, dy] = [dx * Math.cos(r) + dy * Math.sin(r), dy * Math.cos(r) - dx * Math.sin(r)];
-    const u = dx / w + 0.5;
-    const v = dy / h - centreUp(this.frame) + 0.5;
+    const f = this.covered;
+    const u = dx / w - f.x / f.w;
+    const v = dy / h + f.y / f.h + 1;
     return this.character.alphaAt(u, v);
   }
 

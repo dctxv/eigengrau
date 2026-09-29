@@ -22,6 +22,8 @@ export type FloatState = "home" | "leaving" | "away" | "arriving" | "floating" |
  * things) comes in over `lifeIn` once it is there. Under reduced motion it dithers in where it rests.
  */
 const TAKE = { close: 0.35, dither: 0.3, ditherFor: 1, beat: 0.7, inFor: 3.6, out: 0.35, drop: 0.05, tilt: 0.14, lifeIn: 2.5 };
+/** How long floating in takes (s), for what comes in with it (Space's zoom slider). */
+export const FLOAT_IN = TAKE.inFor;
 /**
  * Home again, in seconds: `gone` after it has left the page (or, under reduced motion, dithered
  * away), long enough for the room to be seen empty, the head at home dithers back over
@@ -587,6 +589,7 @@ export class Float {
     this.swim = null;
     this.limbs?.swim(null);
     room.float = null;
+    room.resetZoom(); // (zoomed or not, it comes home as it was)
     this.hello?.kill();
     room.urchi.character.limbs?.setMode("rest");
     room.urchi.setSuit(0);

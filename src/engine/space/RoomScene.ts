@@ -92,6 +92,15 @@ const FLOAT = { share: 0.65, phoneShare: 0.4, tall: 0.56, turnRise: 90, turnDrop
 export type FloatPose = { x: number; y: number; angle: number };
 /** The dither's cell, CSS px: rounded to whole device pixels, 3 on a 1x screen and about 2.5 on a 2x or 3x one. */
 const DITHER_CELL = 2.5;
+/**
+ * Afloat, the visitor can zoom: Urchi's size against where it floats (1), from `min` (half as big,
+ * twice as far) to `max`, eased toward the level asked for over about `ease` seconds (a time
+ * constant, on the logarithm, so in and out go alike). Nearer than 1 it stays smooth; farther, its
+ * signal weakens: it is pixelated in square cells, the dither's own just below 1, then twice and
+ * three times it, up to `steps` times at `min` (`phoneSteps` on a phone, whose smaller figure would
+ * be a few blocks), in even steps of distance (the inverse of the zoom). Home it is 1 again.
+ */
+export const ZOOM = { min: 0.5, max: 2, ease: 0.12, steps: 3, phoneSteps: 2 } as const;
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -147,6 +156,10 @@ export class RoomScene {
   floatZoom = 1;
   /** Taken with you: where the float has the figure this frame (Float.ts sets it every frame); null at home. */
   float: FloatPose | null = null;
+  /** Afloat, the visitor's zoom (see ZOOM): where it is this frame, and the level it eases to. */
+  private lens = { v: 1, to: 1 };
+  /** The pixelation's cell this frame, device px, 0 for none: afloat and zoomed out (what follows the figure takes it up too). */
+  pixelCell = 0;
   private opts: RoomOptions;
   private hooks = new Set<(dt: number) => void>();
   private afterHooks = new Set<(dt: number) => void>();
@@ -252,14 +265,58 @@ export class RoomScene {
     return pixelAt(1, this.ratio) * HEAD_ART;
   }
 
-  /** CSS px per mesh unit as the float draws the figure (leaning in aside). */
+  /** CSS px per mesh unit as the float draws the figure (leaning in aside), the visitor's zoom included. */
   get floatUnit() {
-    return (this.pixel / ART_CELL) * this.floatZoom;
+    return (this.pixel / ART_CELL) * this.floatZoom * this.lens.v;
   }
 
   /** The size Urchi is shown at against the head's rest: 1 at home, smaller afloat. What distances measured by urchiSize scale by. */
   get shown() {
-    return this.float ? this.floatZoom : 1;
+    return this.float ? this.floatZoom * this.lens.v : 1;
+  }
+
+  /** The zoom level asked for (see ZOOM): 1 as it floats. */
+  get zoomLevel() {
+    return this.lens.to;
+  }
+
+  /** Zoom to `level`, held within ZOOM.min .. ZOOM.max; eased there, or there at once under reduced motion. */
+  zoomTo(level: number) {
+    if (!Number.isFinite(level)) return;
+    this.lens.to = clamp(level, ZOOM.min, ZOOM.max);
+    if (this.opts.reducedMotion) this.lens.v = this.lens.to;
+  }
+
+  /** Back to how it floats, at once (it has come home). */
+  resetZoom() {
+    this.lens.v = this.lens.to = 1;
+  }
+
+  /** The zoom eased a frame's way toward its level: on the logarithm, and there once it is close. */
+  private easeZoom(dt: number) {
+    const l = this.lens;
+    if (l.v === l.to) return;
+    const at = Math.log(l.v), to = Math.log(l.to), next = at + (to - at) * (1 - Math.exp(-dt / ZOOM.ease));
+    l.v = Math.abs(to - next) < 1e-3 ? l.to : Math.exp(next);
+  }
+
+  /** The pixelation's cell for a zoom, device px: none from 1 up, the dither's cell times 1 .. ZOOM.steps below it. */
+  private cellFor(zoom: number) {
+    if (zoom >= 1) return 0;
+    const far = (1 / zoom - 1) / (1 / ZOOM.min - 1), steps = this.width > SIZE.narrow ? ZOOM.steps : ZOOM.phoneSteps;
+    return clamp(Math.ceil(steps * far - 1e-9), 1, steps) * this.urchi.uniforms.uCell.value;
+  }
+
+  /**
+   * A room point snapped onto the pixelation's grid of `cell` device px: the grid gl_FragCoord cuts
+   * the drawing buffer into, from its bottom left corner (so the dither's grid too).
+   */
+  private onGrid(x: number, y: number, cell: number) {
+    const c = this.renderer.domElement, sx = c.width / this.width, sy = c.height / this.height;
+    return {
+      x: (Math.round(((x + this.width / 2) * sx) / cell) * cell) / sx - this.width / 2,
+      y: (Math.round(((y + this.height / 2) * sy) / cell) * cell) / sy - this.height / 2,
+    };
   }
 
   /** The head at home, awake and facing out: its centre in room px and its box (the head's width and height), what its control covers. */
@@ -295,7 +352,7 @@ export class RoomScene {
 
   /** A point of the figure (mesh units from the head's centre, y down, as painted facing you) where it is drawn this frame, in room px. */
   onFigure(mx: number, my: number) {
-    const m = this.urchi.mesh, u = m.scale.x / this.urchi.character.frame.w, c = Math.cos(m.rotation.z), s = Math.sin(m.rotation.z);
+    const m = this.urchi.mesh, u = this.urchi.shownUnit, c = Math.cos(m.rotation.z), s = Math.sin(m.rotation.z);
     const x = mx * u, y = -my * u;
     return { x: m.position.x + x * c - y * s, y: m.position.y + x * s + y * c };
   }
@@ -385,18 +442,32 @@ export class RoomScene {
 
   private frame(dt: number) {
     if (this.disposed) return;
+    // (the zoom first: the float's physics this frame goes by the size it is drawn at)
+    this.easeZoom(dt);
     this.hooks.forEach((fn) => fn(dt));
     const m = this.urchi.mesh;
     if (this.float) {
       // afloat: its middle where the float has it and the whole figure turned about it (the plane
-      // turns; nothing is painted again for that), leaning in as at home, never snapped to pixels
-      const p = this.float;
-      this.urchi.zoom = this.floatZoom * (1 + LEAN.closer * this.lean.v);
+      // turns; nothing is painted again for that), leaning in as at home, zoomed as the visitor has
+      // it; not snapped to pixels unless it is pixelated, and then onto the pixelation's grid
+      const p = this.float, cell = this.cellFor(this.lens.v);
+      this.pixelCell = this.urchi.pixelCell = cell;
+      this.urchi.zoom = this.floatZoom * this.lens.v * (1 + LEAN.closer * this.lean.v);
       this.urchi.update(dt);
-      const c = FIGURE_MIDDLE * (m.scale.x / this.urchi.character.frame.w);
-      m.position.set(p.x - Math.sin(p.angle) * c, p.y + Math.cos(p.angle) * c, 0);
+      const u = this.urchi.shownUnit, c = FIGURE_MIDDLE * u, cos = Math.cos(p.angle), sin = Math.sin(p.angle);
+      let mx = p.x, my = p.y;
+      if (cell) {
+        // its middle moved so the canvas's top left corner would be on the grid were it upright: each
+        // of its pixels then covers a cell upright, and a turn (about the middle) never jumps it a cell
+        const f = this.urchi.cover, vx = f.x * u, vy = c - f.y * u, g = this.onGrid(mx + vx, my + vy, cell);
+        mx = g.x - vx;
+        my = g.y - vy;
+      }
+      m.position.set(mx - sin * c, my + cos * c, 0);
       m.rotation.z = p.angle;
     } else {
+      // home: never pixelated
+      this.pixelCell = this.urchi.pixelCell = 0;
       const { y, zoom } = this.pose();
       this.urchi.zoom = zoom;
       this.urchi.update(dt);

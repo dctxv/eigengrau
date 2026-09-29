@@ -438,6 +438,80 @@ button {
 .space-panel[data-cursor="grabbing"] .space-urchi {
   cursor: grabbing;
 }
+/* Afloat, a pinch on the room zooms Urchi rather than the page (home, the page zooms as ever). */
+.space-panel[data-afloat] .stage canvas {
+  touch-action: none;
+}
+
+/*
+ * Afloat, the zoom: a range input on the right edge, turned upright (up is nearer), clear of a
+ * phone's safe area. It shows a track in the line's own width and ink (the panel sets --zoom-line
+ * and --zoom-ink from the tether's) and a small dot for a handle, though the handle's box is a
+ * finger's size. No label shows; it is named for a screen reader. The panel fades it in and out
+ * with the float (visibility too, so it is not there to tab to while it is not seen).
+ */
+.space-zoom {
+  --zoom-length: clamp(140px, calc(var(--app-h) * 0.34), 280px);
+  --zoom-hit: 44px;
+  --zoom-dot: 3.5px;
+  --zoom-line: 1.5px;
+  --zoom-ink: color-mix(in srgb, var(--ink) 35%, transparent);
+  position: absolute;
+  z-index: 6;
+  top: 50%;
+  right: calc(env(safe-area-inset-right, 0px) + 6px + var(--zoom-hit) / 2 - var(--zoom-length) / 2);
+  width: var(--zoom-length);
+  height: var(--zoom-hit);
+  margin: calc(var(--zoom-hit) / -2) 0 0;
+  padding: 0;
+  rotate: -90deg;
+  appearance: none;
+  -webkit-appearance: none;
+  /* the track: only as long as the handle's middle travels */
+  background: linear-gradient(var(--zoom-ink), var(--zoom-ink)) center / calc(100% - var(--zoom-hit)) var(--zoom-line) no-repeat;
+  border: 0;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  visibility: hidden;
+  opacity: 0;
+}
+.space-zoom:focus {
+  outline: none;
+}
+.space-zoom::-webkit-slider-runnable-track {
+  height: var(--zoom-hit);
+  background: none;
+  border: 0;
+}
+.space-zoom::-moz-range-track {
+  height: var(--zoom-hit);
+  background: none;
+  border: 0;
+}
+.space-zoom::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--zoom-hit);
+  height: var(--zoom-hit);
+  border: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--ink) 0 var(--zoom-dot), transparent calc(var(--zoom-dot) + 0.5px));
+}
+.space-zoom::-moz-range-thumb {
+  width: var(--zoom-hit);
+  height: var(--zoom-hit);
+  border: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--ink) 0 var(--zoom-dot), transparent calc(var(--zoom-dot) + 0.5px));
+}
+/* From the keyboard: a ring round the dot. */
+.space-zoom:focus-visible::-webkit-slider-thumb {
+  background: radial-gradient(circle, var(--ink) 0 var(--zoom-dot), transparent calc(var(--zoom-dot) + 0.5px) 7px, var(--ink) 7.5px 8.5px, transparent 9px);
+}
+.space-zoom:focus-visible::-moz-range-thumb {
+  background: radial-gradient(circle, var(--ink) 0 var(--zoom-dot), transparent calc(var(--zoom-dot) + 0.5px) 7px, var(--ink) 7.5px 8.5px, transparent 9px);
+}
 
 /* ------------------------------------------------------------------ */
 /* Case pages: plain DOM in the same language.                         */
