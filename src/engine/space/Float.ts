@@ -1,6 +1,6 @@
 import gsap from "gsap";
 import { sfx } from "@/audio/sfx";
-import { held, homecoming, jolt, shutEyes } from "@/engine/urchi/acts";
+import { held, homecoming, jolt, shutEyes, swimTo } from "@/engine/urchi/acts";
 import type { Attention, Point } from "@/engine/urchi/attention";
 import { warmSuitIdle } from "@/engine/urchi/character";
 import { setAlong } from "@/lib/along";
@@ -29,7 +29,7 @@ const TAKE = { close: 0.35, dither: 0.3, ditherFor: 1, beat: 0.7, inFor: 3.6, ou
  * has not left the page after `flightMost` ends anyway.
  */
 const HOME = { gone: 4, ditherFor: 1, hold: 0.7, open: 1.8, flightMost: 3 };
-/** Where it likes to float, its middle as shares of the room (from the left, from the top). */
+/** Where it likes to float at first, its middle as shares of the room (from the left, from the top); it swims off from there (see SWIM). */
 const REST = { x: 0.3, y: 0.47 };
 /** The line's root: `out` px past the left edge, `down` of the way down. */
 const ROOT = { out: 6, down: 0.56 };
@@ -78,12 +78,15 @@ const WANDER = { push: 0.1, periods: [9.7, 14.3, 23.1], mix: [1, 0.7, 0.45], tur
 const DRIFT = { pull: 0.05, near: 0.6, calm: 2, home: 0.02 };
 /**
  * The soft walls: the room's edges `side` px in, under the tab bar (`top` px down) and over the
- * caption's band (`bottom`, `phoneBottom` on a phone). Each corner of the figure's box that crosses
- * one is pushed back by a spring of `k` per second squared that gives back `restitution` of its
- * speed; a corner's push turns it, a share `spin` of what a rigid box would (a suit is not a box,
- * and a bump should not send it head over heels).
+ * caption's band (`bottom`, `phoneBottom` on a phone). They catch it and give nothing back: it does
+ * not bounce off (a room with walls to dribble it against would not be space), nor is it spun (a
+ * twist against a wall turns into a push off it). Touching one, it stops going that way at once,
+ * its spin settles (`still` of it kept each step), and what of its box is past the wall is eased
+ * back in by `back` of the way each step, which gives it no speed: it comes to rest against the
+ * wall, and its own drift takes it away again. Coming in faster than `bump` of its height a second
+ * is a bump, which puts it off its own drifting a while (see DRIFT.calm).
  */
-const WALL = { side: 8, top: 56, bottom: 64, phoneBottom: 80, k: 16000, restitution: 0.4, spin: 0.25 };
+const WALL = { side: 8, top: 56, bottom: 64, phoneBottom: 80, still: 0.85, back: 0.15, bump: 0.2 };
 /**
  * The line, per unit mass: pulled past its length, a spring of `k` per second squared (about 20px
  * of give when flung at 1500px/s) and a damper at `zeta` of critical along it, so it takes the
@@ -111,6 +114,24 @@ const SNAP = { base: 1300, perWidth: 1.3, spin: [1.2, 3] as [number, number], ex
 const HOLD = { omega: 20, zeta: 0.85, most: 10 };
 /** Let go, it takes the pointer's velocity over its last `window` seconds, never over `cap` times the snap speed. */
 const FLING = { window: 0.09, cap: 2.2, keep: 0.16 };
+/**
+ * Swimming about: afloat, awake and left alone, it does not stay put. Every `every` seconds (a wait
+ * drawn between the two) it picks somewhere else to be and swims there, head first, in slow
+ * breaststrokes (not as space works: its strokes push on nothing, and it goes where it likes). The
+ * place is somewhere at random at least `far` of the room's width away, its box `margin` px clear
+ * of the walls and its clip within `slack` of the line's length of the root (the line is never
+ * pulled straight on the way), and never so far below it that head first it would be upside down
+ * (its heading within `tilt` rad of upright). It turns toward it on a spring of `turn` rad/s (in
+ * place of its righting, its spin damped `spin` a second more, so it does not swing past), looks
+ * where it is going, and strokes: `stroke` seconds each, the pull
+ * (from `pull[0]` to `pull[1]` of the stroke) pushing it along its heading at up to `thrust` of its
+ * height per second squared, with a nudge (`steer` of that) straight at the place, so it gets there
+ * however it has turned. Within `arrive` of its height it stops, glides to rest, rights itself and
+ * floats there until the next time. A hold, a fling, a tug, a nudge or sleep ends it, as does
+ * taking longer than `most` seconds; it is not the first thing it does once it has floated in
+ * (`first` seconds after).
+ */
+const SWIM = { every: [7, 15] as [number, number], first: 5, far: 0.22, margin: 64, slack: 0.92, tilt: 1.75, turn: 1.6, spin: 1.8, stroke: 2.6, pull: [0.12, 0.45] as [number, number], thrust: 0.6, steer: 0.25, arrive: 0.3, most: 30 };
 /** A nudge from the arrow keys: `speed` of its height per second (it drifts about its own height before it slows), or under reduced motion `step` px. */
 const NUDGE = { speed: 0.45, step: 24 };
 
@@ -200,6 +221,11 @@ export class Float {
   /** Reaching for what it watches since (its clock; -1 not), and not again before. */
   private reachSince = -1;
   private reachAgain = 0;
+  /** Swimming: where to (shares of the room, from the left and the top, so a resize keeps it), and since when (its clock). */
+  private swim: { x: number; y: number; t0: number } | null = null;
+  /** When it may next swim off (its clock), and where it floats meanwhile (shares of the room; null: REST). */
+  private swimAt = 0;
+  private stay: Point | null = null;
   private tl: gsap.core.Timeline | null = null;
   private stopFrame: () => void;
   private disposed = false;
@@ -272,9 +298,15 @@ export class Float {
     return SNAP.base + SNAP.perWidth * this.room.width;
   }
 
-  /** Where it likes to float: its middle, room px. */
+  /** Where it likes to float: its middle, room px (where it last swam to, or REST). */
   private rest(): Point {
-    return { x: (REST.x - 0.5) * this.room.width, y: (0.5 - REST.y) * this.room.height };
+    const s = this.stay ?? REST;
+    return this.at(s.x, s.y);
+  }
+
+  /** A place given as shares of the room (from the left, from the top), room px. */
+  private at(fx: number, fy: number): Point {
+    return { x: (fx - 0.5) * this.room.width, y: (0.5 - fy) * this.room.height };
   }
 
   /** The walls, room px. */
@@ -501,6 +533,11 @@ export class Float {
   /** Floating in is over (or cut short by a hand or a key, `all` false): it floats, its own life comes in, and (all the way in) it waves hello. */
   private settle(all = false) {
     this.arrival = null;
+    if (all) {
+      this.stay = null;
+      this.swim = null;
+      this.swimAt = this.t + SWIM.first;
+    }
     this.set("floating");
     if (all) this.hello = gsap.delayedCall(LIMBS.hello, () => { if (this.state === "floating" && !this.hold) this.limbs?.play("wave", 0); });
     gsap.killTweensOf(this.life);
@@ -534,6 +571,8 @@ export class Float {
     this.set("returning");
     this.hold = null;
     this.arrival = null;
+    this.swim = null;
+    this.limbs?.swim(null);
     room.float = null;
     this.hello?.kill();
     room.urchi.character.limbs?.setMode("rest");
@@ -655,6 +694,7 @@ export class Float {
       const ax = (b.vx - f.vx) / dt, ay = (b.vy - f.vy) / dt, al = (b.w - f.w) / dt;
       L.setLife(this.state === "flying" ? 0 : Math.max(this.life.v, this.arrival ? 0.5 : 0));
       L.setAsleep(this.att.asleep);
+      L.swim(this.swim ? this.strokePhase(this.swim) : null);
       L.feel((ax * c + ay * s) / u, -(-ax * s + ay * c) / u, -al, -b.w, FIGURE_MIDDLE);
       this.reachOut(L);
     }
@@ -668,7 +708,7 @@ export class Float {
     const f = this.att.focus, you = this.att.you(), p = this.room.float;
     const thing = f?.kind === "mote" ? f.at : you && this.att.stillFor > REACH_FOR.still ? you : null;
     let at: [number, number, number] | null = null;
-    if (p && thing && this.state === "floating" && !this.hold && !this.att.asleep && this.t >= this.calmAt && this.life.v > 0.9) {
+    if (p && thing && this.state === "floating" && !this.hold && !this.swim && !this.att.asleep && this.t >= this.calmAt && this.life.v > 0.9) {
       // into its own frame: mesh units from the head's centre, y down
       const q = this.room.toRoom(thing.x, thing.y), u = this.unit, c = Math.cos(p.angle), s = Math.sin(p.angle), dx = q.x - p.x, dy = q.y - p.y;
       const bx = (dx * c + dy * s) / u, by = (-dx * s + dy * c) / u;
@@ -682,6 +722,70 @@ export class Float {
       this.reachSince = -1;
       this.reachAgain = this.t + REACH_FOR.rest;
     } else if (this.reachSince >= 0 && at) L.reachFor(at, at[0] >= 0 ? 0 : 1);
+  }
+
+  /**
+   * Swimming (see SWIM): set off somewhere now, if it is free to and the time has come; or, swimming,
+   * whether it is there, or has been stopped. Where it ends up, it floats until it swims off again.
+   */
+  private swimStep() {
+    const sw = this.swim, L = this.limbs;
+    const free = this.state === "floating" && !this.hold && !this.sending && !this.taut && !this.att.asleep && this.life.v > 0.9 && this.t >= this.calmAt && this.reachSince < 0;
+    if (sw) {
+      const to = this.at(sw.x, sw.y), b = this.b, there = Math.hypot(to.x - b.x, to.y - b.y) < SWIM.arrive * this.tall;
+      if (there || !free || this.t - sw.t0 > SWIM.most) this.endSwim();
+      return;
+    }
+    if (!free || this.t < this.swimAt || !L || L.doing || L.reaching) return;
+    const to = this.pickSwim();
+    if (!to) {
+      this.swimAt = this.t + 2;
+      return;
+    }
+    this.swim = { ...to, t0: this.t };
+    L.calm();
+    this.att.play("swimTo", 1, () => swimTo(this.att, () => this.client(this.at(to.x, to.y)), () => this.swim === null));
+  }
+
+  /** The swim ends (there, or stopped): it floats where it is now until the next. */
+  private endSwim() {
+    const b = this.b;
+    this.swim = null;
+    this.stay = { x: b.x / this.room.width + 0.5, y: 0.5 - b.y / this.room.height };
+    this.swimAt = this.t + rand(...SWIM.every);
+    this.limbs?.swim(null);
+  }
+
+  /** Somewhere to swim to (see SWIM), as shares of the room; null if nowhere will do. */
+  private pickSwim(): Point | null {
+    const w = this.walls(), e = this.extent(0), m = SWIM.margin, b = this.b, W = this.room.width, H = this.room.height;
+    const x0 = w.left + e.x + m, x1 = w.right - e.x - m, y0 = w.bottom + e.y + m, y1 = w.top - e.y - m;
+    if (x1 <= x0 || y1 <= y0) return null;
+    const c = this.clipOffset(), r = this.root(), L = this.length * SWIM.slack;
+    for (let k = 0; k < 40; k++) {
+      const x = rand(x0, x1), y = rand(y0, y1), dx = x - b.x, dy = y - b.y;
+      if (Math.hypot(dx, dy) < SWIM.far * W || Math.abs(Math.atan2(-dx, dy)) > SWIM.tilt) continue;
+      if (Math.hypot(x + c.x - r.x, y + c.y - r.y) > L) continue;
+      return { x: x / W + 0.5, y: 0.5 - y / H };
+    }
+    return null;
+  }
+
+  /** The way it swims, head first toward the place: its turn (radians, anticlockwise from upright), never past SWIM.tilt. */
+  private heading(sw: { x: number; y: number }) {
+    const to = this.at(sw.x, sw.y), b = this.b;
+    return clamp(Math.atan2(-(to.x - b.x), to.y - b.y), -SWIM.tilt, SWIM.tilt);
+  }
+
+  /** Where it is in its stroke, 0 .. 1. */
+  private strokePhase(sw: { t0: number }) {
+    return ((this.t - sw.t0) / SWIM.stroke) % 1;
+  }
+
+  /** A room point (px, y up) as a client point. */
+  private client(p: Point): Point {
+    const r = this.room.canvas.getBoundingClientRect();
+    return { x: r.left + r.width / 2 + p.x, y: r.top + r.height / 2 - p.y };
   }
 
   /** Flying: its box is past an edge of the page, all of it. */
@@ -703,8 +807,12 @@ export class Float {
       al += (turn * (rx * fy - ry * fx)) / I;
     };
 
-    // its own life: the wander, the bob, the turn, and a drift toward what it watches
-    const life = this.hold || flying ? 0 : this.life.v * (this.att.asleep ? WANDER.asleep : 1);
+    // swimming somewhere, or setting off (see SWIM)
+    if (!flying) this.swimStep();
+    const sw = this.swim;
+    // its own life: the wander, the bob, the turn, and a drift toward what it watches (swimming, the
+    // wander goes on under the strokes, a little, and it drifts toward nothing but where it swims)
+    const life = this.hold || flying ? 0 : this.life.v * (this.att.asleep ? WANDER.asleep : 1) * (sw ? 0.35 : 1);
     const turnIn = this.arrival ? Math.min(1, (this.t - this.arrival.t0) / TAKE.inFor) : 1;
     const turnLife = this.hold || flying ? 0 : Math.max(life, 0.5 * turnIn) * (this.att.asleep ? WANDER.asleep : 1);
     if (life > 0 || turnLife > 0) {
@@ -715,7 +823,7 @@ export class Float {
       ay += life * (WANDER.push * tall * wave(1, WANDER.periods) - WANDER.bob * tall * bobW * bobW * Math.sin(bobW * this.t));
       al += turnLife * WANDER.turn * wave(2, WANDER.turnPeriods);
     }
-    if (life > 0) {
+    if (life > 0 && !sw) {
       const f = this.att.focus;
       if (f && this.t >= this.calmAt && (f.kind === "mote" || (f.kind === "pointer" && this.att.stillFor > 0.8))) {
         const at = this.room.toRoom(f.at.x, f.at.y), dx = at.x - b.x, dy = at.y - b.y, d = Math.hypot(dx, dy), near = DRIFT.near * tall;
@@ -734,11 +842,25 @@ export class Float {
     const drag = flying ? DRAG.flight : 1;
     ax -= DRAG.move * drag * b.vx;
     ay -= DRAG.move * drag * b.vy;
-    al -= (DRAG.spin + (this.hold ? DRAG.held : 0)) * b.w;
-    if (!flying) al -= RIGHTING * RIGHTING * wrap(b.a);
+    al -= (DRAG.spin + (this.hold ? DRAG.held : 0) + (sw ? SWIM.spin : 0)) * b.w;
+    if (!flying) {
+      // upright, or swimming, head first the way it goes
+      const k = sw ? SWIM.turn : RIGHTING;
+      al -= k * k * wrap(b.a - (sw ? this.heading(sw) : 0));
+    }
+    if (sw) {
+      // the pull of each stroke pushes it along its heading (once it has turned that way), and a little straight at the place
+      const ph = this.strokePhase(sw), [p0, p1] = SWIM.pull;
+      if (ph > p0 && ph < p1) {
+        const turned = Math.max(0, 1 - Math.abs(wrap(b.a - this.heading(sw))) / 0.8);
+        const f = SWIM.thrust * tall * Math.sin((Math.PI * (ph - p0)) / (p1 - p0)) * turned * turned * (3 - 2 * turned);
+        const to = this.at(sw.x, sw.y), dx = to.x - b.x, dy = to.y - b.y, d = Math.hypot(dx, dy) || 1;
+        ax += f * (-Math.sin(b.a) + (SWIM.steer * dx) / d);
+        ay += f * (Math.cos(b.a) + (SWIM.steer * dy) / d);
+      }
+    }
 
     if (!flying && !this.arrival) {
-      this.wallsPush(push, cos, sin);
       this.linePull(push, cos, sin);
       // sent home but kept from its line's end (a wall in the way, say): it snaps anyway
       if (this.sending && this.t - this.sentAt > SNAP.sendMost) this.snap();
@@ -770,30 +892,45 @@ export class Float {
     } else {
       b.vx += ax * h;
       b.vy += ay * h;
+      b.w += al * h;
+      if (!flying) this.wallsHold(cos, sin);
       b.x += b.vx * h;
       b.y += b.vy * h;
+      b.a += b.w * h;
+      return;
     }
     b.w += al * h;
     b.a += b.w * h;
   }
 
-  /** The soft walls: each corner of its box past one is pushed back in (and turns it). */
-  private wallsPush(push: (fx: number, fy: number, rx: number, ry: number, turn?: number) => void, cos: number, sin: number) {
+  /**
+   * The walls (see WALL): past one, it stops going through it, its spin settles, and its box is eased
+   * back in without being given any speed. Once a wall, however many corners are past it.
+   */
+  private wallsHold(cos: number, sin: number) {
     const b = this.b, u = this.unit, w = this.walls(), hw = HALF.w * u, hh = HALF.h * u;
-    const k = WALL.k, zeta = -Math.log(WALL.restitution) / Math.sqrt(Math.PI ** 2 + Math.log(WALL.restitution) ** 2), c = 2 * zeta * Math.sqrt(k);
+    // per wall (left, right, bottom, top): how far past it the deepest corner is
+    const deep = [0, 0, 0, 0];
     for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-      const rx = sx * hw * cos - sy * hh * sin, ry = sx * hw * sin + sy * hh * cos;
-      const px = b.x + rx, py = b.y + ry, vx = b.vx - b.w * ry, vy = b.vy + b.w * rx;
-      let fx = 0, fy = 0;
-      if (px < w.left) fx = Math.max(0, k * (w.left - px) - c * vx);
-      else if (px > w.right) fx = Math.min(0, k * (w.right - px) - c * vx);
-      if (py < w.bottom) fy = Math.max(0, k * (w.bottom - py) - c * vy);
-      else if (py > w.top) fy = Math.min(0, k * (w.top - py) - c * vy);
-      if (fx || fy) {
-        push(fx, fy, rx, ry, WALL.spin);
-        this.calmAt = Math.max(this.calmAt, this.t + DRIFT.calm);
-        if (Math.hypot(vx, vy) > LIMBS.bump * this.tall) this.brace();
+      const px = b.x + sx * hw * cos - sy * hh * sin, py = b.y + sx * hw * sin + sy * hh * cos;
+      const d = [w.left - px, px - w.right, w.bottom - py, py - w.top];
+      for (let i = 0; i < 4; i++) deep[i] = Math.max(deep[i], d[i]);
+    }
+    for (let i = 0; i < 4; i++) {
+      if (deep[i] <= 0) continue;
+      // the way back in, and its speed out through the wall
+      const nx = i === 0 ? 1 : i === 1 ? -1 : 0, ny = i === 2 ? 1 : i === 3 ? -1 : 0;
+      const vout = -(b.vx * nx + b.vy * ny);
+      if (vout > 0) {
+        b.vx += nx * vout;
+        b.vy += ny * vout;
+        if (vout > LIMBS.bump * this.tall) this.brace();
+        // a bump puts it off its own drifting (and a swim) a while; brushing the wall as it turns does not
+        if (vout > WALL.bump * this.tall) this.calmAt = Math.max(this.calmAt, this.t + DRIFT.calm);
       }
+      b.w *= WALL.still;
+      b.x += nx * deep[i] * WALL.back;
+      b.y += ny * deep[i] * WALL.back;
     }
   }
 

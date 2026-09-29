@@ -2104,7 +2104,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     if (quirk === "wave") tiltToward(toward, 9);
     else if (quirk === "tap") tiltToward(toward, 12);
     else if (quirk === "cheeks") slowBlink(0.35);
-    else if (quirk === "clap") widen(0.08, 1.4);
+    else if (quirk === "pat") widen(0.08, 1.4);
     else if (quirk === "stretch") stretch();
   }
   /** Until dispose: a suit model arriving after it has nothing to repaint. */
