@@ -78,12 +78,14 @@ const WANDER = { push: 0.1, periods: [9.7, 14.3, 23.1], mix: [1, 0.7, 0.45], tur
 const DRIFT = { pull: 0.05, near: 0.6, calm: 2, home: 0.02 };
 /**
  * The soft walls: the room's edges `side` px in, under the tab bar (`top` px down) and over the
- * caption's band (`bottom`, `phoneBottom` on a phone). Each corner of the figure's box that crosses
- * one is pushed back by a spring of `k` per second squared that gives back `restitution` of its
- * speed; a corner's push turns it, a share `spin` of what a rigid box would (a suit is not a box,
- * and a bump should not send it head over heels).
+ * caption's band (`bottom`, `phoneBottom` on a phone). They catch it and give nothing back: it does
+ * not bounce off (a room with walls to dribble it against would not be space), nor is it spun (a
+ * twist against a wall turns into a push off it). Touching one, it stops going that way at once,
+ * its spin settles (`still` of it kept each step), and what of its box is past the wall is eased
+ * back in by `back` of the way each step, which gives it no speed: it comes to rest against the
+ * wall, and its own drift takes it away again.
  */
-const WALL = { side: 8, top: 56, bottom: 64, phoneBottom: 80, k: 16000, restitution: 0.4, spin: 0.25 };
+const WALL = { side: 8, top: 56, bottom: 64, phoneBottom: 80, still: 0.85, back: 0.15 };
 /**
  * The line, per unit mass: pulled past its length, a spring of `k` per second squared (about 20px
  * of give when flung at 1500px/s) and a damper at `zeta` of critical along it, so it takes the
@@ -738,7 +740,6 @@ export class Float {
     if (!flying) al -= RIGHTING * RIGHTING * wrap(b.a);
 
     if (!flying && !this.arrival) {
-      this.wallsPush(push, cos, sin);
       this.linePull(push, cos, sin);
       // sent home but kept from its line's end (a wall in the way, say): it snaps anyway
       if (this.sending && this.t - this.sentAt > SNAP.sendMost) this.snap();
@@ -770,30 +771,44 @@ export class Float {
     } else {
       b.vx += ax * h;
       b.vy += ay * h;
+      b.w += al * h;
+      if (!flying) this.wallsHold(cos, sin);
       b.x += b.vx * h;
       b.y += b.vy * h;
+      b.a += b.w * h;
+      return;
     }
     b.w += al * h;
     b.a += b.w * h;
   }
 
-  /** The soft walls: each corner of its box past one is pushed back in (and turns it). */
-  private wallsPush(push: (fx: number, fy: number, rx: number, ry: number, turn?: number) => void, cos: number, sin: number) {
+  /**
+   * The walls (see WALL): past one, it stops going through it, its spin settles, and its box is eased
+   * back in without being given any speed. Once a wall, however many corners are past it.
+   */
+  private wallsHold(cos: number, sin: number) {
     const b = this.b, u = this.unit, w = this.walls(), hw = HALF.w * u, hh = HALF.h * u;
-    const k = WALL.k, zeta = -Math.log(WALL.restitution) / Math.sqrt(Math.PI ** 2 + Math.log(WALL.restitution) ** 2), c = 2 * zeta * Math.sqrt(k);
+    // per wall (left, right, bottom, top): how far past it the deepest corner is
+    const deep = [0, 0, 0, 0];
     for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-      const rx = sx * hw * cos - sy * hh * sin, ry = sx * hw * sin + sy * hh * cos;
-      const px = b.x + rx, py = b.y + ry, vx = b.vx - b.w * ry, vy = b.vy + b.w * rx;
-      let fx = 0, fy = 0;
-      if (px < w.left) fx = Math.max(0, k * (w.left - px) - c * vx);
-      else if (px > w.right) fx = Math.min(0, k * (w.right - px) - c * vx);
-      if (py < w.bottom) fy = Math.max(0, k * (w.bottom - py) - c * vy);
-      else if (py > w.top) fy = Math.min(0, k * (w.top - py) - c * vy);
-      if (fx || fy) {
-        push(fx, fy, rx, ry, WALL.spin);
-        this.calmAt = Math.max(this.calmAt, this.t + DRIFT.calm);
-        if (Math.hypot(vx, vy) > LIMBS.bump * this.tall) this.brace();
+      const px = b.x + sx * hw * cos - sy * hh * sin, py = b.y + sx * hw * sin + sy * hh * cos;
+      const d = [w.left - px, px - w.right, w.bottom - py, py - w.top];
+      for (let i = 0; i < 4; i++) deep[i] = Math.max(deep[i], d[i]);
+    }
+    for (let i = 0; i < 4; i++) {
+      if (deep[i] <= 0) continue;
+      // the way back in, and its speed out through the wall
+      const nx = i === 0 ? 1 : i === 1 ? -1 : 0, ny = i === 2 ? 1 : i === 3 ? -1 : 0;
+      const vout = -(b.vx * nx + b.vy * ny);
+      if (vout > 0) {
+        b.vx += nx * vout;
+        b.vy += ny * vout;
+        if (vout > LIMBS.bump * this.tall) this.brace();
       }
+      b.w *= WALL.still;
+      b.x += nx * deep[i] * WALL.back;
+      b.y += ny * deep[i] * WALL.back;
+      this.calmAt = Math.max(this.calmAt, this.t + DRIFT.calm);
     }
   }
 

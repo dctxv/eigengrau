@@ -9,12 +9,14 @@ type Point = { x: number; y: number };
  * The rope: `nodes` nodes, stepped `fps` times a second (drawn every frame between the last two
  * steps), ink at `alpha`, `width` CSS px, each span drawn as `smooth` pieces of a curve through the
  * nodes. Zero gravity: nothing pulls it down; it keeps its momentum a little (`damping` per step),
- * wanders lazily (`wander` px/s² at most, a slow different sway for each node), and while it is
- * slack it is drawn toward a lazy S as long as itself (see depthFor) with a pull of `hold` per
- * second, so the slack lies in curves rather than tangling. Its spans may bunch but never stretch:
- * pulled to its length, it runs straight.
+ * wanders lazily (`wander` px/s² at most, a slow sway that travels along it as a wave, `wave` of a
+ * turn from end to end, so neighbours move together), and while it is slack it is drawn toward a
+ * lazy S as long as itself (see depthFor) with a pull of `hold` per second, so the slack lies in
+ * curves rather than tangling. It resists bending a little (`bend`: each step every node goes that
+ * share of the way to the middle of its neighbours), so however it is pulled about it curves and
+ * never kinks. Its spans may bunch but never stretch: pulled to its length, it runs straight.
  */
-const ROPE = { nodes: 16, fps: 60, alpha: 0.35, width: 1, smooth: 4, damping: 0.95, wander: 14, hold: 2.5, iterations: 12 };
+const ROPE = { nodes: 32, fps: 60, alpha: 0.35, width: 1, smooth: 6, damping: 0.95, wander: 14, wave: 0.8, hold: 2.5, bend: 0.2, iterations: 12 };
 /** The S is never deeper than this many times the distance between the ends (it then bunches rather than looping out). */
 const DEEPEST = 3;
 /**
@@ -134,6 +136,9 @@ export class Tether {
   private tx = new Float64Array(ROPE.nodes);
   private ty = new Float64Array(ROPE.nodes);
   private phase = new Float64Array(ROPE.nodes);
+  /** Scratch for the bending pass. */
+  private bx = new Float64Array(ROPE.nodes);
+  private by = new Float64Array(ROPE.nodes);
   /** Which way the S bends: laid at random each time. */
   private side = 1;
   private laid = false;
@@ -155,7 +160,8 @@ export class Tether {
     this.reduced = o.reducedMotion;
     this.line = new Ribbon(room.scene, ROPE.nodes);
     this.rootEnd = new Ribbon(room.scene, ROPE.nodes);
-    for (let i = 0; i < this.n; i++) this.phase[i] = Math.random() * Math.PI * 2;
+    const p0 = Math.random() * Math.PI * 2;
+    for (let i = 0; i < this.n; i++) this.phase[i] = p0 + (2 * Math.PI * ROPE.wave * i) / (this.n - 1);
     this.stop = room.afterUrchi((dt) => this.frame(dt));
   }
 
@@ -241,6 +247,19 @@ export class Tether {
     }
   }
 
+  /** Its resistance to bending: each node from `from` to `to` (inside a piece, its ends held) a share of the way to the middle of its neighbours. */
+  private unbend(from: number, to: number) {
+    const x = this.x, y = this.y, bx = this.bx, by = this.by;
+    for (let i = from; i <= to; i++) {
+      bx[i] = x[i] + ((x[i - 1] + x[i + 1]) / 2 - x[i]) * ROPE.bend;
+      by[i] = y[i] + ((y[i - 1] + y[i + 1]) / 2 - y[i]) * ROPE.bend;
+    }
+    for (let i = from; i <= to; i++) {
+      x[i] = bx[i];
+      y[i] = by[i];
+    }
+  }
+
   /** One step of the rope, h seconds: zero-g verlet with its ends held, the lazy wander and, slack, the pull toward its S. */
   private step(a: Point, b: Point, h: number) {
     const n = this.n, x = this.x, y = this.y, px = this.px, py = this.py, long = this.length(), span = long / (n - 1);
@@ -262,6 +281,7 @@ export class Tether {
     }
     if (!br) {
       x[0] = a.x; y[0] = a.y; x[n - 1] = b.x; y[n - 1] = b.y;
+      this.unbend(1, n - 2);
       for (let k = 0; k < ROPE.iterations; k++) {
         this.keep(0, n - 1, span, [0, n - 1]);
         this.keep(n - 1, 0, span, [0, n - 1]);
@@ -270,6 +290,8 @@ export class Tether {
     }
     // snapped: two pieces, each held at its own end, their spans shrinking as the stretch comes out
     x[0] = a.x; y[0] = a.y; x[n - 1] = b.x; y[n - 1] = b.y;
+    this.unbend(1, br.k - 1);
+    this.unbend(br.k + 2, n - 2);
     const s = span * br.span.v;
     for (let k = 0; k < ROPE.iterations; k++) {
       this.keep(0, br.k, s, [0]);
