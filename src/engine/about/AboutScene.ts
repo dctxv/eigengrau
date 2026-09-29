@@ -74,6 +74,19 @@ export class AboutScene {
   private height = 1;
   private tick: (t: number, dt: number) => void;
   private disposed = false;
+  private hidden = false;
+  /**
+   * Off screen (its tab kept but not shown): no frames, and the pointer elsewhere on the site is not
+   * its to follow; shown again, it looks straight ahead until the pointer moves.
+   */
+  get paused() {
+    return this.hidden;
+  }
+  set paused(on: boolean) {
+    if (on === this.hidden) return;
+    this.hidden = on;
+    if (on) this.lookAway();
+  }
   private serial = ++scenes;
   private ready = false;
   private revealed = false;
@@ -84,7 +97,9 @@ export class AboutScene {
     this.camera = new THREE.OrthographicCamera(0, 1, 0, -1, -1000, 1000);
     this.camera.position.z = 10;
     this.measure();
-    this.tick = (_t, dtMs) => this.frame(Math.min(dtMs, 64) / 1000);
+    this.tick = (_t, dtMs) => {
+      if (!this.hidden) this.frame(Math.min(dtMs, 64) / 1000);
+    };
     gsap.ticker.add(this.tick);
     if (!opts.reducedMotion) {
       window.addEventListener("pointermove", this.onPointer, { passive: true });
@@ -100,6 +115,7 @@ export class AboutScene {
   // pointer instead (see look), and hand the gaze back once the pointer has gone, when the
   // character, which has let go of it too, looks straight ahead.
   private onPointer = (e: PointerEvent) => {
+    if (this.hidden) return;
     clearTimeout(this.release);
     this.pointer = { x: e.clientX, y: e.clientY };
     this.look();

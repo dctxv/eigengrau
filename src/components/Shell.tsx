@@ -2,16 +2,14 @@
 
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { flushSync } from "react-dom";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import gsap from "gsap";
-import { sfx } from "@/audio/sfx";
 import { getFlags, onFlags, setFlag } from "@/lib/flags";
 import { DUR, EASE, prefersReducedMotion } from "@/lib/motion";
 import { isTab, tabIndex } from "@/lib/routes";
 import { installViewportVars } from "@/lib/viewport";
 import { noteVisit } from "@/lib/visits";
-import { arrive } from "@/lib/where";
+import { arrive, setShown } from "@/lib/where";
 import { Between, type BetweenHandle } from "./chrome/Between";
 import { FloatingLogo, measureLogoSlot } from "./chrome/FloatingLogo";
 import { LiveIcon } from "./chrome/LiveIcon";
@@ -24,35 +22,58 @@ const NotesPanel = dynamic(() => import("./pages/NotesPanel").then((m) => m.Note
 const MusicPanel = dynamic(() => import("./pages/MusicPanel").then((m) => m.MusicPanel), { ssr: false });
 const AboutPanel = dynamic(() => import("./pages/AboutPanel").then((m) => m.AboutPanel), { ssr: false });
 
-type Panel = { key: number; path: string; intro: boolean };
+/** A mounted page: a tab's panel is keyed by its path and kept; any other route's gets a key of its own. */
+type Panel = { key: string; path: string; intro: boolean };
 
-function Stage({ path, intro }: { path: string; intro: boolean }) {
+/** A tab's page. Memoised: a kept panel is not rendered again on every route change. */
+const Stage = memo(function Stage({ path, intro }: { path: string; intro: boolean }) {
   if (path === "/") return <CreativeSpacePanel intro={intro} />;
   if (path === "/projects") return <ProjectsPanel />;
   if (path === "/notes") return <NotesPanel />;
   if (path === "/music") return <MusicPanel />;
   if (path === "/about") return <AboutPanel />;
   return null;
-}
+});
 
 /**
  * The persistent chrome plus the horizontal page slider (spec 2 and 8).
- * Pages are 100vw panels in a flex row; a route change mounts the new panel
- * next to the current one, slides the row, then drops the old panel and
- * resets the row in the same frame.
+ * Pages are 100vw panels stacked in one place. Every tab visited stays
+ * mounted, hidden (and inert) while it is not on screen, so coming back finds
+ * it as it was left rather than starting again: Urchi where it floated, the
+ * ball as it was spun, the song still playing. A route change between tabs
+ * slides the panel being left out and the one arrived at in, side by side;
+ * any other change shows the new page at once. Pages learn which panels are
+ * on screen from where.ts (setShown), and pause their frames while hidden.
  */
 export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const navRef = useRef<HTMLElement>(null);
   const logoRef = useRef<HTMLAnchorElement>(null);
-  const rowRef = useRef<HTMLDivElement>(null);
   const keyRef = useRef(0);
   const prevPath = useRef(pathname);
   const tweenRef = useRef<gsap.core.Tween | null>(null);
-  const pendingRef = useRef<{ dir: 1 | -1; from: string; next: Panel } | null>(null);
+  /** What the next commit does once the panel arrived at is mounted: slide to it, or show it at once. */
+  const pendingRef = useRef<{ to: string; slide: { dir: 1 | -1; from: string } | null } | null>(null);
   const betweenRef = useRef<BetweenHandle>(null);
-  const [panels, setPanels] = useState<Panel[]>(() => [{ key: 0, path: pathname, intro: pathname === "/" }]);
+  /** Each panel's element, by path. */
+  const els = useRef(new Map<string, HTMLDivElement>());
+  /** The paths on screen now. */
+  const shownRef = useRef<string[]>([pathname]);
+  const [panels, setPanels] = useState<Panel[]>(() => [{ key: isTab(pathname) ? pathname : "page:0", path: pathname, intro: pathname === "/" }]);
   const [chromePlaced, setChromePlaced] = useState(false);
+
+  /** Only these panels on screen; the rest hidden, inert and out of the reading order, where they were left. */
+  const show = (paths: string[]) => {
+    shownRef.current = paths;
+    els.current.forEach((el, path) => {
+      const on = paths.includes(path);
+      el.style.visibility = on ? "" : "hidden";
+      el.inert = !on;
+      el.toggleAttribute("aria-hidden", !on);
+      if (!on) gsap.set(el, { x: 0 });
+    });
+    setShown(paths.filter(isTab));
+  };
 
   // Viewport units and the reduced-motion intro skip.
   useEffect(() => installViewportVars(), []);
@@ -104,55 +125,67 @@ export function Shell({ children }: { children: ReactNode }) {
     }
     prevPath.current = pathname;
     setFlag("cameFromInAppNav", true);
-    const current = panels.find((p) => p.path === prev) ?? panels[0];
-    const next: Panel = { key: ++keyRef.current, path: pathname, intro: false };
-    const canSlide = isTab(prev) && isTab(pathname) && !prefersReducedMotion() && !tweenRef.current;
+    const canSlide = isTab(prev) && isTab(pathname) && els.current.has(prev) && !prefersReducedMotion() && !tweenRef.current;
+    // The tabs stay; a page on any other route goes when it is left, and a new one is made for it.
+    setPanels((ps) => {
+      const kept = ps.filter((p) => isTab(p.path) || p.path === pathname);
+      return kept.some((p) => p.path === pathname) ? kept : [...kept, { key: isTab(pathname) ? pathname : `page:${++keyRef.current}`, path: pathname, intro: false }];
+    });
     if (!canSlide) {
       tweenRef.current?.kill();
       tweenRef.current = null;
-      pendingRef.current = null;
       betweenRef.current?.end();
-      if (rowRef.current) gsap.set(rowRef.current, { x: 0 });
+      setFlag("transitioning", false);
       arrive(pathname, prev);
-      setPanels([next]);
+      pendingRef.current = { to: pathname, slide: null };
       return;
     }
     const dir: 1 | -1 = tabIndex(pathname) > tabIndex(prev) ? 1 : -1;
-    pendingRef.current = { dir, from: prev, next };
+    pendingRef.current = { to: pathname, slide: { dir, from: prev } };
     arrive(pathname, prev, DUR.slideDelay * 1000, DUR.slide * 1000);
-    setPanels(dir > 0 ? [current, next] : [next, current]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // Both panels are mounted: slide the row.
+  // The panel arrived at is mounted: show it at once, or slide it in beside the one being left.
   useLayoutEffect(() => {
     const p = pendingRef.current;
-    const row = rowRef.current;
-    if (!p || !row || panels.length !== 2) return;
+    const toEl = p && els.current.get(p.to);
+    if (!p || !toEl) {
+      // A panel mounted with nothing pending (the first) takes its place as the rest do.
+      show(shownRef.current);
+      return;
+    }
     pendingRef.current = null;
+    const fromEl = p.slide && els.current.get(p.slide.from);
+    if (!p.slide || !fromEl) {
+      els.current.forEach((el) => gsap.set(el, { x: 0 }));
+      show([p.to]);
+      return;
+    }
+    const { dir, from } = p.slide;
     const w = window.innerWidth;
-    const from = p.dir > 0 ? 0 : -w;
-    const to = p.dir > 0 ? -w : 0;
+    show([from, p.to]);
+    gsap.set(fromEl, { x: 0 });
+    gsap.set(toEl, { x: dir * w });
     setFlag("transitioning", true);
-    betweenRef.current?.begin(tabIndex(p.from), tabIndex(p.next.path), w);
-    tweenRef.current = gsap.fromTo(row, { x: from }, {
-      x: to,
+    betweenRef.current?.begin(tabIndex(from), tabIndex(p.to), w);
+    const at = { k: 0 };
+    tweenRef.current = gsap.to(at, {
+      k: 1,
       duration: DUR.slide,
       ease: EASE.slide,
       delay: DUR.slideDelay,
-      onStart: () => sfx.play("slide"),
-      // The stars between the tabs ride the same frames, told how far the row has gone.
       onUpdate: () => {
-        const tween = tweenRef.current;
-        if (tween) betweenRef.current?.step((to - from) * tween.ratio);
+        gsap.set(fromEl, { x: -dir * w * at.k });
+        gsap.set(toEl, { x: dir * w * (1 - at.k) });
+        // The stars between the tabs ride the same frames, told how far the pages have gone.
+        betweenRef.current?.step(-dir * w * at.k);
       },
       onComplete: () => {
         tweenRef.current = null;
         betweenRef.current?.end();
         setFlag("transitioning", false);
-        // Drop the old panel and reset the row in one synchronous commit: no visible jump.
-        flushSync(() => setPanels([p.next]));
-        gsap.set(row, { x: 0 });
+        gsap.set(toEl, { x: 0 });
+        show([p.to]);
       },
     });
   }, [panels]);
@@ -166,9 +199,19 @@ export function Shell({ children }: { children: ReactNode }) {
       <SoundChip />
       <LiveIcon />
       <div className="page-viewport">
-        <div className="page-row" ref={rowRef}>
+        <div className="page-row">
           {panels.map((p) => (
-            <div className="panel" key={p.key}>
+            <div
+              className="panel"
+              key={p.key}
+              ref={(el) => {
+                if (!el) return;
+                els.current.set(p.path, el);
+                return () => {
+                  if (els.current.get(p.path) === el) els.current.delete(p.path);
+                };
+              }}
+            >
               <div className="body-wrapper">
                 {isTab(p.path) ? (
                   <main>

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useLayoutEffect, useRef } from "react";
 import gsap from "gsap";
-import { sfx } from "@/audio/sfx";
 import { DUR, EASE, prefersReducedMotion } from "@/lib/motion";
 import type { TabHref } from "@/content/site";
 
@@ -49,9 +48,6 @@ export function Tab({ href, label, n, active, ready }: Props) {
       href={href}
       className="tab glass"
       aria-current={active ? "page" : undefined}
-      onClick={() => {
-        if (!active) sfx.play("tab");
-      }}
     >
       <span ref={spacer} className="tab-spacer" aria-hidden="true" />
       <span ref={text} className="tab-label">

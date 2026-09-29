@@ -151,6 +151,8 @@ export class RoomScene {
   private afterHooks = new Set<(dt: number) => void>();
   private tick: (time: number, dt: number) => void;
   private disposed = false;
+  /** Off screen (its tab kept but not shown): no frames at all, so it picks up where it was when shown again. */
+  paused = false;
 
   constructor(canvas: HTMLCanvasElement, opts: RoomOptions = {}) {
     this.canvas = canvas;
@@ -162,7 +164,9 @@ export class RoomScene {
     this.urchi.mesh.renderOrder = 0;
     this.scene.add(this.urchi.mesh);
     this.resize();
-    this.tick = (_t, dtMs) => this.frame(Math.min(dtMs, 64) / 1000);
+    this.tick = (_t, dtMs) => {
+      if (!this.paused) this.frame(Math.min(dtMs, 64) / 1000);
+    };
     gsap.ticker.add(this.tick);
   }
 

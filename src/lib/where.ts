@@ -36,3 +36,35 @@ export function onWhere(l: (w: Where) => void): () => void {
     listeners.delete(l);
   };
 }
+
+/**
+ * The tab panels on screen: the one arrived at and, while a slide runs, the
+ * one it is leaving. Every tab visited stays mounted (Shell keeps it, hidden,
+ * so coming back finds it as it was left: Urchi where it floated, the ball as
+ * it was spun, the song still playing); a panel off screen pauses its frames
+ * and leaves the keys to the one on screen. Shell keeps this; pages read it.
+ */
+let shown: ReadonlySet<string> = new Set();
+const shownListeners = new Set<(s: ReadonlySet<string>) => void>();
+
+/** Shell: these panels are on screen now. */
+export function setShown(paths: string[]) {
+  const next = new Set(paths);
+  if (next.size === shown.size && [...next].every((p) => shown.has(p))) return;
+  shown = next;
+  shownListeners.forEach((l) => l(shown));
+}
+
+/** Whether a tab's panel is on screen (arrived at, or in a slide). */
+export function isShown(path: string): boolean {
+  return shown.has(path);
+}
+
+/** Told whenever the panels on screen change, and once at once. Returns the unsubscribe. */
+export function onShown(l: (s: ReadonlySet<string>) => void): () => void {
+  shownListeners.add(l);
+  l(shown);
+  return () => {
+    shownListeners.delete(l);
+  };
+}

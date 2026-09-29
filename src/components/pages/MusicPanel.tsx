@@ -954,14 +954,17 @@ export function MusicPanel() {
       settle = window.setTimeout(settled, SETTLE_MS);
       moving = true;
     };
+    // The page is kept while the visitor is elsewhere; the door is only Music's to watch while they are here.
+    const here = () => window.location.pathname === "/music";
     // A key pressed means the next focus is a keyboard's, even on a touch screen: it chooses as a pointer's rest does.
     const onKey = () => {
+      if (!here()) return;
       touch.current = false;
       stir();
       tell();
     };
     const onMove = (e: globalThis.PointerEvent) => {
-      if (e.pointerType === "touch" || !nav) return;
+      if (e.pointerType === "touch" || !nav || !here()) return;
       if (!band) {
         const r = nav.getBoundingClientRect();
         band = [r.top - DOOR_BAND, r.bottom + DOOR_BAND];
@@ -972,6 +975,7 @@ export function MusicPanel() {
     };
     // Only a keyboard's focus: a click on the sound chip or a pill leaves the focus there, and the pointer says where it went.
     const onFocus = (e: FocusEvent) => {
+      if (!here()) return;
       const el = e.target;
       focusThere = e.type === "focusin" && el instanceof Element && el !== document.body && !stage.current?.contains(el) && keyed(el);
       tell();

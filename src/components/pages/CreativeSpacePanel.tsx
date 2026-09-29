@@ -18,6 +18,7 @@ import { getFlags, setFlag } from "@/lib/flags";
 import { prefersReducedMotion } from "@/lib/motion";
 import { pollNow, type Track } from "@/lib/now";
 import { isTab } from "@/lib/routes";
+import { onShown } from "@/lib/where";
 import { leftRoute, markNewsTold, newsTold, whatsNew } from "@/lib/visits";
 
 /** A press that moves less than this (px) and lets go within this (ms) is a click. */
@@ -610,6 +611,25 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       room.resize();
       fl.resize();
     };
+    // Its tab is kept while the visitor is elsewhere: the room holds still, as it was, and comes back
+    // to life as the tab slides in, still watching the pill of the tab they left.
+    let away = false;
+    const offShown = onShown((s) => {
+      const on = s.has("/");
+      room.paused = !on;
+      if (!on) {
+        away = true;
+        return;
+      }
+      if (!away) return;
+      away = false;
+      room.resize();
+      fl.resize();
+      const left = leftRoute();
+      if (begun >= 0 && !att.asleep && fl.state === "home" && left && left !== "/" && isTab(left)) {
+        att.play("comeBack", 6, () => comeBack(att, () => pillAt(left), () => !getFlags().transitioning));
+      }
+    });
 
     panelEl.addEventListener("pointermove", onMove);
     panelEl.addEventListener("pointerleave", onLeave);
@@ -621,6 +641,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     window.addEventListener("resize", onResize);
 
     return () => {
+      offShown();
       stopIntro?.();
       stopArrive?.();
       slotTimer?.kill();

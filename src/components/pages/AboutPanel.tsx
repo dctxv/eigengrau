@@ -6,6 +6,7 @@ import { ELSEWHERE, STATEMENT, STATEMENT_MARK, STATUS } from "@/content/site";
 import { AboutScene } from "@/engine/about/AboutScene";
 import { setFlag } from "@/lib/flags";
 import { prefersReducedMotion } from "@/lib/motion";
+import { onShown } from "@/lib/where";
 
 const COPIED_MS = 1200;
 
@@ -32,7 +33,12 @@ export function AboutPanel() {
     scene.load().then(() => setFlag("pageReady", true));
     const onResize = () => scene.resize();
     window.addEventListener("resize", onResize);
+    // Its tab is kept while the visitor is elsewhere: the page holds still, as it was left.
+    const offShown = onShown((s) => {
+      scene.paused = !s.has("/about");
+    });
     return () => {
+      offShown();
       window.removeEventListener("resize", onResize);
       scene.dispose();
       if (copiedTimer.current) clearTimeout(copiedTimer.current);

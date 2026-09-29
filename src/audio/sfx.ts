@@ -12,7 +12,7 @@
  * walls. Off by default, remembered in localStorage; nothing is fetched until
  * sound is turned on.
  */
-type Name = "click" | "tab" | "slide" | "focus" | "close" | "tick" | "done" | "pat" | "patOwn" | "tug" | "snap";
+type Name = "click" | "tab" | "focus" | "close" | "tick" | "done" | "pat" | "patOwn" | "tug" | "snap";
 type Synth = Exclude<Name, "click">;
 
 import gsap from "gsap";
@@ -119,7 +119,6 @@ function synth(c: AudioContext, name: Synth): AudioBuffer {
   const sr = c.sampleRate;
   const specs: Record<Synth, { dur: number; gen: (t: number, i: number) => number }> = {
     tab: { dur: 0.05, gen: (t) => (Math.random() * 2 - 1) * Math.exp(-t * 140) * 0.5 + Math.sin(t * 2 * Math.PI * 1400) * Math.exp(-t * 90) * 0.4 },
-    slide: { dur: 0.32, gen: (t) => (Math.random() * 2 - 1) * Math.sin(Math.PI * Math.min(1, t / 0.32)) ** 2 * 0.18 },
     focus: { dur: 0.12, gen: (t) => Math.sin(t * 2 * Math.PI * 180) * Math.exp(-t * 28) * 0.5 + (Math.random() * 2 - 1) * Math.exp(-t * 220) * 0.3 },
     close: { dur: 0.09, gen: (t) => Math.sin(t * 2 * Math.PI * 140) * Math.exp(-t * 40) * 0.4 + (Math.random() * 2 - 1) * Math.exp(-t * 260) * 0.2 },
     tick: { dur: 0.012, gen: (t) => Math.sin(t * 2 * Math.PI * 2100) * Math.exp(-t * 500) * 0.35 },
@@ -1217,7 +1216,7 @@ function ensure(): AudioContext | null {
     air.Q.value = AIR_Q;
     air.frequency.value = airAt(ctx, airHz);
     bed.connect(air).connect(master);
-    (["tab", "slide", "focus", "close", "tick", "done", "pat", "patOwn", "tug", "snap"] as Synth[]).forEach((n) => buffers.set(n, synth(ctx!, n)));
+    (["tab", "focus", "close", "tick", "done", "pat", "patOwn", "tug", "snap"] as Synth[]).forEach((n) => buffers.set(n, synth(ctx!, n)));
   }
   if (ctx.state === "suspended") void ctx.resume();
   decodeClick(ctx);

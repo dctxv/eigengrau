@@ -272,16 +272,18 @@ button {
   height: var(--app-h);
   overflow: hidden;
 }
+/* Every tab visited stays mounted, stacked in one place; those not on screen are hidden (Shell). */
 .page-row {
-  display: flex;
-  flex-direction: row;
+  position: relative;
   height: 100%;
-  will-change: transform;
 }
 .panel {
-  flex: 0 0 100vw;
+  position: absolute;
+  inset: 0;
+  width: 100vw;
   height: 100%;
   transform: translateZ(0);
+  will-change: transform;
 }
 .body-wrapper {
   overflow-x: hidden;
