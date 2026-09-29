@@ -26,7 +26,7 @@ function hashSlug(): string | null {
 /**
  * Projects: the wound horizon. The whole page is one canvas; only the cursor
  * label is DOM. An opened project puts its slug in the URL's hash (replaced,
- * never a route change), so /projects#nocturne opens straight into it.
+ * never a route change), so /projects#vector opens straight into it.
  */
 export function ProjectsPanel() {
   const stage = useRef<HTMLElement>(null);

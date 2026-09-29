@@ -233,6 +233,8 @@ const TICK_MAX = 30;
 const FINE_FROM = 300;
 const GROWTH_MAX = 1.4;
 const TURNS_PER_YEAR = 1.5;
+/** However short the history, the thread is wound at least this many turns, so a year or two of work is still a ball. */
+const TURNS_LEAST = 9;
 /** Each turn's lean, radians at the equator, and how fast the lean walks round (cycles per turn). */
 const WOBBLE = 0.16;
 const WOBBLE_RATE = 0.618;
@@ -1595,7 +1597,7 @@ export class ThreadScene {
     const years = this.beads.length ? this.beads.map((b) => b.year) : [Math.floor(now)];
     this.T0 = Math.min(...years);
     this.T1 = Math.max(now, Math.max(...years) + 0.25);
-    const turns = TURNS_PER_YEAR * (this.T1 - this.T0);
+    const turns = Math.max(TURNS_LEAST, TURNS_PER_YEAR * (this.T1 - this.T0));
 
     // A dense table first, then even steps along its arc. Each turn leans a little, and the lean
     // walks round from turn to turn, so neighbouring turns cross the way wound thread does instead
