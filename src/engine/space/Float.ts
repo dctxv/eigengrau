@@ -36,7 +36,7 @@ const ROOT = { out: 6, down: 0.56 };
 /**
  * The line's length: at the root's height, pulled straight, its middle reaches `REACH` of the
  * room's width from the left and no further (the line, plus the clip's offset from the middle,
- * less the root's `out`): 856px at 1440 wide, 1140 at 1920, 228 at 390.
+ * less the root's `out`): 847px at 1440 wide, 1128 at 1920, 228 at 390.
  */
 const REACH = 0.6;
 /**
@@ -167,8 +167,9 @@ export type FloatOptions = {
 
 /**
  * Urchi taken with you (Space, Darius's "take with you"). Clicked at home, it closes its eyes and
- * dissolves through the dither; a beat later it floats in from the left in its suit, at 40% of the
- * size the whole suited figure stood at in the room, on a line from a root just past the left edge.
+ * dissolves through the dither; a beat later it floats in from the left in its suit, at 65% of the
+ * size the whole suited figure stood at in the room (40% on a phone), on a line from a root just
+ * past the left edge.
  * There it floats in zero gravity: it drifts, bobs, turns and rights itself, looks at what it looks
  * at (its attention carries on) and drifts gently toward it. The pointer, or a finger, can hold it
  * where it is drawn, drag it (it follows with a slight lag, and a grab off its middle turns it) and

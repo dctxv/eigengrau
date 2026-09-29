@@ -79,14 +79,15 @@ export const URCHI_FIGURE = { top: -362, bottom: 1491, half: 566 } as const;
 export const FIGURE_MIDDLE = (URCHI_FIGURE.top + URCHI_FIGURE.bottom) / 2;
 /**
  * Taken with you, it floats at `share` of the size the whole suited figure stood at in the room
- * when it suited up there (wave 4's framing, kept here only to size it): the figure `tall` of the
+ * when it suited up there (`phoneShare` on a phone, 640px wide or less; wave 4's framing, kept here
+ * only to size it): the figure `tall` of the
  * height, and with a turn's reach (`turnRise` above the crown, `turnDrop` below the soles) inside
  * the room between the tab bar's `top` px and the caption's band (`caption`, 64px, or `phoneCaption`
  * on a phone) less `feet`; its eyes no more than `rise` of the height above the bare head's, never
  * smaller than the bare head, never bigger than it was drawn, and `wall` px clear of each side. At
- * 1440 x 900 the figure stood 466px tall, so it floats at about 186.
+ * 1440 x 900 the figure stood 466px tall, so it floats at about 303; at 390 x 844, about 161.
  */
-const FLOAT = { share: 0.4, tall: 0.56, turnRise: 90, turnDrop: 26, top: 60, feet: 40, caption: 64, phoneCaption: 80, rise: 0.05, wall: 72 };
+const FLOAT = { share: 0.65, phoneShare: 0.4, tall: 0.56, turnRise: 90, turnDrop: 26, top: 60, feet: 40, caption: 64, phoneCaption: 80, rise: 0.05, wall: 72 };
 /** Taken with you: where the figure's middle is (room px, y up) and how far it has turned (radians, anticlockwise). */
 export type FloatPose = { x: number; y: number; angle: number };
 /** The dither's cell, CSS px: rounded to whole device pixels, 3 on a 1x screen and about 2.5 on a 2x or 3x one. */
@@ -214,7 +215,7 @@ export class RoomScene {
     const most = (FLOAT.rise * h + eyesWere + h / 2 - caption - FLOAT.feet) / (URCHI_FIGURE.bottom + FLOAT.turnDrop - EYES_Y);
     figure = Math.min(figure, Math.max(most * tall, HEAD_ART * this.pixel));
     const stood = Math.min(1, figure / (tall * unit), Math.max(0.1, w / 2 - FLOAT.wall) / (URCHI_FIGURE.half * unit));
-    this.floatZoom = FLOAT.share * stood;
+    this.floatZoom = (w > SIZE.narrow ? FLOAT.share : FLOAT.phoneShare) * stood;
   }
 
   /** Runs `fn(dt)` every frame, before Urchi and the render; returns the way to stop it. */
