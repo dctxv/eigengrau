@@ -1013,8 +1013,9 @@ button {
   visibility: hidden;
   contain: strict;
 }
+/* (inherit, not visible: its tab kept but hidden, the light goes with it rather than shining on through the tab on screen) */
 .stage-music[data-lit] > .music-light {
-  visibility: visible;
+  visibility: inherit;
 }
 .music-spill {
   position: absolute;
