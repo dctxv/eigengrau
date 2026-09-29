@@ -1147,7 +1147,7 @@ export function MusicPanel() {
   const song = room || folding ? null : (tracks.find((t) => keyOf(t) === (active ?? hearing?.key)) ?? null);
   const heard = song && hearing?.key === keyOf(song) ? hearing : null;
   const shown: Shown = song
-    ? { mode: "song", track: song, state: heard ? "Preview from Apple Music" : `${plays(song.plays)} this week` }
+    ? { mode: "song", track: song, state: heard ? `Preview from ${heard.link?.includes("deezer.com") ? "Deezer" : "Apple Music"}` : `${plays(song.plays)} this week` }
     : data?.now
       ? { mode: "now", track: data.now, state: "Now playing" }
       : data?.last && latest
