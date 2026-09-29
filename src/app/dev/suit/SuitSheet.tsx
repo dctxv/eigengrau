@@ -156,7 +156,7 @@ function drawSheet(g: CanvasRenderingContext2D, W: number, H: number) {
  * its height, facing you; and some of them turned (?turn=35), so what goes in front of what shows.
  */
 /** Each quirk's pose part way through (seconds), over zero gravity's posture, its doing side the `.R` one. */
-const LIMB_AT: [QuirkName, number][] = [["wave", 1.3], ["inspect", 2.6], ["tap", 1.3], ["stretch", 1.8], ["clap", 0.95], ["cheeks", 1.5], ["fidget", 1.5], ["cross", 3], ["swing", 1.3], ["swim", 1.1], ["splay", 0.8], ["brace", 0.7], ["curl", 1]];
+const LIMB_AT: [QuirkName, number][] = [["wave", 1.3], ["inspect", 2.6], ["tap", 1.3], ["stretch", 1.8], ["pat", 0.95], ["cheeks", 1.5], ["fidget", 1.5], ["cross", 3], ["swing", 1.3], ["swim", 1.1], ["splay", 0.8], ["brace", 0.7], ["curl", 1]];
 const limbPoses = (rig: RigData): [string, Pose, Pose?][] => [
   ["REST", {}],
   ["FLOAT", FLOAT],
