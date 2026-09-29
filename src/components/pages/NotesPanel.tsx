@@ -8,6 +8,7 @@ import type { Note } from "@/content/site";
 import { CursorLabel } from "@/components/CursorLabel";
 import { getFlags, setFlag } from "@/lib/flags";
 import { DUR, EASE, prefersReducedMotion } from "@/lib/motion";
+import { onWhere } from "@/lib/where";
 import {
   ANCHORS,
   CATEGORIES,
@@ -1071,6 +1072,15 @@ export function NotesPanel() {
     instant.current = false;
   });
 
+  // Back on the tab (the page was kept as it was left): a link with a tag or an anchor in it has its way;
+  // otherwise the URL takes the page's tag again, which the tab's own link left out.
+  const onArrive = useEffectEvent(() => {
+    const t = readTag();
+    if (t && t !== tag) filter(t);
+    else if (!t && tag) writeTag(tag);
+    if (readHash()) onHash();
+  });
+
   useEffect(() => {
     const columnEl = column.current!;
     cursor.current = new CursorLabel(label.current!, stage.current!);
@@ -1080,7 +1090,11 @@ export function NotesPanel() {
     window.addEventListener("keydown", key);
     window.addEventListener("hashchange", hash);
     columnEl.addEventListener("beforematch", found, true);
+    const offWhere = onWhere((w) => {
+      if (w.path === "/notes" && w.from !== null && w.from !== "/notes") onArrive();
+    });
     return () => {
+      offWhere();
       window.removeEventListener("keydown", key);
       window.removeEventListener("hashchange", hash);
       columnEl.removeEventListener("beforematch", found, true);

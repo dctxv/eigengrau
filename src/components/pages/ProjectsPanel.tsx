@@ -8,6 +8,7 @@ import { ThreadScene } from "@/engine/projects/ThreadScene";
 import { CursorLabel } from "@/components/CursorLabel";
 import { getFlags, setFlag } from "@/lib/flags";
 import { prefersReducedMotion } from "@/lib/motion";
+import { onShown, onWhere } from "@/lib/where";
 
 const ROUTE = "/projects";
 
@@ -46,11 +47,16 @@ export function ProjectsPanel() {
     };
     // The label names what a click would do, so it shows only for what the pointer itself is on.
     let inside = false;
+    /** The project out now, if one is: its hash goes back in the URL when the visitor comes back to it. */
+    let out: Project | null = null;
     const scene = new ThreadScene(canvas.current!, PROJECTS, SPACE_ITEMS, {
       heading: { lead: "Work", tail: projectsLine() },
       reducedMotion: prefersReducedMotion(),
       onHover: (t, byPointer) => cursor.set(inside && byPointer && t?.kind === "project" ? "Open" : null),
-      onOpen: setHash,
+      onOpen: (p) => {
+        out = p;
+        setHash(p);
+      },
       isCurrent,
     });
     Object.assign(stageEl, { __scene: scene }); // handy for debugging and headless QA
@@ -165,7 +171,23 @@ export function ProjectsPanel() {
       if (a instanceof HTMLAnchorElement && a.origin === window.location.origin && a.pathname === ROUTE && !a.hash) scene.close();
     };
     const onResize = () => scene.resize();
-    const onVis = () => scene.setVisible(document.visibilityState === "visible");
+    // Its tab is kept while the visitor is elsewhere: the ball holds still, as it was left, and its videos wait.
+    let shown = true;
+    const onVis = () => scene.setVisible(shown && document.visibilityState === "visible");
+    const offShown = onShown((s) => {
+      shown = s.has(ROUTE);
+      scene.paused = !shown;
+      if (!shown) scene.keyUp();
+      onVis();
+    });
+    // Back on the tab: a link naming a project opens it; the tab's own link, which has no hash, finds the page as
+    // it was left, and the project out, if one is, puts its hash back in the URL.
+    const offWhere = onWhere((w) => {
+      if (w.path !== ROUTE || w.from === null || w.from === ROUTE) return;
+      const slug = hashSlug();
+      if (slug) scene.openSlug(slug);
+      else if (scene.isOpen && out) setHash(out);
+    });
 
     stageEl.addEventListener("wheel", onWheel, { passive: false });
     stageEl.addEventListener("pointerdown", onDown);
@@ -196,6 +218,8 @@ export function ProjectsPanel() {
       document.removeEventListener("visibilitychange", onVis);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("click", onClick);
+      offShown();
+      offWhere();
       cursor.destroy();
       scene.dispose();
     };

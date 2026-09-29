@@ -1292,6 +1292,8 @@ export class ThreadScene {
   private intro: gsap.core.Timeline | null = null;
   private ctx = gsap.context(() => undefined);
   private ticker: (t: number, dt: number) => void;
+  /** Off screen (its tab kept but not shown): no frames at all, so it picks up where it was when shown again. */
+  paused = false;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -1316,7 +1318,9 @@ export class ThreadScene {
     this.scene.add(this.openGroup);
     this.glass = new EdgeGlass(this.renderer, 60, 60, "y");
     this.measure();
-    this.ticker = (_t, dtMs) => this.frame(Math.min(dtMs, 64) / 1000);
+    this.ticker = (_t, dtMs) => {
+      if (!this.paused) this.frame(Math.min(dtMs, 64) / 1000);
+    };
     gsap.ticker.add(this.ticker);
   }
 

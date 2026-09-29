@@ -11,8 +11,10 @@ A minimal WebGL portfolio: five "pages" that behave like one app.
 | About `5` | `/about` | One large serif statement with Urchi as the small mark after "things.", the status line, and three words beneath for elsewhere. |
 
 A persistent chrome layer (monogram, pill tabs, sound chip) floats above page
-panels that slide horizontally when you change tab. While they slide, and only
-then, faint one-pixel stars pass at about a third of their speed: the same
+panels that slide horizontally when you change tab, silently. Every tab you
+visit stays loaded: leaving it pauses it where it is (Urchi afloat on its line,
+the ball as you spun it, a note opened), and coming back finds it as you left
+it rather than starting again. While they slide, and only then, faint one-pixel stars pass at about a third of their speed: the same
 ones all visit, back the other way on the way back. The intro plays only on a
 hard load of `/`: name, role, counter and ring; then the ring draws in, Urchi's
 eyes open alone, its head builds out from them, and its first breath blows the
@@ -124,7 +126,7 @@ src/app/                 routes; each canvas tab page is only its accessible mir
 src/app/api/now/         Last.fm: the track playing (its length, how far in, and whether that is sure), the last one played, the week's top songs and its one fact (fact.ts), { now, last, week }, empty on any failure
 src/app/api/preview/     a song's 30s preview from the iTunes Search API, proxied same-origin and cached for a day; 404 when no match is confident
 src/app/api/cover/[id]/  album art proxied same-origin, cached for a day
-src/components/Shell.tsx chrome + the horizontal page slider
+src/components/Shell.tsx chrome + the horizontal page slider; every tab visited stays mounted, hidden and paused off screen (where.ts's setShown tells the pages)
 src/components/chrome/   Nav, Tab (pill morph), FloatingLogo (exclusion blend), SoundChip, LiveIcon (the favicon's Urchi), Between (the stars between the tabs)
 src/components/pages/    one client panel per tab: canvas + DOM overlays; NotesPanel and MusicPanel are plain DOM
 src/engine/space/        Urchi's room (RoomScene), the intro's ring (IntroRing) and timeline (intro.ts), the motes (Motes.ts), call and response (Call.ts), and Urchi taken with you (Float.ts: the dither out, the float in, its zero-gravity physics, the hold and the fling, the line's pull and snap, the way home) on its line (Tether.ts)
