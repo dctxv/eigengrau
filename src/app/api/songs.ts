@@ -96,6 +96,17 @@ function confidence(want: { artist: string; title: string }, r: Listing): number
   return 0;
 }
 
+/**
+ * A song's name as loosely as it can be told apart: its first credited artist and its title
+ * without the tags that name the same recording (a feature, a remaster), normalised; a live take
+ * or a remix stays apart. Last.fm's charts correct what was scrobbled ("Song (feat. X)" is "Song"
+ * there, "A & B" is "A"), so a chart's song and the play it counts meet here when their exact
+ * names do not.
+ */
+export function songKey(artist: string, title: string) {
+  return `${artists(artist).first}\u0000${parts(title).full}`;
+}
+
 /** A URL on one of the hosts, over https; null for anything else. */
 export function onHost(url: string | null | undefined, hosts: string[]): string | null {
   if (!url) return null;

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { TIME_ZONE } from "@/content/site";
 import { EMPTY_NOW, type NowResponse, type Playing, type Track } from "@/lib/now";
-import { artId, findSong } from "../songs";
+import { artId, findSong, songKey } from "../songs";
 import { weekFact, type Scrobble } from "./fact";
 
 export const runtime = "nodejs";
@@ -14,6 +14,12 @@ const WEEK = 7 * 24 * 3600;
 const TOP_TRACKS = 10;
 /** The week's scrobbles, a page at a time: read for art, and for the week's one honest sentence. */
 const WEEK_SCROBBLES = 200;
+/**
+ * The newest scrobbles, asked for as often as what is playing (the week's pages are kept five
+ * minutes): what was played a minute ago has its art and album from here, before the week's
+ * pages have it.
+ */
+const LATEST = 30;
 /** A heavy week is read up to this many pages; past that the sentence only says what a part can prove. */
 const WEEK_PAGES = 5;
 /**
@@ -157,7 +163,7 @@ export async function GET() {
     const weekPage = (page: number) =>
       call<Recent>(key, { method: "user.getrecenttracks", user, limit: String(WEEK_SCROBBLES), from: String(from), page: String(page) }, FRESH.week);
     const [recent, week, top, artists] = await Promise.all([
-      call<Recent>(key, { method: "user.getrecenttracks", user, limit: "1" }, FRESH.now),
+      call<Recent>(key, { method: "user.getrecenttracks", user, limit: String(LATEST) }, FRESH.now),
       weekPage(1),
       call<{ toptracks?: { track?: TopTrackRaw | TopTrackRaw[] } }>(key, { method: "user.gettoptracks", user, period: "7day", limit: String(TOP_TRACKS) }, FRESH.week),
       call<{ topartists?: { artist?: TopArtistRaw | TopArtistRaw[] } }>(key, { method: "user.gettopartists", user, period: "7day", limit: "1" }, FRESH.week),
@@ -172,16 +178,21 @@ export async function GET() {
     const more = pages > 1 ? await Promise.all(Array.from({ length: pages - 1 }, (_, i) => weekPage(i + 2).catch(() => null))) : [];
     const scrobbles = [week, ...more].flatMap((p) => asArray(p?.recenttracks?.track)).filter((t) => t.date?.uts);
 
-    // The newest scrobble of each song carries its album and art.
-    const seen = new Map<string, RecentTrack>();
-    scrobbles.forEach((t) => {
-      const k = recentKey(t);
+    // The newest scrobble of each song carries its album and art: the newest few, asked for just now,
+    // first. A chart's song is found by its exact name, or failing that by its name as loosely as it can
+    // be told apart (the charts correct what was scrobbled: see songKey).
+    const seen = new Map<string, RecentTrack>(), loose = new Map<string, RecentTrack>();
+    [...latest.filter((t) => t.date?.uts), ...scrobbles].forEach((t) => {
+      const k = recentKey(t), l = songKey(t.artist["#text"], t.name);
       if (!seen.has(k)) seen.set(k, t);
+      if (!loose.has(l) || (!coverId(loose.get(l)!.image) && coverId(t.image))) loose.set(l, t);
     });
     const tracks = asArray(top.toptracks?.track)
       .slice(0, TOP_TRACKS)
       .map((t) => {
-        const s = seen.get(keyOf(t.artist.name, t.name));
+        const exact = seen.get(keyOf(t.artist.name, t.name)), near = loose.get(songKey(t.artist.name, t.name));
+        // its own play, unless that has no art and a play of the same song under another name does
+        const s = exact && (coverId(exact.image) || !near) ? exact : (near ?? exact);
         return { title: t.name, artist: t.artist.name, album: s?.album["#text"] || null, coverId: s ? coverId(s.image) : null, url: t.url ?? null, plays: Number(t.playcount) || 0 };
       });
 
