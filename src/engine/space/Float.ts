@@ -29,16 +29,21 @@ const TAKE = { close: 0.35, dither: 0.3, ditherFor: 1, beat: 0.7, inFor: 3.6, ou
  * has not left the page after `flightMost` ends anyway.
  */
 const HOME = { gone: 4, ditherFor: 1, hold: 0.7, open: 1.8, flightMost: 3 };
-/** Where it likes to float at first, its middle as shares of the room (from the left, from the top); it swims off from there (see SWIM). */
-const REST = { x: 0.3, y: 0.47 };
+/**
+ * Where it likes to float at first, its middle as shares of the room (from the left, from the top),
+ * or on a phone `phone`, nearer the middle; it swims off from there (see SWIM).
+ */
+const REST = { x: 0.3, y: 0.47, phone: { x: 0.42, y: 0.45 } };
 /** The line's root: `out` px past the left edge, `down` of the way down. */
 const ROOT = { out: 6, down: 0.56 };
 /**
- * The line's length: at the root's height, pulled straight, its middle reaches `REACH` of the
+ * The line's length: at the root's height, pulled straight, its middle reaches `wide` of the
  * room's width from the left and no further (the line, plus the clip's offset from the middle,
- * less the root's `out`): 847px at 1440 wide, 1128 at 1920, 228 at 390.
+ * less the root's `out`): 847px at 1440 wide, 1128 at 1920. On a phone (640px wide or less) it
+ * reaches `phone` of it: at 60% a phone's line was too short to swim anywhere on, and it hung low
+ * in the left corner.
  */
-const REACH = 0.6;
+const REACH = { wide: 0.6, phone: 0.85 };
 /**
  * Where the line clips on: the left side of the backpack, half way down it, in mesh units from the
  * head's centre (y down), as painted facing you; hidden behind the arm and the torso.
@@ -129,9 +134,11 @@ const FLING = { window: 0.09, cap: 2.2, keep: 0.16 };
  * however it has turned. Within `arrive` of its height it stops, glides to rest, rights itself and
  * floats there until the next time. A hold, a fling, a tug, a nudge or sleep ends it, as does
  * taking longer than `most` seconds; it is not the first thing it does once it has floated in
- * (`first` seconds after).
+ * (`first` seconds after). On a phone the place is also within `band` of the room's height (from
+ * the top): a phone is too narrow to swim down at a slant, so free to go higher it would only ever
+ * go up, and end its days pinned under the tab bar.
  */
-const SWIM = { every: [7, 15] as [number, number], first: 5, far: 0.22, margin: 64, slack: 0.92, tilt: 1.75, turn: 1.6, spin: 1.8, stroke: 2.6, pull: [0.12, 0.45] as [number, number], thrust: 0.6, steer: 0.25, arrive: 0.3, most: 30 };
+const SWIM = { every: [7, 15] as [number, number], first: 5, far: 0.22, margin: 64, slack: 0.92, tilt: 1.75, turn: 1.6, spin: 1.8, stroke: 2.6, pull: [0.12, 0.45] as [number, number], thrust: 0.6, steer: 0.25, arrive: 0.3, most: 30, band: [0.38, 0.6] as [number, number] };
 /** A nudge from the arrow keys: `speed` of its height per second (it drifts about its own height before it slows), or under reduced motion `step` px. */
 const NUDGE = { speed: 0.45, step: 24 };
 
@@ -277,6 +284,11 @@ export class Float {
     return (URCHI_FIGURE.bottom - URCHI_FIGURE.top) * this.unit;
   }
 
+  /** A phone's room: 640px wide or less. */
+  private get phone() {
+    return this.room.width <= 640;
+  }
+
   /** The line's root, room px. */
   private root(): Point {
     return { x: -this.room.width / 2 - ROOT.out, y: this.room.height / 2 - ROOT.down * this.room.height };
@@ -291,7 +303,7 @@ export class Float {
   /** The line's length (see REACH). */
   private get length() {
     const c = this.clipOffset();
-    return REACH * this.room.width + ROOT.out - Math.hypot(c.x, c.y);
+    return (this.phone ? REACH.phone : REACH.wide) * this.room.width + ROOT.out - Math.hypot(c.x, c.y);
   }
 
   /** The speed a jerk on the line snaps it at, px/s (see SNAP). */
@@ -301,7 +313,7 @@ export class Float {
 
   /** Where it likes to float: its middle, room px (where it last swam to, or REST). */
   private rest(): Point {
-    const s = this.stay ?? REST;
+    const s = this.stay ?? (this.phone ? REST.phone : REST);
     return this.at(s.x, s.y);
   }
 
@@ -312,8 +324,8 @@ export class Float {
 
   /** The walls, room px. */
   private walls() {
-    const W = this.room.width / 2, H = this.room.height / 2, phone = this.room.width <= 640;
-    return { left: -W + WALL.side, right: W - WALL.side, top: H - WALL.top, bottom: -H + (phone ? WALL.phoneBottom : WALL.bottom) };
+    const W = this.room.width / 2, H = this.room.height / 2;
+    return { left: -W + WALL.side, right: W - WALL.side, top: H - WALL.top, bottom: -H + (this.phone ? WALL.phoneBottom : WALL.bottom) };
   }
 
   /** How far its box reaches from its middle, across and up, turned as it is. */
@@ -760,7 +772,12 @@ export class Float {
   /** Somewhere to swim to (see SWIM), as shares of the room; null if nowhere will do. */
   private pickSwim(): Point | null {
     const w = this.walls(), e = this.extent(0), m = SWIM.margin, b = this.b, W = this.room.width, H = this.room.height;
-    const x0 = w.left + e.x + m, x1 = w.right - e.x - m, y0 = w.bottom + e.y + m, y1 = w.top - e.y - m;
+    const x0 = w.left + e.x + m, x1 = w.right - e.x - m;
+    let y0 = w.bottom + e.y + m, y1 = w.top - e.y - m;
+    if (this.phone) {
+      y0 = Math.max(y0, (0.5 - SWIM.band[1]) * H);
+      y1 = Math.min(y1, (0.5 - SWIM.band[0]) * H);
+    }
     if (x1 <= x0 || y1 <= y0) return null;
     const c = this.clipOffset(), r = this.root(), L = this.length * SWIM.slack;
     for (let k = 0; k < 40; k++) {

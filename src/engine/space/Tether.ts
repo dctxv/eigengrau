@@ -16,7 +16,7 @@ type Point = { x: number; y: number };
  * share of the way to the middle of its neighbours), so however it is pulled about it curves and
  * never kinks. Its spans may bunch but never stretch: pulled to its length, it runs straight.
  */
-const ROPE = { nodes: 32, fps: 60, alpha: 0.35, width: 1, smooth: 6, damping: 0.95, wander: 14, wave: 0.8, hold: 2.5, bend: 0.2, iterations: 12 };
+const ROPE = { nodes: 32, fps: 60, alpha: 0.35, width: 1.5, smooth: 6, damping: 0.95, wander: 14, wave: 0.8, hold: 2.5, bend: 0.2, iterations: 12 };
 /** The S is never deeper than this many times the distance between the ends (it then bunches rather than looping out). */
 const DEEPEST = 3;
 /**
@@ -47,7 +47,7 @@ function depthFor(ratio: number) {
   return (DEEPEST * (j - 1 + (ratio - LONG[j - 1]) / (LONG[j] - LONG[j - 1]))) / 64;
 }
 
-/** A curve through some of the nodes, drawn as a ribbon a pixel wide, in the room's scene behind Urchi. */
+/** A curve through some of the nodes, drawn as a ribbon ROPE.width wide, in the room's scene behind Urchi. */
 class Ribbon {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   private positions: Float32Array;
@@ -115,7 +115,7 @@ class Ribbon {
 
 /**
  * Urchi's line (Space, taken with you): from its root just past the left edge to the clip on the
- * backpack, a rope `length` long, a 1px ink line at 35% in the room's own scene, behind Urchi, so
+ * backpack, a rope `length` long, a 1.5px ink line at 35% in the room's own scene, behind Urchi, so
  * the figure covers the end that clips on. A zero-gravity verlet rope: slack, it lies in lazy
  * curves; pulled to its length it runs straight (the float gives the pull its give, see Float.ts).
  * Snapped, it is two ropes: the root's end recoils away off the left edge and fades, and the other
