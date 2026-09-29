@@ -62,10 +62,16 @@ const LISTEN_GLANCE = { first: [8, 20] as [number, number], every: [60, 90] as [
  * in `steps` from farthest to nearest. Floating in, the slider fades in with it; flying home, it
  * fades out over `out` seconds.
  */
-const ZOOMING = { scroll: 0.0015, pinch: 0.01, steps: 100, out: 0.8 };
-/** The zoom as the slider has it (0 .. ZOOMING.steps, even on the logarithm), and back. */
-const zoomAt = (v: number) => ZOOM.min * (ZOOM.max / ZOOM.min) ** (v / ZOOMING.steps);
-const sliderAt = (zoom: number) => (ZOOMING.steps * Math.log(zoom / ZOOM.min)) / Math.log(ZOOM.max / ZOOM.min);
+const ZOOMING = { scroll: 0.0015, pinch: 0.01, steps: 200, out: 0.8 };
+/**
+ * The zoom as the slider has it (0 .. ZOOMING.steps, even on the logarithm), and back. As it floats
+ * (1) has a step of its own, so the slider can always be put back exactly there: each side of it is
+ * even on its own, and the two sides' steps differ by a hair.
+ */
+const ZOOM_AT_1 = Math.round((ZOOMING.steps * Math.log(1 / ZOOM.min)) / Math.log(ZOOM.max / ZOOM.min));
+const zoomAt = (v: number) => (v <= ZOOM_AT_1 ? ZOOM.min ** (1 - v / ZOOM_AT_1) : ZOOM.max ** ((v - ZOOM_AT_1) / (ZOOMING.steps - ZOOM_AT_1)));
+const sliderAt = (zoom: number) =>
+  zoom <= 1 ? ZOOM_AT_1 * (1 - Math.log(zoom) / Math.log(ZOOM.min)) : ZOOM_AT_1 + ((ZOOMING.steps - ZOOM_AT_1) * Math.log(zoom)) / Math.log(ZOOM.max);
 
 /** A song "playing" for longer than this is a stale now-playing, and treated as nothing. */
 const STALE_MS = 15 * 60 * 1000;
@@ -830,7 +836,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       <button ref={control} type="button" className="space-urchi" aria-label="Take Urchi with you" aria-disabled="true" />
 
       {/* Afloat, the zoom: a real range input (the arrow keys, a screen reader), on the right edge, shown only while Urchi floats. */}
-      <input ref={zoom} type="range" className="space-zoom" min={0} max={ZOOMING.steps} step={1} defaultValue={ZOOMING.steps / 2} aria-label="Zoom" aria-orientation="vertical" />
+      <input ref={zoom} type="range" className="space-zoom" min={0} max={ZOOMING.steps} step={1} defaultValue={ZOOM_AT_1} aria-label="Zoom" aria-orientation="vertical" />
 
       {/* Beside the stage rather than inside it, so it is not aria-hidden: what's new, and Urchi going out and coming home, are read out here. */}
       <p ref={live} className="sr-only" aria-live="polite" />

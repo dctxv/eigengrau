@@ -93,14 +93,16 @@ export type FloatPose = { x: number; y: number; angle: number };
 /** The dither's cell, CSS px: rounded to whole device pixels, 3 on a 1x screen and about 2.5 on a 2x or 3x one. */
 const DITHER_CELL = 2.5;
 /**
- * Afloat, the visitor can zoom: Urchi's size against where it floats (1), from `min` (half as big,
- * twice as far) to `max`, eased toward the level asked for over about `ease` seconds (a time
- * constant, on the logarithm, so in and out go alike). Nearer than 1 it stays smooth; farther, its
- * signal weakens: it is pixelated in square cells, the dither's own just below 1, then twice and
- * three times it, up to `steps` times at `min` (`phoneSteps` on a phone, whose smaller figure would
- * be a few blocks), in even steps of distance (the inverse of the zoom). Home it is 1 again.
+ * Afloat, the visitor can zoom: Urchi's size against where it floats (1), from `min` (a tenth as
+ * big, ten times as far) to `max`, eased toward the level asked for over about `ease` seconds (a
+ * time constant, on the logarithm, so in and out go alike). Nearer than 1 it stays smooth; farther,
+ * its signal weakens: it is pixelated in square cells of whole device pixels, the dither's own just
+ * below 1, and fewer and fewer of them across it the farther it goes, until at `min` it is
+ * `farCells` of them tall. How many tall falls as a power of the distance, so the cells themselves
+ * grow a device pixel at a time, gently, all the way out (on a phone, whose figure is smaller, they
+ * hardly grow: it is its shrinking that thins it out). Home it is 1 again.
  */
-export const ZOOM = { min: 0.5, max: 2, ease: 0.12, steps: 3, phoneSteps: 2 } as const;
+export const ZOOM = { min: 0.1, max: 2, ease: 0.12, farCells: 5 } as const;
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -300,11 +302,19 @@ export class RoomScene {
     l.v = Math.abs(to - next) < 1e-3 ? l.to : Math.exp(next);
   }
 
-  /** The pixelation's cell for a zoom, device px: none from 1 up, the dither's cell times 1 .. ZOOM.steps below it. */
+  /**
+   * The pixelation's cell for a zoom, whole device px: none from 1 up; below it the dither's cell at
+   * first, growing so that the figure is `near` cells tall at 1 and ZOOM.farCells at ZOOM.min, fewer
+   * as a power of the distance between (see ZOOM); never under the dither's cell.
+   */
   private cellFor(zoom: number) {
     if (zoom >= 1) return 0;
-    const far = (1 / zoom - 1) / (1 / ZOOM.min - 1), steps = this.width > SIZE.narrow ? ZOOM.steps : ZOOM.phoneSteps;
-    return clamp(Math.ceil(steps * far - 1e-9), 1, steps) * this.urchi.uniforms.uCell.value;
+    const base = this.urchi.uniforms.uCell.value, device = this.renderer.domElement.width / this.width;
+    const tall = (URCHI_FIGURE.bottom - URCHI_FIGURE.top) * (this.pixel / ART_CELL) * this.floatZoom * device;
+    const near = tall / base;
+    if (near <= ZOOM.farCells) return base;
+    const power = Math.log(near / ZOOM.farCells) / Math.log(1 / ZOOM.min);
+    return Math.max(base, Math.round(base * (1 / zoom) ** (power - 1)));
   }
 
   /**
