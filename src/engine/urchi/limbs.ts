@@ -374,6 +374,28 @@ export const QUIRKS = {
   },
 } satisfies Record<string, Quirk>;
 export type QuirkName = keyof typeof QUIRKS;
+/**
+ * Swimming (see Float's SWIM: it swims about, head first): one breaststroke over its phase 0..1, the
+ * same both sides. Gliding, its arms are up in a V beside the helmet and its legs together, toes
+ * pointed; the legs draw up and out, and the pull sweeps the arms down and a little back to its
+ * sides as the legs kick together; then the elbows bend to bring the hands up its sides, and on up
+ * into the V. Checked on the rig: every hand clear of the helmet and the body all through.
+ */
+export const STROKE: [number, Pose][] = [
+  [0, { shAbd: 116, shFlex: 18, shTwist: 0, elbow: 14, wrTwist: 20, wrBend: -10, hipFlex: -4, hipAbd: 3, hipTwist: 0, ankle: -32 }],
+  [0.12, { shAbd: 116, shFlex: 18, elbow: 14 }],
+  [0.2, { hipFlex: 30, hipAbd: 24, hipTwist: 16, ankle: 8 }],
+  [0.45, { shAbd: 16, shFlex: -10, shTwist: 0, elbow: 10, wrBend: 22, hipFlex: -6, hipAbd: 2, hipTwist: 0, ankle: -36 }],
+  [0.62, { shAbd: 40, shFlex: 22, shTwist: 28, elbow: 100, wrBend: 0 }],
+  [0.85, { shAbd: 96, shFlex: 24, shTwist: 10, elbow: 50, wrBend: -8, hipFlex: -4, hipAbd: 3, ankle: -32 }],
+  [1, { shAbd: 116, shFlex: 18, shTwist: 0, elbow: 14, wrTwist: 20, wrBend: -10, hipFlex: -4, hipAbd: 3, hipTwist: 0, ankle: -32 }],
+];
+/** The stroke comes in over SWIM_IN seconds and lets go over SWIM_OUT, and holds its springs STROKE_STIFF times quicker. */
+const SWIM_IN = 0.8, SWIM_OUT = 1.2, STROKE_STIFF = 1.3;
+/** The stroke's pose at a phase (0..1), degrees: for the sheet and the checks. */
+export function strokePose(phase: number): Pose {
+  return keyed(((phase % 1) + 1) % 1, STROKE, {});
+}
 /** A quirk's pose at t seconds in, for a side (0 the side doing it), degrees: for the sheet. */
 export function quirkPose(rig: RigData, name: QuirkName, t: number, side: Side): Pose {
   return (QUIRKS[name] as Quirk).pose(t, side, {}, rig);
@@ -502,6 +524,9 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
    * side's terms), and how far the reach has come in (eased toward 1 while on, 0 once let go).
    */
   const reaching = { on: false, side: 0 as Side, x: 0, y: 0, z: 0, w: 0 };
+  /** Swimming: whether it strokes, where it is in the stroke (0..1), and how far the stroke has come in (0..1). */
+  const swimming = { on: false, phase: 0, w: 0 };
+  const strokeNow: Pose = {};
   const reachPose: Pose = {};
   const lim = DOFS.map((d) => LIMIT[d].map((v) => v * D2R) as [number, number]);
 
@@ -562,6 +587,21 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
     }
   }
 
+  /** The stroke, over the rest (see swim): its pose at the stroke's phase, both sides alike. */
+  function aimSwim() {
+    if (swimming.w <= 0) return;
+    for (const d of DOFS) delete strokeNow[d];
+    keyed(swimming.phase, STROKE, strokeNow);
+    const w = smooth(swimming.w);
+    for (let s = 0; s < 2; s++) for (let k = 0; k < N; k++) {
+      const v = strokeNow[DOFS[k]];
+      if (v === undefined) continue;
+      const i = s * N + k;
+      target[i] += (v * D2R - target[i]) * w;
+      stiff[i] = 1 + (STROKE_STIFF - 1) * w;
+    }
+  }
+
   /** The reach, over the rest (see reachFor): the arm's angles for the point, its hand turned palm out. */
   function aimReach() {
     if (reaching.w <= 0) return;
@@ -588,7 +628,7 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
       rig.update(q);
       return;
     }
-    if (mode === "float" && !o.reducedMotion && !asleep && life > 0.5 && t >= next && !running.length && reaching.w === 0) {
+    if (mode === "float" && !o.reducedMotion && !asleep && life > 0.5 && t >= next && !running.length && reaching.w === 0 && swimming.w === 0) {
       let total = 0;
       for (const [n, w] of IDLE) if (n !== last) total += w;
       let r = Math.random() * total, pick: QuirkName = IDLE[0][0];
@@ -597,7 +637,9 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
     }
     if (mode === "float" && !o.reducedMotion && !asleep && life > 0.5 && t >= nextSettle) settle();
     reaching.w = Math.max(0, Math.min(1, reaching.w + (reaching.on ? dt / REACH_IN : -dt / REACH_OUT)));
+    swimming.w = Math.max(0, Math.min(1, swimming.w + (swimming.on && mode === "float" ? dt / SWIM_IN : -dt / SWIM_OUT)));
     aim();
+    aimSwim();
     aimReach();
     const n = Math.max(1, Math.ceil(dt / (1 / 240))), h = dt / n;
     let moved = 0;
@@ -725,6 +767,17 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
     },
     /** Reaching for something (or coming back from it). */
     get reaching() { return reaching.w > 0; },
+    /**
+     * Swimming: the breaststroke at `phase` (0..1 of a stroke, see STROKE), coming in over a moment;
+     * null lets it go. It starts nothing of its own accord while it swims.
+     */
+    swim(phase: number | null) {
+      if (o.reducedMotion) return;
+      swimming.on = phase !== null;
+      if (phase !== null) swimming.phase = ((phase % 1) + 1) % 1;
+    },
+    /** Swimming (or its stroke letting go). */
+    get swimming() { return swimming.w > 0; },
     /** Whatever runs lets go (over its own ramp out). */
     calm() { for (const r of running) r.q = { ...r.q, dur: Math.min(r.q.dur, t - r.t0 + r.q.ramp[1]) }; },
     /** The quirk running (the last begun), or null. */

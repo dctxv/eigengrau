@@ -67,6 +67,16 @@ export function* glanceAt(a: Attention, pill: Where): Act {
   yield 0.3;
 }
 
+/** Swimming somewhere (afloat, see Float's SWIM): it looks where it is going until it is there, or has stopped. */
+export function* swimTo(a: Attention, to: Where, there: () => boolean): Act {
+  try {
+    a.look(to);
+    yield* until(a, there, 40);
+  } finally {
+    a.look(null);
+  }
+}
+
 /** Hovering the pill it pointed out: a small nod, about 4 degrees. */
 export function* nod(a: Attention): Act {
   try {
