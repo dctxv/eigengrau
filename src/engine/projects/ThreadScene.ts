@@ -96,9 +96,8 @@ type Bead = {
   my: number;
   mz: number;
   crossed: number;
-  /** In a supernova's return: when the winder reached its mark (on the supernova's clock, s; -1 before), how long it takes to fly home, and whether it has docked. */
-  home: number;
-  homeFor: number;
+  /** In a supernova's return: how late in the pull it sets off for home (see NOVA_PULL_LAG), and whether it has docked. */
+  lag: number;
   docked: boolean;
 };
 
@@ -512,8 +511,8 @@ const NOVA_QUIET = 0.35;
  * named NOVA_EVENT, its detail `{ phase }`, once as each phase begins.
  * "charge": the ball starts to pull in. "collapse": full charge, the ball
  * drops to a knot. "burst": the ring, the bloom, the pieces flying out.
- * "float": the covers have settled into their field. "return": the winder
- * sets off (or a cover was chosen and everything gathers). "idle": at rest
+ * "float": the covers have settled into their field. "return": the pull
+ * home begins (or a cover was chosen and everything gathers). "idle": at rest
  * again, after a sigh or a return. Made for the spacesuit companion, which
  * squints as the ball charges, holds its breath at the collapse and watches
  * the covers.
@@ -652,15 +651,18 @@ const NOVA_FLOAT_GRACE = 1.5;
 const NOVA_AIR = 700;
 const NOVA_AIR_IN = 1.2;
 /**
- * The slow return. A winder travels the thread from its oldest end, easing
- * each sample back onto the sphere across ±NOVA_WIND_SPAN samples (of the
- * usual step), over NOVA_WIND s. As it reaches each mark that project flies
- * home in NOVA_HOME s and docks with its tick at NOVA_DOCK_TICK. Then the
- * ball swells to 1 + NOVA_OVER of its size and settles over NOVA_OVER_BACK.
+ * The slow return, as a magnet draws filings in: everything out in the field
+ * (the thread's filaments, the covers and their pieces) is pulled back toward
+ * the ball at once, over NOVA_WIND s, nothing wound. Each is slow to leave
+ * and gathers speed as it closes (magnet, below), and what lies nearest the
+ * centre sets off first: the furthest out waits NOVA_PULL_LAG of the pull,
+ * the rest in proportion, and each takes the rest of it (1 - NOVA_PULL_LAG)
+ * to come home. A project docks with its tick at NOVA_DOCK_TICK as its cover
+ * lands. Then the ball swells to 1 + NOVA_OVER of its size and settles over
+ * NOVA_OVER_BACK.
  */
-const NOVA_WIND_SPAN = 60;
-const NOVA_WIND = 3.2;
-const NOVA_HOME = 0.7;
+const NOVA_WIND = 3.4;
+const NOVA_PULL_LAG = 0.25;
 const NOVA_DOCK_TICK = 0.35;
 /**
  * Two projects of one year can dock within a frame of each other, and
@@ -671,10 +673,8 @@ const NOVA_DOCK_TICK = 0.35;
 const NOVA_DOCK_APART = 0.05;
 const NOVA_OVER = 0.04;
 const NOVA_OVER_BACK = 0.8;
-/** A cover chosen in the field gathers everything in NOVA_GATHER s (wound in GATHER_WIND, each home in GATHER_HOME), then opens. */
+/** A cover chosen in the field gathers everything in NOVA_GATHER s (the same pull, quicker), then opens. */
 const NOVA_GATHER = 1.2;
-const GATHER_WIND = 0.8;
-const GATHER_HOME = 0.4;
 /** A new drag during the return hurries what is left of it into NOVA_HURRY s. */
 const NOVA_HURRY = 0.6;
 /** A wheel counts in the field only after a pause this long, ms: the stream that spun the ball, and its momentum, never ends the float. */
@@ -684,6 +684,8 @@ const smooth = (t: number) => t * t * (3 - 2 * t);
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
 const inOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 const outCubic = (t: number) => 1 - (1 - t) ** 3;
+/** A magnet's pull over its time, 0..1: it drifts off gently, gathers speed as it closes (fastest past halfway) and lands softly. */
+const magnet = (t: number) => t * t * (2 - t * t);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 /** The share of the supernova's ink kept at a height, px: none under the tab bar (see NAV_FADE). */
 const navFade = (y: number) => smooth(clamp01((y - NAV_FOOT) / NAV_FADE));
@@ -1082,6 +1084,8 @@ export class ThreadScene {
   private owner = new Int16Array(0);
   /** Each sample's way out of the supernova's knot, px per px of blast radius (see novaWays). */
   private BX = new Float32Array(0);
+  /** In a supernova's return: how late in the pull each sample sets off (see pullLags). */
+  private lags = new Float32Array(0);
   private BY = new Float32Array(0);
   /** Its share of the blast and the bend off its way, from noise along the thread: fixed for a thread, so worked out as it is wound. */
   private BS = new Float32Array(0);
@@ -1217,7 +1221,7 @@ export class ThreadScene {
    * the charge (the knot, the return's swell); how far the charge has the
    * heading dimmed; whether the burst has happened, and the numerals risen;
    * when the stage was last touched, the float began and a cover was last
-   * chosen (s); the winder; a project chosen too early to gather to yet; the
+   * chosen (s); the pull home; a project chosen too early to gather to yet; the
    * bloom still to sound; whether the bed is through the wall; when the last
    * dock tick sounds (s, on the audio clock); when the wheel last turned (ms, so a new stream is known) and when the ball
    * collapsed (ms: a press from before it is the hand that spun it).
@@ -1269,7 +1273,7 @@ export class ThreadScene {
      * chooses nothing. The arrows and a tap choose as ever.
      */
     pointed: false,
-    wind: { at: 0, span: NOVA_WIND, home: NOVA_HOME, over: true, pos: -Infinity, to: null as Bead | null, hurried: false },
+    wind: { at: 0, span: NOVA_WIND, over: true, u: 0, to: null as Bead | null, hurried: false },
     pendingTo: null as Bead | null,
     bloom: null as (() => void) | null,
     airShut: false,
@@ -1482,8 +1486,7 @@ export class ThreadScene {
       my: 0,
       mz: -1,
       crossed: 0,
-      home: -1,
-      homeFor: NOVA_HOME,
+      lag: 0,
       docked: true,
     };
     this.beads.push(bead);
@@ -3463,7 +3466,7 @@ export class ThreadScene {
     n.bend0 = this.bend;
     this.novaWays();
     this.beads.forEach((b) => {
-      b.home = -1;
+      b.lag = 0;
       b.docked = false;
     });
     this.setPhase("collapse");
@@ -3609,7 +3612,8 @@ export class ThreadScene {
       n.bloom = null;
       this.novaGone();
     }
-    n.wind = { at: n.t, span: quick ? GATHER_WIND : NOVA_WIND, home: quick ? GATHER_HOME : NOVA_HOME, over: !quick, pos: -Infinity, to: o.to ?? null, hurried: !!o.quick };
+    n.wind = { at: n.t, span: quick ? NOVA_GATHER : NOVA_WIND, over: !quick, u: 0, to: o.to ?? null, hurried: !!o.quick };
+    this.pullLags();
     n.pendingTo = null;
     if (this.hovered) this.setHover(null);
     this.swapTail(false);
@@ -3624,9 +3628,9 @@ export class ThreadScene {
   }
 
   /**
-   * A new hand on the ball as it comes back: what is left of the winding is
-   * done in NOVA_HURRY, the projects still to fly home go quickly, and the
-   * swell is left out, so the ball is there to be turned.
+   * A new hand on the ball as it comes back: what is left of the pull is
+   * done in NOVA_HURRY, and the swell is left out, so the ball is there to be
+   * turned.
    */
   private novaHurry() {
     const n = this.nova;
@@ -3634,19 +3638,11 @@ export class ThreadScene {
     if (n.phase !== "return" || w.hurried) return;
     w.hurried = true;
     const u = clamp01((n.t - w.at) / w.span);
-    // The same point along the winding (its ease is the same function of u), reached sooner: nothing jumps.
+    // The same point in the pull (everything is a function of u), reached sooner: nothing jumps.
     const left = Math.max(0.05, 1 - u);
-    w.span = (NOVA_HURRY * 0.6) / left;
+    w.span = NOVA_HURRY / left;
     w.at = n.t - u * w.span;
     w.over = false;
-    const home = NOVA_HURRY * 0.4;
-    w.home = Math.min(w.home, home);
-    this.beads.forEach((b) => {
-      if (b.home < 0 || b.docked) return;
-      const e = clamp01((n.t - b.home) / b.homeFor);
-      b.homeFor = Math.min(b.homeFor, home);
-      b.home = n.t - e * b.homeFor;
-    });
     // The bed's wall opens with the ball, not on the slow return's clock.
     if (n.airUntil > n.t + NOVA_HURRY) {
       sfx.air(AIR_OPEN, NOVA_HURRY);
@@ -3654,33 +3650,51 @@ export class ThreadScene {
     }
   }
 
-  /** How far the winder has eased sample i back onto the ball (0..1). */
+  /**
+   * How late in the pull each thing sets off (0..NOVA_PULL_LAG of it), by how
+   * far out it lies: each sample of the thread by where the burst threw it,
+   * each project by its cover's place in the field (or its sample's, if it
+   * stayed in the knot). Worked out once as the return begins.
+   */
+  private pullLags() {
+    const M = this.M;
+    if (this.lags.length !== M) this.lags = new Float32Array(M);
+    let far = 0;
+    for (let i = 0; i < M; i++) far = Math.max(far, Math.hypot(this.BX[i] ?? 0, this.BY[i] ?? 0));
+    for (let i = 0; i < M; i++) this.lags[i] = far > 0 ? (NOVA_PULL_LAG * Math.hypot(this.BX[i] ?? 0, this.BY[i] ?? 0)) / far : 0;
+    const out = this.beads.map((b) => {
+      const f = this.field.get(b);
+      return f ? Math.hypot(f.x - this.cx, f.y - this.cy) : -1;
+    });
+    const farCover = Math.max(0, ...out);
+    this.beads.forEach((b, k) => (b.lag = out[k] >= 0 && farCover > 0 ? (NOVA_PULL_LAG * out[k]) / farCover : (this.lags[b.i] ?? 0)));
+  }
+
+  /** How far a thing that sets off `lag` into the pull has come home (0..1), `u` of the way through it. */
+  private pulled(lag: number, u = this.nova.wind.u) {
+    return magnet(clamp01((u - lag) / (1 - NOVA_PULL_LAG)));
+  }
+
+  /** How far sample i has come home onto the ball (0..1). */
   private kAt(i: number) {
-    const span = NOVA_WIND_SPAN * (STEP / this.arcStep);
-    return smooth(clamp01((this.nova.wind.pos - i + span) / (2 * span)));
+    return this.pulled(this.lags[i] ?? 0);
   }
 
   /**
-   * One frame of the return: the winder travels the thread from its oldest
-   * end, in the reveal's order; the projects it has reached fly home and
-   * dock, each with its tick, so his career replays in date order; and as it
-   * finishes the ball swells to 1 + NOVA_OVER and settles.
+   * One frame of the return: the pull runs on (everything's place is a
+   * function of how far through it is, u), each project docks with its tick
+   * as its cover lands, and as it finishes the ball swells to 1 + NOVA_OVER
+   * and settles.
    */
   private windStep() {
     const n = this.nova;
     const w = n.wind;
     const rt = n.t - w.at;
-    const span = NOVA_WIND_SPAN * (STEP / this.arcStep);
-    // It sets off at once (a return asked for is seen to start) and slows into the last turns.
-    const u = clamp01(rt / w.span);
-    w.pos = lerp(-span, this.M - 1 + span, lerp(u, inOut(u), 0.4));
+    w.u = clamp01(rt / w.span);
+    if (this.lags.length !== this.M) this.pullLags();
     const here = !this.opts.isCurrent || this.opts.isCurrent();
     this.order.forEach((b) => {
-      if (b.home < 0 && w.pos >= b.i) {
-        b.home = n.t;
-        b.homeFor = w.home;
-      }
-      if (b.home >= 0 && !b.docked && n.t - b.home >= b.homeFor) {
+      if (!b.docked && this.pulled(b.lag) >= 1) {
         b.docked = true;
         if (b.project && here) this.dockTick();
       }
@@ -3726,7 +3740,7 @@ export class ThreadScene {
       m.t.visible = false;
     });
     this.beads.forEach((b) => {
-      b.home = -1;
+      b.lag = 0;
       b.docked = true;
     });
     this.setPhase("idle");
@@ -4650,11 +4664,9 @@ export class ThreadScene {
     const bend = this.bend;
     const Q = this.P0;
     const back = this.backInk;
-    // Coming back from the supernova: each sample eases from its filament onto the ball as the winder passes.
+    // Coming back from the supernova: each sample is pulled from its filament onto the ball.
     const winding = this.nova.phase === "return";
     const fil = winding ? this.filaments(this.burstT) : null;
-    const span = NOVA_WIND_SPAN * (STEP / this.arcStep);
-    const wpos = this.nova.wind.pos;
     for (let i = 0; i < M; i++) {
       if (bend > 0) {
         const o = i * 3;
@@ -4696,7 +4708,7 @@ export class ThreadScene {
       }
       let z = lift > 0.3 ? 2 : q.z;
       if (fil) {
-        const k = smooth(clamp01((wpos - i + span) / (2 * span)));
+        const k = this.kAt(i);
         if (k < 1) {
           const bx = this.BX[i];
           const by = this.BY[i];
@@ -4865,7 +4877,7 @@ export class ThreadScene {
       let my = s0.y;
       let front1 = b.mz >= 0;
       if (winding) {
-        // Where its thread has got to, as it winds back; drawn as the winder reaches it.
+        // Where its thread has got to, as it is pulled back; drawn as it comes home.
         this.screenAt(b.i, at);
         mx = at.x;
         my = at.y;
@@ -4934,7 +4946,7 @@ export class ThreadScene {
   /** Now: 40px of thread past the last turn at the top, held still: it turns with the ball and nothing else. */
   private drawLooseEnd(back: Ribbons, front: Ribbons, drawn: number) {
     if (!this.cursorOn || drawn < this.M - 1 || this.fieldOn) return;
-    // Wound back last of all, out of the supernova.
+    // Home last of all, out of the supernova.
     const wound = this.nova.phase === "return" ? this.kAt(this.M - 1) ** 2 : 1;
     if (wound <= 0) return;
     const sc = this.scratch;
@@ -5054,8 +5066,8 @@ export class ThreadScene {
       let layer = b.side < 0 ? 1 : q.z >= 0 ? 2 : 0;
       let rot = 0;
       if (tabled) {
-        // How far home it has flown, in the return (0: still out).
-        const home = winding && b.home >= 0 ? inOut(clamp01((this.nova.t - b.home) / b.homeFor)) : 0;
+        // How far home it has been pulled, in the return (0: still out).
+        const home = winding ? this.pulled(b.lag) : 0;
         if (this.fieldPose(pc, tau, fp)) {
           x = lerp(fp.x, x, home);
           y = lerp(fp.y, y, home);
@@ -5071,7 +5083,7 @@ export class ThreadScene {
           }
           // Its tick sounds as its cover docks (see windStep).
         } else {
-          // It stayed in the knot: it comes back with its project, a study as the winder passes it.
+          // It stayed in the knot: it comes back with its project, a study with its stretch of thread.
           ink *= winding ? (b.project ? home : this.kAt(idx)) : 0;
         }
       }
