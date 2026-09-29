@@ -276,6 +276,11 @@ export class RoomScene {
     return this.float ? this.floatZoom * this.lens.v : 1;
   }
 
+  /** The zoom as drawn this frame, eased toward zoomLevel: 1 as it floats, and at home. What the sky's layers follow. */
+  get zoom() {
+    return this.lens.v;
+  }
+
   /** The zoom level asked for (see ZOOM): 1 as it floats. */
   get zoomLevel() {
     return this.lens.to;

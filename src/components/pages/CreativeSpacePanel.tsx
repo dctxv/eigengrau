@@ -8,6 +8,7 @@ import { Faces } from "@/engine/space/Faces";
 import { FLOAT_IN, Float, type FloatState } from "@/engine/space/Float";
 import { Motes } from "@/engine/space/Motes";
 import { RoomScene, ZOOM } from "@/engine/space/RoomScene";
+import { Sky } from "@/engine/space/sky/Sky";
 import { LINE_LOOK } from "@/engine/space/Tether";
 import { runIntro } from "@/engine/space/intro";
 import { caught, comeBack, glanceAt, glanceDown, read, tug, type Caught } from "@/engine/urchi/acts";
@@ -16,7 +17,7 @@ import { clock } from "@/engine/urchi/hours";
 import { CursorLabel } from "@/components/CursorLabel";
 import { MaskedChars, MaskedWords } from "@/components/Mask";
 import { alongOn } from "@/lib/along";
-import { getFlags, setFlag } from "@/lib/flags";
+import { getFlags, onFlags, setFlag } from "@/lib/flags";
 import { prefersReducedMotion } from "@/lib/motion";
 import { pollNow, type Track } from "@/lib/now";
 import { isTab } from "@/lib/routes";
@@ -195,6 +196,18 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       return woke;
     };
     const call = new Call(room, att, motes, { reducedMotion });
+    // afloat, the sky behind it (sky/Sky.ts): in with the float-in, out with the flight home, never while the tabs slide
+    const sky = new Sky(room, { reducedMotion });
+    sky.hold(getFlags().transitioning);
+    const offSlide = onFlags((f) => sky.hold(f.transitioning));
+    // ?debug=1, in development only: the sky's tuning panel (a production build never follows the import)
+    let stopSkyPanel: (() => void) | null = null;
+    let gone = false;
+    if (process.env.NODE_ENV !== "production" && new URLSearchParams(window.location.search).get("debug") === "1") {
+      import("@/engine/space/sky/debug/panel").then((m) => {
+        if (!gone) stopSkyPanel = m.mountSkyPanel(sky, panelEl);
+      });
+    }
     /** The pointer is on Urchi (the cursor label follows at once)... */
     let overUrchi = false;
     /** Where a mouse (or pen) pointer last was over the panel, client px; null for a finger, or gone. */
@@ -246,6 +259,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     showZoom();
     const onFloat = (state: FloatState) => {
       labelUrchi();
+      sky.setFloat(state);
       // the slider comes in with the float-in, goes as it flies home, and is back at the middle for next time
       if (state === "arriving") slider(true, FLOAT_IN);
       else if (state === "floating") slider(true);
@@ -267,7 +281,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (state !== "floating" && state !== "arriving") setOverUrchi(false);
     };
     const fl = (float = new Float({ room, att, reducedMotion, onState: (s) => onFloat(s), onJolt: (k) => faces.jolt(k) }));
-    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __float: fl, __faces: faces }); // handy for debugging and headless QA
+    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __float: fl, __faces: faces, __sky: sky }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
     let stopArrive: (() => void) | null = null;
 
@@ -592,6 +606,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         return;
       }
       resting = e.pointerType === "touch" ? null : { x: e.clientX, y: e.clientY };
+      if (resting) sky.pointer(resting.x, resting.y);
       setOverUrchi(room.urchiHit(e.clientX, e.clientY));
       labelUrchi();
       // a mouse shaken over its face at home, awake: it glares
@@ -599,6 +614,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     };
     const onLeave = () => {
       resting = null;
+      sky.pointer(null);
       if (down.held) return;
       setOverUrchi(false);
       labelUrchi();
@@ -784,6 +800,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     window.addEventListener("resize", onResize);
 
     return () => {
+      gone = true;
+      stopSkyPanel?.();
+      offSlide();
       offShown();
       stopIntro?.();
       stopArrive?.();
@@ -813,6 +832,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       faces.dispose();
       motes.dispose();
       fl.dispose();
+      sky.dispose();
       att.dispose();
       room.dispose();
     };
