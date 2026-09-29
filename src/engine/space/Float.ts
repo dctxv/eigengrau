@@ -28,7 +28,7 @@ const TAKE = { close: 0.35, dither: 0.3, ditherFor: 1, beat: 0.7, inFor: 3.6, ou
  * `ditherFor` with its eyes shut; they stay shut `hold` more and open over `open`. A flight that
  * has not left the page after `flightMost` ends anyway.
  */
-const HOME = { gone: 4, ditherFor: 1, hold: 0.7, open: 1.8, flightMost: 3 };
+const HOME = { gone: 2, ditherFor: 1, hold: 0.7, open: 1.8, flightMost: 3 };
 /**
  * Where it likes to float at first, its middle as shares of the room (from the left, from the top),
  * or on a phone `phone`, nearer the middle; it swims off from there (see SWIM).
