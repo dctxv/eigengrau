@@ -1218,7 +1218,7 @@ function ensure(): AudioContext | null {
     bed.connect(air).connect(master);
     (["tab", "focus", "close", "tick", "done", "pat", "patOwn", "tug", "snap"] as Synth[]).forEach((n) => buffers.set(n, synth(ctx!, n)));
   }
-  if (ctx.state === "suspended") void ctx.resume();
+  if (ctx.state === "suspended") ctx.resume().catch(() => undefined);
   decodeClick(ctx);
   return ctx;
 }
@@ -1404,14 +1404,31 @@ export const sfx = {
       if (name === "click") clickQueued = true;
       return;
     }
-    const src = c.createBufferSource();
-    src.buffer = buf;
-    if (rate !== 1) src.playbackRate.value = rate;
-    const g = c.createGain();
-    g.gain.value = volume;
-    src.connect(g).connect(master);
-    src.start();
-    duck();
+    const cue = () => {
+      const src = c.createBufferSource();
+      src.buffer = buf;
+      if (rate !== 1) src.playbackRate.value = rate;
+      const g = c.createGain();
+      g.gain.value = volume;
+      src.connect(g).connect(master!);
+      src.start();
+      duck();
+    };
+    if (c.state === "running") {
+      cue();
+      return;
+    }
+    // Suspended (a cold load, a tab put away, a phone call on iOS): a cue started now would wait on
+    // the frozen clock and sound whenever the context next runs, all at once with any others. So it
+    // wakes the context and sounds once it runs, if that is within WAKE_WAIT_MS; any later and it
+    // would land out of place, so it is dropped.
+    const asked = performance.now();
+    c.resume().then(
+      () => {
+        if (enabled && c.state === "running" && performance.now() - asked <= WAKE_WAIT_MS) cue();
+      },
+      () => undefined,
+    );
   },
   /**
    * An opened project's horizon, plucked at `hz`: it rings, or for dead work
