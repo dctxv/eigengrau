@@ -61,8 +61,10 @@ every 20s while he is live and every minute otherwise. Song lengths come from
 `now.sure` (whether the start is known, or only a lower bound), and
 `week.fact`, the heading (from `api/now/fact.ts`). Space polls `/api/now` too,
 to know when he is listening. With sound on, `/api/preview` looks the song up
-on the keyless iTunes Search API and proxies its preview same-origin; a 404
-means silence. Nothing is fetched with sound off. The room's colour is read
+on the keyless stores (the iTunes Search API, then Deezer's, which lists new
+releases soonest: `api/songs.ts`) and proxies its preview same-origin; a 404
+means silence, and is asked again after an hour. A sleeve Last.fm has no art
+for (most new releases) is looked up on the same stores by `/api/now`. Nothing is fetched with sound off. The room's colour is read
 from each cover in the browser (`src/lib/tone.ts`): a grey record leaves the
 room grey, and a sleeve whose colour is only a small accent can be given its
 hue in `OVERRIDES` there.
@@ -122,8 +124,9 @@ WOFF2 files feed CSS; the WOFF files feed the WebGL text renderer.
 ```
 src/app/                 routes; each canvas tab page is only its accessible mirror (Notes is plain DOM and needs none)
 src/app/api/now/         Last.fm: the track playing (its length, how far in, and whether that is sure), the last one played, the week's top songs and its one fact (fact.ts), { now, last, week }, empty on any failure
-src/app/api/preview/     a song's 30s preview from the iTunes Search API, proxied same-origin and cached for a day; 404 when no match is confident
-src/app/api/cover/[id]/  album art proxied same-origin, cached for a day
+src/app/api/songs.ts     finding a song on the keyless stores (iTunes Search, then Deezer) for its preview and sleeve; only a confident match
+src/app/api/preview/     a song's 30s preview from the stores, proxied same-origin and cached for a day; 404 (kept an hour) when no match is confident
+src/app/api/cover/[id]/  album art proxied same-origin (Last.fm's, or a store's for a sleeve Last.fm lacks), cached for a day
 src/components/Shell.tsx chrome + the horizontal page slider
 src/components/chrome/   Nav, Tab (pill morph), FloatingLogo (exclusion blend), SoundChip, LiveIcon (the favicon's Urchi), Between (the stars between the tabs)
 src/components/pages/    one client panel per tab: canvas + DOM overlays; NotesPanel and MusicPanel are plain DOM

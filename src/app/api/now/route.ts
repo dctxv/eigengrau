@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { TIME_ZONE } from "@/content/site";
 import { EMPTY_NOW, type NowResponse, type Playing, type Track } from "@/lib/now";
+import { artId, findSong } from "../songs";
 import { weekFact, type Scrobble } from "./fact";
 
 export const runtime = "nodejs";
@@ -25,6 +26,8 @@ const FRESH = { now: 15, week: 300, info: 86400 };
 const GRACE = 60;
 /** With no length to go on, a now-playing this old is stale. */
 const UNKNOWN_CAP = 15 * 60;
+/** How long the answer waits on the stores for the sleeves Last.fm has none of; past it, those songs go without this time. */
+const ART_MS = 3_000;
 
 type Image = { size: string; "#text": string };
 type RecentTrack = {
@@ -44,7 +47,7 @@ type Info = { track?: { duration?: string | number } };
 /** The hash from the extralarge image URL's last segment (…/<hash>.png); null for no art. */
 function coverId(images: Image[] | undefined): string | null {
   const url = images?.find((i) => i.size === "extralarge")?.["#text"] ?? images?.at(-1)?.["#text"] ?? "";
-  const m = /\/([a-f0-9]{32})(?:\.(?:png|jpg))?$/i.exec(url);
+  const m = /\/([a-f0-9]{32})(?:\.\w{3,4})?$/i.exec(url);
   if (!m) return null;
   const id = m[1].toLowerCase();
   return id === PLACEHOLDER ? null : id;
@@ -77,6 +80,27 @@ async function lengthOf(key: string, t: RecentTrack): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Sleeves for the songs Last.fm has no art for, which is most of the newest
+ * releases: each looked up on the stores (see songs.ts) at once, as a cover
+ * id /api/cover serves, and filled in place. What the stores do not list, or
+ * not within ART_MS, keeps its null; their answers are kept for hours, so
+ * this costs the stores one search a song, not one a poll.
+ */
+async function fillArt(tracks: Track[]) {
+  const bare = tracks.filter((t) => !t.coverId);
+  if (!bare.length) return;
+  const signal = AbortSignal.timeout(ART_MS);
+  const found = new Map<string, Promise<string | null>>();
+  await Promise.all(
+    bare.map(async (t) => {
+      const k = keyOf(t.artist, t.title);
+      if (!found.has(k)) found.set(k, findSong(t.artist, t.title, "art", signal).then((f) => (f?.art ? artId(f.art) : null), () => null));
+      t.coverId = await found.get(k)!;
+    }),
+  );
 }
 
 /**
@@ -176,13 +200,16 @@ export async function GET() {
       if (!stale) nowPlaying = { ...track(playing), length, elapsed: Math.round(elapsed), sure };
     }
 
+    const last = finished ? { ...track(finished), at: Number(finished.date!.uts) } : null;
+    await fillArt([...(nowPlaying ? [nowPlaying] : []), ...(last ? [last] : []), ...tracks]);
+
     const total = Number(week.recenttracks?.["@attr"]?.total);
     const plays = Number.isFinite(total) ? total : tracks.reduce((n, t) => n + t.plays, 0);
     const artist = asArray(artists.topartists?.artist)[0]?.name ?? null;
     const list: Scrobble[] = scrobbles.map((t) => ({ title: t.name, artist: t.artist["#text"], at: Number(t.date!.uts) }));
     const body: NowResponse = {
       now: nowPlaying,
-      last: finished ? { ...track(finished), at: Number(finished.date!.uts) } : null,
+      last,
       week: {
         plays,
         artist,
