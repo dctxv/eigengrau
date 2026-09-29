@@ -96,14 +96,12 @@ const DITHER_CELL = 2.5;
  * Afloat, the visitor can zoom: Urchi's size against where it floats (1), from `min` (a tenth as
  * big, ten times as far) to `max`, eased toward the level asked for over about `ease` seconds (a
  * time constant, on the logarithm, so in and out go alike). Down to `pixelFrom` it stays smooth;
- * farther, its signal weakens: it is pixelated in square cells of whole device pixels, the
- * dither's own just past `pixelFrom`, and fewer and fewer of them across it the farther it goes.
- * The cells grow as a power of the distance past `pixelFrom`: `pace` of the power that would have
- * the figure `farCells` tall at `min` (so they grow a device pixel at a time, gently; on a phone,
- * whose figure is smaller, they hardly grow at all: it is its shrinking that thins it out). Home
- * it is 1 again.
+ * farther, its signal weakens: it is pixelated in square cells of whole device pixels, one device
+ * pixel just past `pixelFrom` (hardly to be seen but for its hard edge) and growing a pixel at a
+ * time as a power of the distance past it, so that at `min` the figure is `farCells` of them tall.
+ * Home it is 1 again.
  */
-export const ZOOM = { min: 0.1, max: 2, ease: 0.12, farCells: 5, pixelFrom: 0.4, pace: 0.6 } as const;
+export const ZOOM = { min: 0.1, max: 2, ease: 0.12, farCells: 7.5, pixelFrom: 0.4 } as const;
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -304,19 +302,17 @@ export class RoomScene {
   }
 
   /**
-   * The pixelation's cell for a zoom, whole device px: none down to ZOOM.pixelFrom; past it the
-   * dither's cell at first, growing as a power of the distance past it (see ZOOM); never under the
-   * dither's cell.
+   * The pixelation's cell for a zoom, whole device px: none down to ZOOM.pixelFrom; past it one
+   * device pixel, growing as a power of the distance past it to the cell that has the figure
+   * ZOOM.farCells tall at ZOOM.min (see ZOOM).
    */
   private cellFor(zoom: number) {
     if (zoom >= ZOOM.pixelFrom) return 0;
-    const base = this.urchi.uniforms.uCell.value, device = this.renderer.domElement.width / this.width;
+    const device = this.renderer.domElement.width / this.width;
     const tall = (URCHI_FIGURE.bottom - URCHI_FIGURE.top) * (this.pixel / ART_CELL) * this.floatZoom * device;
-    const near = tall / base;
-    if (near <= ZOOM.farCells) return base;
-    // the power that would take it from `near` cells tall at 1 to ZOOM.farCells at ZOOM.min, at ZOOM.pace
-    const grow = ZOOM.pace * (Math.log(near / ZOOM.farCells) / Math.log(1 / ZOOM.min) - 1);
-    return Math.max(base, Math.round(base * (ZOOM.pixelFrom / zoom) ** grow));
+    const far = Math.max(1, (tall * ZOOM.min) / ZOOM.farCells);
+    const grow = Math.log(far) / Math.log(ZOOM.pixelFrom / ZOOM.min);
+    return Math.max(1, Math.round((ZOOM.pixelFrom / zoom) ** grow));
   }
 
   /**

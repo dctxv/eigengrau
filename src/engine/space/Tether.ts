@@ -176,15 +176,16 @@ class Cells {
     this.mesh.visible = opacity > 0 && from !== to;
     if (!this.mesh.visible) return;
     this.mesh.material.opacity = ROPE.alpha * opacity;
-    const n = curve(xs, ys, from, to, this.sx, this.sy), c = g.cell, half = c / 2, on = this.on;
+    // a cell thick, but never thinner than the line is smooth (the finest cells are a device pixel)
+    const n = curve(xs, ys, from, to, this.sx, this.sy), c = g.cell, half = Math.max(c, LINE_LOOK.width * g.sx) / 2, on = this.on;
     on.clear();
     // each piece of the curve, in device px from the bottom left: the cells whose centres are near it
     const X = (k: number) => (this.sx[k] + g.w / 2) * g.sx, Y = (k: number) => (this.sy[k] + g.h / 2) * g.sy;
     let ax = X(0), ay = Y(0);
     for (let k = 1; k < n; k++) {
       const bx = X(k), by = Y(k), dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
-      const i0 = Math.ceil(Math.min(ax, bx) / c - 1), i1 = Math.floor(Math.max(ax, bx) / c);
-      const j0 = Math.ceil(Math.min(ay, by) / c - 1), j1 = Math.floor(Math.max(ay, by) / c);
+      const i0 = Math.ceil((Math.min(ax, bx) - half) / c - 0.5), i1 = Math.floor((Math.max(ax, bx) + half) / c - 0.5);
+      const j0 = Math.ceil((Math.min(ay, by) - half) / c - 0.5), j1 = Math.floor((Math.max(ay, by) + half) / c - 0.5);
       for (let i = i0; i <= i1; i++) {
         for (let j = j0; j <= j1; j++) {
           const cx = (i + 0.5) * c, cy = (j + 0.5) * c;

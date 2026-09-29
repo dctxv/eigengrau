@@ -236,10 +236,12 @@ export class Urchi {
 
   /**
    * A held rim follows the head's size as shown: one art pixel, within its bounds. Pixelated, it is
-   * PIXEL_RIM of the canvas's pixels: any narrower, cut to cells, it breaks up into dots.
+   * at least PIXEL_RIM of the canvas's pixels (any narrower, cut to cells, it breaks up into dots)
+   * and never narrower than it is smooth, so the finest cells do not thin it.
    */
   private fitRim() {
-    const r = this.pixelated ? (PIXEL_RIM * URCHI_BOX.w) / Math.max(8, this.resolution) : this.rimFor(this.unit * this.zoom);
+    const smooth = this.rimFor(this.unit * this.zoom);
+    const r = this.pixelated ? Math.max(smooth ?? 0, (PIXEL_RIM * URCHI_BOX.w) / Math.max(8, this.resolution)) : smooth;
     if (r !== null) this.character.setRim(r);
   }
 
