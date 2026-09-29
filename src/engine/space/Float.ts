@@ -141,6 +141,8 @@ const FLING = { window: 0.09, cap: 2.2, keep: 0.16 };
  * go up, and end its days pinned under the tab bar.
  */
 const SWIM = { every: [7, 15] as [number, number], first: 5, far: 0.22, margin: 64, slack: 0.92, tilt: 1.75, turn: 1.6, spin: 1.8, stroke: 2.6, pull: [0.12, 0.45] as [number, number], thrust: 0.6, steer: 0.25, arrive: 0.3, most: 30, band: [0.38, 0.6] as [number, number] };
+/** A rough moment (a hard tug, a hard bump) is told at most this often of each kind (s): one impact is one. */
+const JOLT_EVERY = 0.5;
 /** A nudge from the arrow keys: `speed` of its height per second (it drifts about its own height before it slows), or under reduced motion `step` px. */
 const NUDGE = { speed: 0.45, step: 24 };
 
@@ -172,6 +174,8 @@ export type FloatOptions = {
   reducedMotion: boolean;
   /** Its state changed: the cursor's word and the control's name follow. */
   onState?(state: FloatState): void;
+  /** Handled roughly: its line tugged hard, or a hard bump against a wall (at most every JOLT_EVERY seconds each). */
+  onJolt?(kind: "tug" | "bump"): void;
 };
 
 /**
@@ -263,6 +267,9 @@ export class Float {
   get busy() {
     return this.state === "leaving" || this.state === "away" || this.state === "flying" || this.state === "returning";
   }
+
+  /** Its last flight home was a throw (its line snapped under it), not the keyboard sending it. */
+  thrown = false;
 
   /** Being held. */
   get holding() {
@@ -368,6 +375,7 @@ export class Float {
   /** Sent home (the keyboard, or a double click or tap under reduced motion): its line snaps and it goes. */
   sendHome() {
     if (!this.afloat || this.disposed) return;
+    this.thrown = false;
     if (this.hold) this.letGo();
     if (this.reduced) {
       this.set("flying");
@@ -562,6 +570,7 @@ export class Float {
   /** Its line snaps: it flies off with its momentum and a tumble, the line breaking behind it. */
   private snap() {
     const b = this.b;
+    this.thrown = !this.sending;
     this.set("flying");
     setAlong(false);
     this.taut = this.sending = false;
@@ -690,6 +699,14 @@ export class Float {
       if (this.offPage() || this.flightFor > HOME.flightMost) this.comeHome();
     }
   }
+
+  /** A rough moment told to the page (see FloatOptions.onJolt), not more often than JOLT_EVERY of each kind. */
+  private jolt(kind: "tug" | "bump") {
+    if (this.t - this.joltAt[kind] < JOLT_EVERY) return;
+    this.joltAt[kind] = this.t;
+    this.o.onJolt?.(kind);
+  }
+  private joltAt = { tug: -Infinity, bump: -Infinity };
 
   /** Its limbs braced (a tug, a bump), not more often than LIMBS.braceEvery. */
   private brace() {
@@ -945,7 +962,10 @@ export class Float {
       if (vout > 0) {
         b.vx += nx * vout;
         b.vy += ny * vout;
-        if (vout > LIMBS.bump * this.tall) this.brace();
+        if (vout > LIMBS.bump * this.tall) {
+          this.brace();
+          this.jolt("bump");
+        }
         // a bump puts it off its own drifting (and a swim) a while; brushing the wall as it turns does not
         if (vout > WALL.bump * this.tall) this.calmAt = Math.max(this.calmAt, this.t + DRIFT.calm);
       }
@@ -980,6 +1000,7 @@ export class Float {
         this.tugAt = this.t;
         const strength = Math.min(1, vn / snap);
         sfx.tug(strength);
+        this.jolt("tug");
         this.att.play("jolt", 7, () => jolt(this.att, strength));
         this.brace();
         this.calmAt = this.t + DRIFT.calm;

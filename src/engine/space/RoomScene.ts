@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import gsap from "gsap";
 import { makeRenderer } from "@/engine/common/loader";
-import { URCHI_BOX, URCHI_EYES, URCHI_HEAD } from "@/engine/urchi/character";
+import { URCHI_BOX, URCHI_EARS, URCHI_EYES, URCHI_HEAD, URCHI_PIVOT } from "@/engine/urchi/character";
 import { Urchi } from "@/engine/urchi/Urchi";
 
 export type RoomOptions = {
@@ -352,6 +352,21 @@ export class RoomScene {
     const { y, zoom } = this.pose();
     const unit = (this.pixel * this.urchi.appear * zoom) / ART_CELL;
     return { x: mx * unit, y: y - my * unit, reach: reach * unit };
+  }
+
+  /**
+   * The ear tips at home, in room px (y up): the viewer's left, then right, the head tipped `roll`
+   * degrees (positive its top to the right) about its neck, as the painter tips it. Null afloat.
+   */
+  earTips(roll = 0): [{ x: number; y: number }, { x: number; y: number }] | null {
+    if (this.float) return null;
+    const { y, zoom } = this.pose(), unit = (this.pixel * this.urchi.appear * zoom) / ART_CELL;
+    const px = URCHI_PIVOT[0] * unit, py = y - URCHI_PIVOT[1] * unit, a = (-roll * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+    const at = ([ex, ey]: [number, number]) => {
+      const dx = ex * unit - px, dy = y - ey * unit - py;
+      return { x: px + dx * c - dy * s, y: py + dx * s + dy * c };
+    };
+    return [at(URCHI_EARS[0]), at(URCHI_EARS[1])];
   }
 
   /** A point of the figure (mesh units from the head's centre, y down) where a float pose puts it, `unit` css px per mesh unit: room px. */

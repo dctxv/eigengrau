@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import { MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
 import { Call } from "@/engine/space/Call";
+import { Faces } from "@/engine/space/Faces";
 import { FLOAT_IN, Float, type FloatState } from "@/engine/space/Float";
 import { Motes } from "@/engine/space/Motes";
 import { RoomScene, ZOOM } from "@/engine/space/RoomScene";
@@ -184,6 +185,15 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       origin: () => float?.lookFrom() ?? null,
     });
     const motes = new Motes(room, att, { reducedMotion });
+    // its faces: angry, embarrassed, happy listening, and asleep for the night (Faces.ts)
+    const faces = new Faces(room, att, { reducedMotion });
+    /** A click or tap that may wake it: woken from the night's sleep, it glares as its eyes open. */
+    const wake = () => {
+      const night = att.mood === "asleep";
+      const woke = att.wake();
+      if (woke && night) faces.react("angry", { hold: 2.8 });
+      return woke;
+    };
     const call = new Call(room, att, motes, { reducedMotion });
     /** The pointer is on Urchi (the cursor label follows at once)... */
     let overUrchi = false;
@@ -250,12 +260,14 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (state === "flying" && live.current) live.current.textContent = SAID.snapped;
       if (state === "flying") flew = true;
       if (state === "home" && flew && live.current) live.current.textContent = SAID.home;
+      // home after its line snapped under a throw: a glare at whoever threw it
+      if (state === "home" && flew && fl.thrown) faces.react("angry");
       if (state === "home") flew = false;
       // the room changed under the pointer: whether it is on Urchi is asked again on its next move
       if (state !== "floating" && state !== "arriving") setOverUrchi(false);
     };
-    const fl = (float = new Float({ room, att, reducedMotion, onState: (s) => onFloat(s) }));
-    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __float: fl }); // handy for debugging and headless QA
+    const fl = (float = new Float({ room, att, reducedMotion, onState: (s) => onFloat(s), onJolt: (k) => faces.jolt(k) }));
+    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __float: fl, __faces: faces }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
     let stopArrive: (() => void) | null = null;
 
@@ -397,6 +409,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       arriving = !afterIntro;
       att.start({ afterIntro });
       arriving = false;
+      faces.begin();
       motes.start();
       begun = att.t;
       labelUrchi();
@@ -533,7 +546,11 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       // Never while it sleeps or dozes, in the intro, mid-rhythm or mid-slide, nor away from home.
       if (begun < 0 || att.asleep || call.busy || getFlags().transitioning || fl.state !== "home") return;
       // Played now, before the page's first frame back, so that frame already shows it.
-      if (att.play("caught", 6, () => caught(att, pose(), { rise: (on, seconds) => room.riseUrchi(on, seconds) }))) caughtAt = now;
+      if (att.play("caught", 6, () => caught(att, pose(), { rise: (on, seconds) => room.riseUrchi(on, seconds) }))) {
+        caughtAt = now;
+        // found out: flustered as it startles back to you
+        faces.react("embarrassed", { delay: 0.6 });
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -577,6 +594,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       resting = e.pointerType === "touch" ? null : { x: e.clientX, y: e.clientY };
       setOverUrchi(room.urchiHit(e.clientX, e.clientY));
       labelUrchi();
+      // a mouse shaken over its face at home, awake: it glares
+      faces.pointer(e.clientX, overUrchi && e.pointerType !== "touch" && fl.state === "home" && !att.asleep && begun >= 0);
     };
     const onLeave = () => {
       resting = null;
@@ -604,7 +623,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       // Afloat, a press on it holds it (asleep, the press only wakes it, as a click at home does).
       if (fl.afloat && room.urchiHit(e.clientX, e.clientY)) {
         call.abort();
-        if (att.wake()) {
+        if (wake()) {
           down.woke = true;
           return;
         }
@@ -651,7 +670,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (room.urchiHit(e.clientX, e.clientY)) {
         call.abort();
         // Asleep, the first click wakes it; awake at home, it is taken with you.
-        if (att.wake()) return;
+        if (wake()) return;
         if (fl.state === "home" && begun >= 0) fl.take();
       } else if (room.interactive) {
         if (begun >= 0) call.tap(e.clientX, e.clientY, down.t);
@@ -673,7 +692,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const onControl = (e: MouseEvent) => {
       if (e.detail !== 0 || fl.busy || begun < 0 || !room.interactive) return;
       call.abort();
-      if (att.wake()) return;
+      if (wake()) return;
       if (fl.afloat) fl.sendHome();
       else fl.take();
     };
@@ -791,6 +810,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       document.removeEventListener("visibilitychange", onVisibility);
       cursor.destroy();
       call.dispose();
+      faces.dispose();
       motes.dispose();
       fl.dispose();
       att.dispose();

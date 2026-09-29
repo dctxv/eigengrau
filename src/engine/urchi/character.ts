@@ -332,6 +332,17 @@ export const URCHI_SUIT_FRAME: { readonly x: number; readonly y: number; readonl
 export const URCHI_BOX = { x: -540, y: -500, w: 1080, h: 1056 } as const;
 /** The head itself, from ear tips to chin. */
 export const URCHI_HEAD = { top: -436, bottom: 435.5 } as const;
+/** The ear tips at rest, the highest point of the head each side of its middle, in mesh units (x right, y down): the viewer's left, then right. */
+export const URCHI_EARS: [[number, number], [number, number]] = (() => {
+  const tip = (side: number): [number, number] => {
+    let best: [number, number] = [0, Infinity];
+    for (const v of MESH.v) if (v[0] * side > 0 && v[1] < best[1]) best = [v[0], v[1]];
+    return best;
+  };
+  return [tip(-1), tip(1)];
+})();
+/** The head's pivot for a tilt, in mesh units (y down): low in the head, like a neck. */
+export const URCHI_PIVOT: [number, number] = [MESH.pivot[0], MESH.pivot[1]];
 /** The eye distance render() uses unless ?ortho asks for none. */
 const PERSPECTIVE_AT_REST = 2800;
 
@@ -665,12 +676,26 @@ export type UrchiCharacter = {
   kick(yaw: number, pitch: number, roll: number): void;
   /** Two blinks, close together. */
   doubleBlink(): void;
+  /**
+   * The face its eyes make (see UrchiFace). A new one swaps in while the eyes are shut in a blink
+   * of its own (into a face whose eyes are shut already, embarrassed or happy, that is the eyes
+   * squeezing shut into it); at once with the eyes already shut, or under reduced motion.
+   */
+  setFace(face: UrchiFace): void;
+  /** The face it makes, or is blinking into. */
+  readonly face: UrchiFace;
   /** The breath now, -1 .. 1: +1 is the top of an in-breath. */
   readonly breath: number;
   /** How shut the eyes are right now, 0 .. 1 (the more shut of the two). */
   readonly shut: number;
   dispose(): void;
 };
+
+/**
+ * The faces its eyes make: its own (neutral); angry, the lids down at a slant toward the nose and a
+ * dark pupil grown; embarrassed, a chevron each, "><"; happy, shut and arched up (listening).
+ */
+export type UrchiFace = "neutral" | "angry" | "embarrassed" | "happy";
 
 /** How the gaze turns when lookAt moves it: "snap" is already there; "quick" turns faster than usual. */
 export type LookHow = "snap" | "quick";
@@ -923,7 +948,71 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   /** How wide the eyes are (1 as drawn): the startle's widening. */
   const wide = spring(1);
   let wideUntil = -1;
+
+  // ------------------------------------------------------------------ faces
+  // Angry: the lid's edge at `lift` of the eye's height above its centre (below it, negative),
+  // slanting down toward the nose by `slope` (mesh units per unit across), and the pupil `pupil`
+  // times as big, but only where it is the darker of the two: a light pupil is what reads as the
+  // eye, and grown it would look bigger, not narrower. Embarrassed: a chevron each, `wide` of the
+  // eye's width either side of its middle and `high` of its height, pointing in toward the nose,
+  // moved `closer` to it (mesh units), its arms `arm` thick. Happy: the closed arc turned over,
+  // `rise` of the eye's height up, `top` and `bottom` its edges' arch.
+  const FACE = {
+    angry: { lift: -0.1, slope: 0.42, pupil: 1.35 },
+    shy: { wide: 0.85, high: 0.62, closer: 30, arm: 27 },
+    happy: { rise: 0.1, top: 0.26, bottom: 0.48 },
+  };
+  const FACES: UrchiFace[] = ["neutral", "angry", "embarrassed", "happy"];
+  /** The face it makes, and the one it swaps to once its eyes are shut (see setFace). */
+  const faces = { now: "neutral" as UrchiFace, next: null as UrchiFace | null };
+  const luma = (hex: string) => { const n = parseInt(hex.slice(1), 16); return 0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255); };
+  /** Each eye's pupil (the viewer's left, then right) is the darker of its two colours. */
+  const pupilDark = [luma(EYE_COLOUR.pupilLeft) <= luma(EYE_COLOUR.iris), luma(EYE_COLOUR.pupilRight) <= luma(EYE_COLOUR.iris)];
+  const oval = (x: number, y: number, rx: number, ry: number) => Array.from({ length: STEPS }, (_, k): Vec2 => { const t = 2 * Math.PI * k / STEPS; return [x + rx * Math.cos(t), y + ry * Math.sin(t)]; });
+  /** A ring kept below a line (y down): `line` is the edge's y at x. */
+  function below(ring: Vec2[], line: (x: number) => number): Vec2[] {
+    const out: Vec2[] = [];
+    for (let i = 0; i < ring.length; i++) {
+      const p = ring[i], q = ring[(i + 1) % ring.length], fp = p[1] - line(p[0]), fq = q[1] - line(q[0]);
+      if (fp >= 0) out.push(p);
+      if ((fp >= 0) !== (fq >= 0)) { const t = fp / (fp - fq); out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]); }
+    }
+    return out;
+  }
+
+  /**
+   * An eye's shape with a blink `b` over it, in the face it makes. Angry shuts as its own eye does
+   * (the same closed arc); embarrassed and happy are shut already, so a blink changes nothing: its
+   * eyes squeeze shut into them, and open again out of them (see setFace).
+   */
   function eyeShape(e: EyeSpec, b: number): { white: Vec2[]; pupil: Vec2[] | null } {
+    const f = faces.now;
+    if (f === "neutral") return ownEye(e, b);
+    const [cx, cy] = e.c, side = cx > 0 ? 1 : -1;
+    if (f === "angry") {
+      const base = ownEye(e, b);
+      if (!base.pupil) return base;
+      // its lid's edge squashes shut toward the same pivot as the eye does
+      const pivot = cy + 0.3 * EYE.ry, open = 1 - b, squash = (y: number) => pivot + (y - pivot) * open;
+      const A = FACE.angry, big = pupilDark[cx < 0 ? 0 : 1] ? A.pupil : 1, pin = EYE.pin / big;
+      return {
+        white: below(base.white, (x) => squash(cy - A.lift * EYE.ry - A.slope * (x - cx) * side)),
+        pupil: oval(cx - side * (pin + CONVERGE * gaze.conv.v) + gaze.x.v, cy + gaze.y.v, EYE.prx * big, EYE.pry * big * gaze.h.v),
+      };
+    }
+    if (f === "embarrassed") {
+      const shy = FACE.shy, dir = -side, h = shy.high * EYE.ry, len = shy.wide * EYE.rx, mx = cx - side * shy.closer;
+      const bx = mx - dir * len, tx = mx + dir * len, arm = Math.hypot(2 * len, h), s = (shy.arm * arm) / h, s2 = (shy.arm * arm) / (2 * len);
+      return { white: [[bx, cy - h], [tx, cy], [bx, cy + h], [bx, cy + h - s2], [tx - dir * s, cy], [bx, cy - h + s2]], pupil: null };
+    }
+    // happy: shut, arched up
+    const H = FACE.happy, y0 = cy + H.rise * EYE.ry, x0 = cx - 1.02 * EYE.rx, w = 2.04 * EYE.rx, top = H.top * EYE.ry, bottom = H.bottom * EYE.ry;
+    const upper = Array.from({ length: ARC + 1 }, (_, k): Vec2 => { const t = k / ARC; return [x0 + t * w, y0 - 4 * bottom * t * (1 - t)]; });
+    const lower = Array.from({ length: ARC - 1 }, (_, k): Vec2 => { const t = 1 - (k + 1) / ARC; return [x0 + t * w, y0 - 4 * top * t * (1 - t)]; });
+    return { white: [...upper, ...lower], pupil: null };
+  }
+  /** Its own eye (neutral): open, squashing shut with the blink, or the closed arc. */
+  function ownEye(e: EyeSpec, b: number): { white: Vec2[]; pupil: Vec2[] | null } {
     const [cx, cy] = e.c, side = cx > 0 ? 1 : -1;
     const open = 1 - b;
     const ellipse = (x: number, y: number, rx: number, ry: number) => Array.from({ length: STEPS }, (_, k): Vec2 => { const t = 2 * Math.PI * k / STEPS; return [x + rx * Math.cos(t), y + ry * Math.sin(t)]; });
@@ -1968,6 +2057,8 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   const HEAD = { omega: 9, quick: 16 };
   /** The head's angles for an aim in the pointer's space. */
   const headAim = (nx: number, ny: number): Vec2 => [nx * LOOK.yaw, ny > 0 ? ny * LOOK.pitchDown : ny * LOOK.pitchUp];
+  /** Shut enough for a face to swap unseen: the closed arc. */
+  const SHUT = 0.97;
   /** Blinks and pupil moves run: always, except under reduced motion with nothing attending (or ?still). */
   const lively = () => !reduceMotion || (attended && !STILL);
   /** Each eye's lid this frame (0 the viewer's left, 1 the right): the most shut of the blink, its own lid and the resting lid. */
@@ -1983,7 +2074,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   let lastDrawn: number[] | null = null;
   const DRAWN_EPS = 1e-5;
   function paint(yaw: number, pitch: number, roll: number): boolean {
-    const now = [yaw, pitch, roll, lidOf(0), lidOf(1), gaze.x.v, gaze.y.v, gaze.h.v, gaze.conv.v, wide.v, shift, rise, reveal, CELL, rimWidth()];
+    const now = [yaw, pitch, roll, lidOf(0), lidOf(1), gaze.x.v, gaze.y.v, gaze.h.v, gaze.conv.v, wide.v, shift, rise, reveal, CELL, rimWidth(), FACES.indexOf(faces.now)];
     if (suit > 0 || turn !== 0) now.push(suit, turn, drift.roll, drift.yaw, drift.lift, limbs ? limbs.version : 0);
     const was = lastDrawn;
     if (was && was.length === now.length && now.every((v, i) => Math.abs(v - was[i]) < DRAWN_EPS)) return false;
@@ -2011,6 +2102,8 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     if (FORCED) { S.yaw.v = FORCED[0]; S.pitch.v = FORCED[1]; }
     blinkAmount = Math.max(FORCED_BLINK ?? (lively() ? stepBlink(S.t) : 0), stepLid(S.t));
     stepEase(eyeLids[0], S.t); stepEase(eyeLids[1], S.t); stepEase(restLid, S.t);
+    // a new face swaps in once the eyes are shut (see setFace)
+    if (faces.next && Math.max(lidOf(0), lidOf(1)) >= SHUT) { faces.now = faces.next; faces.next = null; }
     const nod = breathe(dt);
     if (!reduceMotion && !FORCED) { stepTilt(S.t, dt); stepGaze(S.t, dt); }
     else if (lively() && !FORCED) stepGaze(S.t, dt);   // reduced motion, attended: the pupils still jump
@@ -2299,6 +2392,20 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     doubleBlink() {
       if (!lively() || lid.v > 0) return;
       blink.start = S.t; blink.timing = BLINK; blink.cued = false; blink.double = false; blink.twice = true;
+    },
+    setFace(f) {
+      if (f === (faces.next ?? faces.now)) return;
+      // shut already, or no blinks to hide it in: at once
+      if (reduceMotion || !lively() || Math.max(lidOf(0), lidOf(1)) >= SHUT) {
+        faces.now = f; faces.next = null;
+        return;
+      }
+      faces.next = f;
+      // (a blink under way hides it as well)
+      if (blink.start < 0) { blink.start = S.t; blink.timing = BLINK; blink.cued = true; blink.double = false; }
+    },
+    get face() {
+      return faces.next ?? faces.now;
     },
     get breath() {
       return breath.w;

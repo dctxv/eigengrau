@@ -30,6 +30,8 @@ export type Where = Point | (() => Point | null);
 /** An act: a generator that yields the seconds to wait before its next step (0: the next frame). */
 export type Act = Generator<number, void, void>;
 export type Mood = "awake" | "dozing" | "asleep";
+/** Asleep for the night, its head tips this far to one side (degrees), as on a pillow (see sleepSide). */
+export const SLEEP_ROLL = 12;
 
 export type TargetKind = "pointer" | "pill" | "exit" | "mote";
 export type TargetSpec = {
@@ -135,6 +137,8 @@ export class Attention {
   alertness = ALERT.base;
   hours: Hours = "day";
   listening = false;
+  /** Which way the night's sleep tips its head: 1 its top to the right (the left ear up), -1 to the left. Drawn once a visit. */
+  readonly sleepSide: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
   private o: AttentionOptions;
   private started = false;
   private startedAt = 0;
@@ -212,7 +216,7 @@ export class Attention {
       if (o.afterIntro) this.play("dozeOff", 8, () => dozeOff(this), { sleeping: true });
       else {
         this.setMood("asleep", 0);
-        this.ch.pose(0, 7, 0, 60); // already sunk when you arrive
+        this.ch.pose(0, 7, SLEEP_ROLL * this.sleepSide, 60); // already sunk when you arrive
       }
     }
     this.apply(true);
@@ -419,10 +423,10 @@ export class Attention {
     this.ch.openEyes(0);
   }
 
-  /** For acts: the head back to the mood's own pose (level awake, dipped asleep). */
+  /** For acts: the head back to the mood's own pose (level awake, dipped asleep, and the night's sleep tipped to one side). */
   restPose(speed = 6) {
     const dip = this.mood === "asleep" ? 7 : this.mood === "dozing" ? 4 : 0;
-    this.ch.pose(0, dip, 0, speed);
+    this.ch.pose(0, dip, this.mood === "asleep" ? SLEEP_ROLL * this.sleepSide : 0, speed);
   }
 
   /** For acts: the mood changes (lids over `seconds`). */
