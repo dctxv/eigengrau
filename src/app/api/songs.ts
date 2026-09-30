@@ -9,6 +9,8 @@
  * which it hands on as a cover id /api/cover serves).
  */
 
+import { revalidateTag } from "next/cache";
+
 const ITUNES = "https://itunes.apple.com/search";
 const DEEZER = "https://api.deezer.com/search";
 /**
@@ -118,17 +120,64 @@ export function onHost(url: string | null | undefined, hosts: string[]): string 
   }
 }
 
-/** A store's answer, kept KEEP seconds (or not at all); null when it did not answer, or not in time. */
+/**
+ * A store turning a request away with a 200: Deezer answers its rate limit (and its other
+ * errors) as `{ "error": { "code": 4, ... } }`, which is not a list with nothing in it. Its
+ * codes 4 (quota: its limit is per address, and a serverless function shares its address) and
+ * 700 (busy) pass within a few seconds.
+ */
+type Refusal = { error?: { code?: number } };
+const refused = (body: unknown) => typeof body === "object" && body !== null && typeof (body as Refusal).error === "object" && (body as Refusal).error !== null;
+const busy = (body: unknown) => [4, 700].includes(Number((body as Refusal).error?.code));
+/** How long a store that said it is busy is given before it is asked once more (ms). */
+const BUSY_WAIT = 1_500;
+
+/** The data cache's tag for a store's URL: a hash of it, as a tag is kept short. */
+function tagOf(url: string) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < url.length; i++) h = Math.imul(h ^ url.charCodeAt(i), 0x01000193);
+  return `store:${(h >>> 0).toString(36)}:${url.length}`;
+}
+
+const wait = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((done) => {
+    const t = setTimeout(done, ms);
+    signal?.addEventListener("abort", () => (clearTimeout(t), done()), { once: true });
+  });
+
+/**
+ * A store's answer, kept KEEP seconds (or not at all); null when it did not answer, not in time,
+ * or turned the request away. A refusal is never kept as an answer: the cache only keeps a 200,
+ * and a refusal comes as one, so it is dropped from the cache at once, and a store that said it
+ * was busy is asked once more a moment later. Kept, a refusal read as "no such song" for hours,
+ * and a song new to the week's chart, looked up with the rest of what has no sleeve all at once,
+ * was the one it fell on.
+ */
 async function ask<T>(url: string, signal?: AbortSignal, keep = true): Promise<T | null> {
-  try {
-    const res = await fetch(url, {
-      ...(keep ? { next: { revalidate: KEEP } } : { cache: "no-store" as const }),
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(SEARCH_MS)]) : AbortSignal.timeout(SEARCH_MS),
-    });
-    return res.ok ? ((await res.json()) as T) : null;
-  } catch {
-    return null;
+  const tag = tagOf(url);
+  for (let tries = 0; tries < 2; tries++) {
+    try {
+      const res = await fetch(url, {
+        ...(keep && tries === 0 ? { next: { revalidate: KEEP, tags: [tag] } } : { cache: "no-store" as const }),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(SEARCH_MS)]) : AbortSignal.timeout(SEARCH_MS),
+      });
+      if (!res.ok) return null;
+      const body: unknown = await res.json();
+      if (!refused(body)) return body as T;
+      if (keep && tries === 0) {
+        try {
+          revalidateTag(tag, { expire: 0 });
+        } catch {
+          /* outside a request (a script): nothing is kept there anyway */
+        }
+      }
+      if (!busy(body) || signal?.aborted) return null;
+      await wait(BUSY_WAIT, signal);
+    } catch {
+      return null;
+    }
   }
+  return null;
 }
 
 type AppleResult = { kind?: string; artistName?: string; trackName?: string; previewUrl?: string; trackViewUrl?: string; artworkUrl100?: string };
