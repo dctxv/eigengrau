@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
 import { rawColor } from "@/engine/common/color";
-import { faceted, glass, glassEdges, glint, halo, haze, release, type Item } from "./look";
+import { KEY, faceted, glassEdges, glint, halo, haze, ice, release, type Item } from "./look";
 
 /**
  * How it strikes, as lightning does, in seconds: a faint leader forks its way down from the top over
@@ -10,7 +10,7 @@ import { faceted, glass, glassEdges, glint, halo, haze, release, type Item } fro
  * `fade`, its branches first; all of it over in under half a second, as lightning is. A
  * dark pause of `gap[0]` to `gap[1]`, and the next strike takes a new path. The whole time it
  * crackles: its forks jump a little `crackle` times a second, by up to `jitter` of the shard's
- * height. Its glass turns once in `turn` seconds.
+ * height. Its ice turns once in `turn` seconds.
  */
 const STRIKE = { leader: 0.06, flash: 2.6, stroke: 0.04, restrikes: [0.05, 0.11, 0.17], restrike: 1.9, flicker: 0.025, fade: 0.16, gap: [0.3, 1.3] as [number, number], crackle: 30, jitter: 0.012, turn: 26 };
 
@@ -26,7 +26,7 @@ function seeded(seed: number) {
   };
 }
 
-/** How far out from its axis the shard reaches at height y (a little inside it: what is trapped keeps clear of the glass). */
+/** How far out from its axis the shard reaches at height y (a little inside it: what is trapped keeps clear of its faces). */
 const inside = (y: number) => 0.8 * (y < -0.55 ? 0.38 * Math.max(0, (y + 0.98) / 0.43) : y < 0.35 ? 0.38 : 0.38 * Math.max(0, 1 - (y - 0.35) / 0.62));
 
 /** The shard: the hull of a few points about a long axis, its top broken off at a slant. */
@@ -46,7 +46,7 @@ type Chain = { pts: THREE.Vector3[]; dist: number[]; width: number[]; depth: num
 
 /**
  * A bolt: a trunk down the shard's length from its top and branches off it, and branches off those,
- * each a run of short pieces whose direction wanders, kept inside the glass. Each point knows how
+ * each a run of short pieces whose direction wanders, kept inside the ice. Each point knows how
  * far along the bolt it is from where it struck (a share of `length`, the longest way along it), for
  * the leader's way down.
  */
@@ -75,7 +75,7 @@ function bolt(rand: () => number): { chains: Chain[]; length: number } {
         grow(q, dir.clone().add(side).normalize(), length * (depth === 0 ? 0.3 : 0.55), width * 0.6, d, depth + 1);
       }
       p = q;
-      // (it has reached the bottom of the glass: it grounds there)
+      // (it has reached the bottom of the ice: it grounds there)
       if (q.y < -0.85) break;
     }
   };
@@ -306,27 +306,76 @@ function strikes() {
 }
 
 /**
- * Frozen lightning (uncommon): lightning in pale violet and white, trapped inside a clear glass
- * shard, striking over and over as lightning does (see STRIKE): a leader forking down from the top,
+ * A few cracks through the ice: flat sheets inside it with ragged edges, faint until one turns to
+ * catch the key light and flashes, as a crack in ice does; a thin brighter line where each ends.
+ * Lit by what is in the ice as it is (`lit`).
+ */
+function fractures(rand: () => number) {
+  const lit = { value: 0 };
+  const material = (seed: number) => new THREE.ShaderMaterial({
+    uniforms: { uKey: { value: KEY }, uLit: lit, uColour: { value: rawColor("#e6f8ff") }, uSeed: { value: seed } },
+    vertexShader: /* glsl */ `varying vec2 vUv; varying vec3 vN; varying vec3 vP;
+      void main() { vUv = uv; vec4 p = modelViewMatrix * vec4(position, 1.0); vP = p.xyz; vN = normalMatrix * normal; gl_Position = projectionMatrix * p; }`,
+    fragmentShader: /* glsl */ `uniform vec3 uKey; uniform float uLit; uniform vec3 uColour; uniform float uSeed; varying vec2 vUv; varying vec3 vN; varying vec3 vP;
+      void main() {
+        vec2 q = (vUv * 2.0 - 1.0) * vec2(1.0, 1.6);
+        float ang = atan(q.y, q.x), d = length(q);
+        // a long, uneven outline, different for each crack; its edge line broken in places
+        float edge = 0.8 + 0.1 * sin(ang * 2.0 + uSeed) + 0.07 * sin(ang * 3.0 + 1.7 * uSeed) + 0.05 * sin(ang * 7.0 + 2.3 * uSeed) + 0.03 * sin(ang * 11.0 + uSeed);
+        float sheet = smoothstep(edge, edge - 0.35, d) * (0.6 + 0.4 * sin(q.x * 9.0 + q.y * 4.0 + uSeed));
+        float rim = exp(-pow((d - edge) / 0.02, 2.0)) * smoothstep(-0.2, 0.4, sin(ang * 4.0 + 2.0 * uSeed));
+        vec3 n = normalize(vN), v = normalize(-vP);
+        float flash = smoothstep(0.55, 0.92, abs(dot(reflect(-v, n), uKey)));
+        float a = sheet * (0.02 + 0.1 * flash + 0.15 * uLit) + rim * (0.08 + 0.25 * uLit);
+        gl_FragColor = vec4(uColour, a);
+      }`,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  });
+  const group = new THREE.Group();
+  for (const [y, size] of [[-0.32, 0.42], [0.08, 0.46], [0.36, 0.34]]) {
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(size, size), material(rand() * 6.283));
+    sheet.position.set((rand() - 0.5) * 0.12, y, (rand() - 0.5) * 0.12);
+    sheet.rotation.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI);
+    group.add(sheet);
+  }
+  group.renderOrder = 0.5;
+  group.children.forEach((c) => (c.renderOrder = 0.5));
+  return {
+    group,
+    set lit(v: number) {
+      lit.value = v;
+    },
+  };
+}
+
+/**
+ * Frozen lightning (uncommon): lightning in pale violet and white, trapped inside a shard of ice, striking over and over as lightning does (see STRIKE): a leader forking down from the top,
  * the flash of the return stroke, a flicker of restrikes, a fade, a dark pause, and a new path. It
- * blooms and crackles while it is lit, and each strike lights everything round it: the glass from
- * inside and along its edges, a violet halo, a burst of light at its brightest and the haze beneath;
- * and the stroke jolts the shard. The glass, clear between strikes, catches the light on a face or
- * two as it turns slowly, and a small four-point glint at its corners now and then.
+ * blooms and crackles while it is lit, and each strike lights everything round it: the ice all through
+ * and along its edges, a violet halo, a burst of light at its brightest and the haze beneath;
+ * and the stroke jolts the shard. The ice (cloudy, pale cyan, deep blue in its depths, frosted in
+ * patches, a few cracks through it that flash as they catch the light) turns slowly, with a small
+ * four-point glint at its corners now and then.
  */
 export function makeLightning(): Item {
   const rand = seeded(20260930);
   const { geometry, corners } = shardGeometry(rand);
   const shard = new THREE.Group();
-  const backGlass = glass("#c9d2ff", THREE.BackSide, 0.03, "#b59cff"), frontGlass = glass("#c9d2ff", THREE.FrontSide, 0.04, "#d9ccff");
-  const back = new THREE.Mesh(geometry, backGlass);
-  const front = new THREE.Mesh(geometry, frontGlass);
+  // its depths a deeper blue than its faces, and frost only on its faces
+  const depths = ice("#48a6e2", "#0e325e", THREE.BackSide, 0.36, 0, "#b9a8ff"), faces = ice("#a4e2ff", "#2c74b6", THREE.FrontSide, 0.13, 0.7, "#d6ccff");
+  const back = new THREE.Mesh(geometry, depths);
+  const front = new THREE.Mesh(geometry, faces);
   back.renderOrder = 0;
   front.renderOrder = 2;
   const edges = glassEdges(geometry, 0.45, "#e2d8ff", 20, 0.65, 0.07);
   edges.lines.renderOrder = 2;
   const light = boltMesh();
-  shard.add(back, light.mesh, front, edges.lines);
+  const cracks = fractures(rand);
+  shard.add(back, cracks.group, light.mesh, front, edges.lines);
   // glints on three of its corners, each on a beat of its own
   const glints = [1, 8, 14].map((i, k) => {
     const g = glint(0.34);
@@ -340,7 +389,7 @@ export function makeLightning(): Item {
   // a faint violet halo that flares with each strike, and a wider burst of light only at its brightest
   const glow = halo("#9d7dff", 2.1, 0.05);
   const burst = halo("#cdbfff", 2.3, 0);
-  const under = haze("#b9a6ff", 1.7, 0.08);
+  const under = haze("#b6e2ff", 1.7, 0.08);
   const underStrength = (under.material as THREE.ShaderMaterial).uniforms.uStrength;
   under.position.set(0, -1.02, -0.5);
   const root = new THREE.Group();
@@ -369,11 +418,13 @@ export function makeLightning(): Item {
       u.uBranch.value = l.branch;
       u.uCrackle.value = Math.floor(t * STRIKE.crackle) % 1000;
       light.mesh.visible = l.bright > 0;
-      // it lights everything round it: the glass from inside and its edges, the halo, a burst of
-      // light at its brightest, and the haze beneath; between strikes only a trace of the halo is left
+      // it lights everything round it: the ice all through (the cracks in it too) and its edges, the
+      // halo, a burst of light at its brightest, and the haze beneath; between strikes only a trace
+      // of the halo is left
       const lit = Math.min(2.6, l.bright);
-      backGlass.uniforms.uInner.value = 0.05 * lit;
-      frontGlass.uniforms.uInner.value = 0.02 * lit;
+      depths.uniforms.uInner.value = 0.08 * lit;
+      faces.uniforms.uInner.value = 0.04 * lit;
+      cracks.lit = 0.2 * lit;
       edges.flare = 0.22 * lit;
       glow.strength = 0.05 + 0.2 * lit;
       burst.strength = 0.14 * Math.max(0, l.bright - 1.2);

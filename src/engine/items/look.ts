@@ -220,9 +220,92 @@ export function glass(tint: string, side: THREE.Side, clear = 0.06, inner = "#ff
   });
 }
 
+const iceVertex = /* glsl */ `
+varying vec3 vN;
+varying vec3 vP;
+varying vec3 vO;
+void main() {
+  vec4 p = modelViewMatrix * vec4(position, 1.0);
+  vP = p.xyz;
+  vN = normalMatrix * normal;
+  vO = position;
+  gl_Position = projectionMatrix * p;
+}`;
+
+const iceFragment = /* glsl */ `
+uniform vec3 uLit;
+uniform vec3 uShade;
+uniform vec3 uKey;
+uniform float uBody;
+uniform float uFrost;
+uniform vec3 uInnerColour;
+uniform float uInner;
+varying vec3 vN;
+varying vec3 vP;
+varying vec3 vO;
+float hash(vec3 p) {
+  p = fract(p * 0.3183099 + 0.1) * 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float noise(vec3 x) {
+  vec3 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hash(i), hash(i + vec3(1, 0, 0)), f.x), mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x), mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+void main() {
+  vec3 n = normalize(vN), v = normalize(-vP);
+  bool within = !gl_FrontFacing;
+  if (within) n = -n;
+  float nv = clamp(dot(n, v), 0.0, 1.0);
+  // its own colour, face by face: pale where the key falls, a deep cold blue turned from it
+  float t = smoothstep(-0.5, 0.9, dot(n, uKey));
+  vec3 c = mix(uShade, uLit, t);
+  // frost in patches on its faces (fixed to it, so it turns with it), and whiter toward the faces seen at a slant
+  float frost = uFrost * smoothstep(0.45, 0.75, 0.5 * noise(vO * 5.0) + 0.3 * noise(vO * 10.3 + 1.7) + 0.2 * noise(vO * 21.0 + 3.1));
+  float fres = pow(1.0 - nv, 3.0);
+  // wet: a sharp highlight where the key is caught, and a soft sheen of the light up by it
+  vec3 r = reflect(-v, n);
+  float spec = pow(max(dot(r, uKey), 0.0), 70.0), sheen = 0.3 * smoothstep(0.7, 0.92, dot(r, uKey));
+  float white = clamp(0.8 * frost + 0.5 * fres + sheen + 1.4 * spec, 0.0, 1.0);
+  float a = clamp(within ? uBody : uBody + 0.35 * frost + 0.3 * fres + 0.5 * sheen + 0.5 * spec, 0.0, 1.0);
+  if (within) white *= 0.3;
+  // (frost and a slant whiten it toward a cold pale blue; only the highlight is pure white)
+  vec3 pale = mix(vec3(0.84, 0.95, 1.0), vec3(1.0), clamp(1.4 * spec, 0.0, 1.0));
+  // and lit through by what is in it, as ice lets light through: all of it glows, most seen at a slant
+  gl_FragColor = vec4(mix(c, pale, white) * a + uInnerColour * uInner * (0.5 + 0.5 * (1.0 - nv)), a);
+}`;
+
 /**
- * The thin light lines along a glass thing's edges: bright on the side toward you, faint on the far
- * side seen through it (so it reads as a clear solid, not a wire frame); `reach` is how far its
+ * Ice, faceted: cloudy, `lit` where the key falls and `shade` turned from it, frosted in patches
+ * (`frost`, 0 none) and whiter toward the faces seen at a slant, wet with a sharp highlight where the
+ * key catches it. `body` is how cloudy it is (0 clear). One side of it (`side`): an ice thing is
+ * drawn back faces first (its depths), what is inside it, then its front faces. Light shines
+ * through it from what is inside with `uniforms.uInner` (0 unlit) in `uniforms.uInnerColour`.
+ */
+export function ice(lit: string, shade: string, side: THREE.Side, body = 0.22, frost = 1, inner = "#ffffff") {
+  return new THREE.ShaderMaterial({
+    vertexShader: iceVertex,
+    fragmentShader: iceFragment,
+    uniforms: {
+      uLit: { value: rawColor(lit) },
+      uShade: { value: rawColor(shade) },
+      uKey: { value: KEY },
+      uBody: { value: body },
+      uFrost: { value: frost },
+      uInnerColour: { value: rawColor(inner) },
+      uInner: { value: 0 },
+    },
+    transparent: true,
+    premultipliedAlpha: true,
+    depthWrite: false,
+    side,
+  });
+}
+
+/**
+ * The thin light lines along a glass or ice thing's edges: bright on the side toward you, faint on
+ * the far side seen through it (so it reads as a solid, not a wire frame); `reach` is how far its
  * edges lie from its middle, near and far. Flare them (a light in it) with `flare`, 0 not at all.
  */
 export function glassEdges(geometry: THREE.BufferGeometry, reach: number, flareColour = "#ffffff", angle = 20, near = 0.55, far = 0.07) {
