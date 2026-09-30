@@ -269,3 +269,40 @@ export const SPACE_ITEMS: SpaceItem[] = [
   { id: "nextbranch-building", year: 2026, project: "nextbranch", title: "Importing", category: "Tooling", aspect: 1.778, media: { kind: "image", src: "/work/nextbranch-building.webp" }, description: desc("An import under way.", "Public repositories only;", "imported code is never run.") },
   { id: "vector-atlas", year: 2026, project: "vector", title: "The atlas", category: "Navigation", aspect: 1.5, media: { kind: "image", src: "/work/vector-atlas.webp" }, description: desc("Thirty modules in four phases,", "from bits and bytes", "to governing the whole system.") },
 ];
+
+/**
+ * Space's items, by tier, rarest last. Each is a small 3D object (src/engine/items/, one file per
+ * item, by its id) with its name and a one-line caption in his voice (no exclamation marks). Add
+ * an item to any tier by adding its line here and its file there.
+ */
+export type ItemTier = "common" | "uncommon" | "rare" | "top";
+export type ItemText = { id: string; name: string; caption: string };
+export const ITEMS: Record<ItemTier, ItemText[]> = {
+  common: [
+    { id: "lost-glove", name: "Lost glove", caption: "Someone out here is waving with one hand." },
+    { id: "static-puff", name: "Static puff", caption: "A channel nobody is broadcasting on." },
+    { id: "micrometeorite", name: "Micrometeorite", caption: "You'll have to take Urchi's word for it." },
+  ],
+  uncommon: [
+    { id: "frozen-lightning", name: "Frozen lightning", caption: "It struck once and decided to stay." },
+    { id: "magnet-stone", name: "Magnet stone", caption: "It likes you. It likes everything, a little." },
+    { id: "comet-minnows", name: "Comet minnows", caption: "They go wherever the first one goes." },
+  ],
+  rare: [
+    { id: "phase-shard", name: "Phase shard", caption: "Only all there while you look at it." },
+    { id: "dark-matter", name: "Dark matter", caption: "There is definitely something here." },
+    { id: "time-crystal", name: "Time crystal", caption: "It keeps better time than he does." },
+  ],
+  top: [
+    { id: "fallen-star", name: "Fallen star", caption: "Still warm." },
+    { id: "star-whale-calf", name: "Star whale calf", caption: "Its mother is probably nearby." },
+    { id: "pocket-universe", name: "Pocket universe", caption: "Somewhere in there, someone is holding a planet." },
+  ],
+};
+
+/** The hidden note each top-tier item unlocks, by the item's id. Placeholders: his to write. */
+export const ITEM_NOTES: Record<string, string> = {
+  "fallen-star": "TODO: the note the fallen star unlocks.",
+  "star-whale-calf": "TODO: the note the star whale calf unlocks.",
+  "pocket-universe": "TODO: the note the pocket universe unlocks.",
+};
