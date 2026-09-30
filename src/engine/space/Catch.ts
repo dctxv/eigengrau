@@ -40,10 +40,11 @@ const GLINT = { first: [9, 14] as [number, number], firstNew: [3, 5] as [number,
 const RAISE = { wait: 0.15, for: 0.65, burst: 0.7, out: 0.45 };
 /**
  * Held up, what it caught is brought to the middle of the page: the view pans to it, closing `rate`
- * of the way a second, for as long as it is held up (so it keeps it there as Urchi drifts), and
- * stays where it came to. Urchi's line, fixed to the page's edge, is pulled with the view.
+ * of the way a second, for as long as it is held up (so it keeps it there as Urchi drifts), and once
+ * it has gone up into the sky pans back to where it was, `back` of the way a second. Urchi's line,
+ * fixed to the page's edge, is pulled with the view.
  */
-const CENTRE = { rate: 2.2 };
+const CENTRE = { rate: 2.2, back: 1.2 };
 /**
  * The star behind something new held up: a lens flare, white, as bright as anything on the page. Its
  * core comes up over `grow` seconds (overshooting a little) with a flash (`flash` over its strength,
@@ -437,8 +438,8 @@ export class Catch {
     if (!h) return;
     this.held = null;
     o.float.openHand();
-    // (the view stays where the catch was shown; it is the visitor's to move again)
-    o.room.panToward(null);
+    // (and once it has gone up, the view comes back to where it was)
+    o.room.panToward(0, 0, CENTRE.back);
     // the star goes up with it, fading; with Urchi gone, at once
     if (this.star) {
       if (now) {

@@ -105,13 +105,12 @@ const DITHER_CELL = 2.5;
 export const ZOOM = { min: 0.1, max: 2, ease: 0.12, farCells: 7.5, pixelFrom: 0.4 } as const;
 
 /**
- * Afloat, the view pans over the sky (a press held on empty space, dragged): where the page's middle
- * looks, room CSS px at Urchi's depth (the world the float, the glint and what is let go in are in;
- * the sky's depths move less, by their own depths). Never further than `most` times the room's
- * larger side from where it started. Let go moving, it glides on, slowing at `drag` a second (its
- * velocity falls by e each 1/drag s), and never faster than `fastest` px/s. Eased somewhere (the
- * camera centring something, or home), it closes `rate` of the way a second (an exponential ease).
- * Home again, it is put back at once.
+ * Afloat, the view can pan over the sky (the catch brings what Urchi holds up to the middle of the
+ * page, and back): where the page's middle looks, room CSS px at Urchi's depth (the world the float,
+ * the glint and what is let go in are in; the sky's depths move less, by their own depths). Never
+ * further than `most` times the room's larger side from where it started. Given a push (panFling),
+ * it glides on, slowing at `drag` a second, never faster than `fastest` px/s. Eased somewhere, it
+ * closes `rate` of the way a second (an exponential ease). Home again, it is put back at once.
  */
 export const PAN = { most: 2.2, drag: 3.2, fastest: 5000, rate: 2.5 };
 
