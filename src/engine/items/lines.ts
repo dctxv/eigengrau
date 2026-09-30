@@ -155,7 +155,8 @@ function geometry(lines: GlowLine[]) {
  * ends, its core bright and its glow soft, light added to what is under it (so it blooms). Where a
  * line bends, the line that halves the bend splits the pixels between its two pieces (each as
  * bright as the other along it), so their light meets once and never doubles: no bright beads at
- * its joins. Bend them about and shade them along their length with `look`.
+ * its joins. Bend them about and shade them along their length with `look`; move them (lines of
+ * the same number of points each as they were made with) with `set`.
  */
 export function glowLines(lines: GlowLine[], look: GlowLinesLook = {}) {
   const uniforms = {
@@ -181,5 +182,17 @@ export function glowLines(lines: GlowLine[], look: GlowLinesLook = {}) {
   mesh.renderOrder = 1;
   // (where on the drawing buffer it is being drawn, for the bends' lines, which are in its pixels)
   mesh.onBeforeRender = (renderer) => renderer.getCurrentViewport(uniforms.uViewport.value);
-  return { mesh, uniforms };
+  return {
+    mesh,
+    uniforms,
+    set(next: GlowLine[]) {
+      const g = geometry(next);
+      for (const name of ["position", "aA", "aB", "aPrev", "aNext", "aWidth", "aAlong"]) {
+        const to = mesh.geometry.getAttribute(name) as THREE.BufferAttribute;
+        (to.array as Float32Array).set(g.getAttribute(name).array as Float32Array);
+        to.needsUpdate = true;
+      }
+      g.dispose();
+    },
+  };
 }
