@@ -52,7 +52,10 @@ export function ItemSheet() {
       renderer.clear();
       if (!item) return;
       if (!still) t += dt;
-      item.update(still ? 0 : dt, t, still);
+      // (a script filming it sets window.__t, seconds, a frame at a time)
+      const held = (window as unknown as { __t?: number }).__t;
+      if (held !== undefined) item.update(1 / 30, held, false);
+      else item.update(still ? 0 : dt, t, still);
       // the close view, and beside it the item as small as it must read
       for (const [x, size] of [[40, big], [80 + big, SMALL]] as const) {
         const y = h - 60 - size;
