@@ -188,11 +188,15 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const motes = new Motes(room, att, { reducedMotion });
     // its faces: angry, embarrassed, happy listening, and asleep for the night (Faces.ts)
     const faces = new Faces(room, att, { reducedMotion });
-    /** A click or tap that may wake it: woken from the night's sleep, it glares as its eyes open. */
+    /**
+     * A click or tap that may wake it. Woken from the night's sleep for the first time that night
+     * in this browser, it comes to groggy (a stranger's first touch is not told off); woken again
+     * the same night, it glares as its eyes open.
+     */
     const wake = () => {
       const night = att.mood === "asleep";
       const woke = att.wake();
-      if (woke && night) faces.react("angry", { hold: 2.8 });
+      if (woke && night && !att.groggy) faces.react("angry", { hold: 2.8 });
       return woke;
     };
     const call = new Call(room, att, motes, { reducedMotion });

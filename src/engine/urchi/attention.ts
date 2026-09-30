@@ -1,8 +1,8 @@
 import { sfx } from "@/audio/sfx";
 import { pointerSeen } from "@/lib/visits";
 import type { LookHow, UrchiCharacter } from "./character";
-import { clock, type Hours } from "./hours";
-import { doze, dozeOff, nod, peek, soundOn, stir, wake } from "./acts";
+import { clock, markWoken, wokenTonight, type Hours } from "./hours";
+import { doze, dozeOff, nod, peek, soundOn, stir, wake, wakeGroggy } from "./acts";
 
 /**
  * Attention, not tracking (spec S2). Urchi chooses what to look at. Everything
@@ -16,6 +16,13 @@ import { doze, dozeOff, nod, peek, soundOn, stir, wake } from "./acts";
  * never flickers. When nothing does, it gets bored: it looks off to a corner
  * and checks back on you every few seconds, as a cat does. An act, while it
  * runs, has the eyes to itself.
+ *
+ * And it looks rather than tracks (LOOKING). It notices things about 160ms
+ * late, as eyes do: a new thing to look at, and a startle. What drifts slowly
+ * (a mote) its eyes follow; what moves faster (your hand) they jump after
+ * once it has got away from them, each jump as late again. The character
+ * turns the eyes first and the head after, a small turn quick and a big one
+ * slow. Resting its eyes on you, it looks away now and then (AVERT).
  *
  * It also keeps the creature's state: one alertness value (drowsy .. alert,
  * settling over about 30s) that sets the breath, the blinks and a resting
@@ -105,6 +112,27 @@ const NEAR = 0.3;
  * held a little longer, and a slower breath. Content, not sleepy: the lid stays under half.
  */
 const SOFT = { lid: 0.34, lidReduced: 0.45, period: 5.6, gap: [5, 9] as [number, number], hold: 0.3 };
+/**
+ * Groggy (woken for the first time in his night: acts.ts wakeGroggy): for `for` seconds, the last
+ * `clear` of them easing off, a heavy resting lid (heavier under reduced motion), slower and
+ * longer blinks, a slow breath, no curious tilts, and `late` times slower to react.
+ */
+const GROGGY = { for: 24, clear: 14, lid: 0.42, lidReduced: 0.5, period: 6.6, gap: [4, 8] as [number, number], hold: 0.32, late: 1.6 };
+/**
+ * Looking, not tracking. It looks to something new `latency` seconds late (log-normal, `spread`
+ * its sigma, kept within `min`..`max`, as reaction times are). While what it looks at moves, its
+ * eyes keep up only at `pursuit` degrees of turn a second (a mote's drift, not a hand), and once
+ * it is `slip` degrees away they jump to where it is then, as late again. Degrees are the look's
+ * own (TURN.yaw and TURN.pitch across the screen).
+ */
+const LOOKING = { latency: 0.16, spread: 0.18, min: 0.1, max: 0.3, pursuit: 4, slip: 3 };
+/**
+ * Looking away from you, as people and animals do in a long look (a stare is a challenge): with
+ * its eyes on you and you still (`still` seconds), after `after` seconds (a log-normal's median
+ * and spread) it looks `off` degrees to one side, and `drop` degrees down or up (mostly down), for
+ * `hold` seconds (the same), then back.
+ */
+const AVERT = { still: 0.6, after: [3.2, 0.45] as [number, number], hold: [0.8, 0.3] as [number, number], off: [8, 15] as [number, number], drop: [-3, 5] as [number, number] };
 /** Once woken in this session, it stays up for this long across tabs (ms). */
 const STAYS_UP = 3 * 60 * 1000;
 /** In memory for the session: when it was last woken. */
@@ -113,6 +141,8 @@ let wokenAt = -Infinity;
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
+/** A log-normal draw: `median`, and `spread` its sigma. */
+const lognormal = (median: number, spread: number) => median * Math.exp(spread * Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random()));
 
 /** A tab pill's centre in client px, by its href; null when it is not laid out. */
 export function pillAt(href: string): Point | null {
@@ -170,6 +200,19 @@ export class Attention {
   private steadying = false;
   /** Soft-eyed until then (attention seconds). */
   private softUntil = -1;
+  /** Groggy until then (attention seconds). */
+  private groggyUntil = -1;
+  /**
+   * The look it holds (see LOOKING): where (null: straight ahead), what that is of, and a jump it
+   * has decided on, when and to what.
+   */
+  private fix = { at: null as Point | null, key: "", has: false, due: -1, to: "" };
+  /** Each look an act asks for is a new thing to look at: this counts them. */
+  private actLooks = 0;
+  /** Looking away from you (see AVERT): when it next does, until when it is away, and where to. */
+  private avert = { next: -1, until: -1, at: null as Point | null };
+  /** A startle noticed and not yet shown (see LOOKING): toward where, and when. */
+  private startleDue: { at: Point; due: number } | null = null;
   private pointer = {
     x: 0, y: 0, has: false, touch: false, vx: 0, vy: 0, speed: 0,
     /** Last event of any kind, last move, when it left the window, when it last went fast. */
@@ -236,12 +279,16 @@ export class Attention {
 
   /**
    * A click or tap on Urchi. Asleep (or dozing, or just woken by this same press), it wakes and
-   * the click is spent; returns whether it was.
+   * the click is spent; returns whether it was. Its night's first wake in this browser is a
+   * groggy one; any after it that night, and a doze's, the ordinary one.
    */
   wake(): boolean {
     if (this.mood === "awake") return this.t - this.wokeAt < 0.8;
     wokenAt = Date.now();
-    this.play("wake", 9, () => wake(this), { sleeping: true });
+    const night = this.mood === "asleep";
+    const first = night && !wokenTonight();
+    if (night) markWoken();
+    this.play("wake", 9, () => (first ? wakeGroggy(this) : wake(this)), { sleeping: true });
     return true;
   }
 
@@ -267,6 +314,17 @@ export class Attention {
   /** Soft-eyed now: awake, and trusting you for a while yet. */
   get soft() {
     return this.mood === "awake" && this.t < this.softUntil;
+  }
+
+  /** Groggy from now, as a first wake of the night leaves it (see GROGGY). */
+  setGroggy() {
+    this.groggyUntil = this.t + GROGGY.for;
+    this.apply(true);
+  }
+
+  /** How groggy it is now: 1 just woken, easing to 0 over GROGGY.clear; 0 whenever it is not awake. */
+  get groggy() {
+    return this.mood === "awake" ? clamp((this.groggyUntil - this.t) / GROGGY.clear, 0, 1) : 0;
   }
 
   /** A doze can be broken once it has settled (not while its lids are still closing). */
@@ -296,7 +354,7 @@ export class Attention {
     tg.novelty = Math.min(1.5, tg.novelty + mag);
     this.arousal = Math.min(0.45, this.arousal + 0.2 * mag);
     const at = tg.at();
-    if (startle && at) this.startle(at);
+    if (startle && at) this.startleDue = { at, due: this.t + this.latency() }; // noticed late, as it looks
   }
 
   /** A target's novelty spent (a tap that became a mote: the mote has it now). */
@@ -382,6 +440,7 @@ export class Attention {
    */
   look(where: Where | "you" | "hold" | null, how?: LookHow) {
     this.actGaze = where;
+    this.actLooks++;
     if (how) this.actHow = how;
     this.held = where === "hold" ? this.gazeNow : null;
   }
@@ -595,24 +654,85 @@ export class Attention {
     if (!this.started) return;
     if (this.t < this.blinksHeld) this.ch.openEyes(0); // see holdBlinks
     this.sense(dt);
+    if (this.startleDue && this.t >= this.startleDue.due) {
+      const s = this.startleDue;
+      this.startleDue = null;
+      this.startle(s.at);
+    }
     this.moodStep();
     this.stepAct(dt);
     let gaze: Point | null;
     let fixate = true;
+    let key: string;
     if (this.act && this.actGaze !== null) {
       gaze = this.resolve(this.actGaze);
+      key = `act:${this.actLooks}`;
     } else if (this.mood !== "awake") {
       gaze = null; // asleep: ahead, still
+      key = "asleep";
     } else {
       const c = this.choose(dt);
       gaze = c.at;
       fixate = c.fixate;
+      key = c.key;
     }
     // an act's snap or quick turn goes with this aim and is spent: a quick turn stiffens the head
     // for that turn only, and a snap is already there
     const how = this.act && this.actGaze !== null ? this.actHow : undefined;
     this.actHow = undefined;
+    // Either keeps the act's own time, and a head going to sleep sags rather than looks: straight there.
+    gaze = this.looking(gaze, key, !!how || this.mood !== "awake", dt);
     this.aim(gaze, fixate, how);
+  }
+
+  /**
+   * Where its eyes are this frame, given where they would be (see LOOKING): a new thing to look at
+   * is looked to late, a slow one followed, and a quick one jumped after once it gets away. `key`
+   * names what `want` is of; `direct` goes straight there.
+   */
+  private looking(want: Point | null, key: string, direct: boolean, dt: number): Point | null {
+    const f = this.fix;
+    if (direct || !f.has) {
+      Object.assign(f, { at: want, key, has: true, due: -1, to: "" });
+      return want;
+    }
+    const off = this.degrees(f.at, want);
+    // something new where it is already looking: its own at once, without a jump
+    if (key !== f.key && off <= LOOKING.slip) {
+      f.key = key;
+      f.due = -1;
+    }
+    if (key === f.key) {
+      if (f.to !== key) f.due = -1; // a jump to something it no longer wants
+      if (off > LOOKING.slip) {
+        if (f.due < 0) Object.assign(f, { due: this.t + this.latency(), to: key });
+      } else if (off > 0) {
+        // following it, as fast as eyes pursue
+        const u = Math.min(1, (LOOKING.pursuit * dt) / off);
+        f.at = !f.at || !want ? want : { x: lerp(f.at.x, want.x, u), y: lerp(f.at.y, want.y, u) };
+      }
+    } else if (f.due < 0 || f.to !== key) {
+      Object.assign(f, { due: this.t + this.latency(), to: key });
+    }
+    if (f.due >= 0 && this.t >= f.due) Object.assign(f, { at: want, key: f.to, due: -1 });
+    return f.at;
+  }
+
+  /** How late it reacts this time (see LOOKING): later groggy. */
+  private latency() {
+    return clamp(lognormal(LOOKING.latency, LOOKING.spread), LOOKING.min, LOOKING.max) * lerp(1, GROGGY.late, this.groggy);
+  }
+
+  /** How far apart two looks are, in degrees of turn (null: straight ahead). */
+  private degrees(a: Point | null, b: Point | null) {
+    const p = a ?? this.straight(), q = b ?? this.straight();
+    return Math.hypot(((p.x - q.x) / (innerWidth / 2)) * TURN.yaw, ((p.y - q.y) / (innerHeight / 2)) * TURN.pitch);
+  }
+
+  /** Straight ahead, as aim has it: from the origin (afloat), else the middle of the screen. */
+  private straight(): Point {
+    const o = this.o.origin?.();
+    return o ? { x: o.x, y: o.y } : { x: innerWidth / 2, y: innerHeight / 2 };
   }
 
   private resolve(w: Where | "you" | "hold"): Point | null {
@@ -674,7 +794,8 @@ export class Attention {
     return s;
   }
 
-  private choose(dt: number): { at: Point | null; fixate: boolean } {
+  /** What it looks at of its own accord: where, whether it is fixed there, and what that is (a target's id, a corner, you...). */
+  private choose(dt: number): { at: Point | null; fixate: boolean; key: string } {
     let faintest = Infinity;
     for (const tg of this.targets.values()) if (tg.kind === "mote" && tg.level !== undefined) faintest = Math.min(faintest, tg.level);
     let best: Target | null = null;
@@ -706,28 +827,53 @@ export class Attention {
     }
     // bored: nothing pulls much, so it looks off somewhere and checks back on you now and then
     this.boredFor = curS < BORED.below && this.t - this.startedAt > BORED.grace ? this.boredFor + dt : 0;
-    if (!curAt && this.t - this.startedAt < BORED.grace) return { at: this.ahead(), fixate: true }; // just arrived: out at you
-    if (this.boredFor > BORED.after || !curAt) return { at: this.wander(), fixate: true };
+    const onYou = !!curAt && this.boredFor <= BORED.after && this.current?.kind === "pointer";
+    if (!onYou) this.avert.next = this.avert.until = -1;
+    if (!curAt && this.t - this.startedAt < BORED.grace) return { at: this.ahead(), fixate: true, key: "ahead" }; // just arrived: out at you
+    if (this.boredFor > BORED.after || !curAt) return { ...this.wander(), fixate: true };
     this.idle.corner = null;
     const cur = this.current!;
     if (cur.kind === "mote" && this.t > this.bobNext && this.t - this.currentSince > 2) {
       this.bobNext = this.t + (this.ch.bob() ? rand(...MOTE_STILL.bob) : MOTE_STILL.retry);
     }
+    const away = onYou ? this.averted(curAt) : null;
+    if (away) return { at: away, fixate: true, key: "avert" };
     const settled = cur.kind !== "pointer" || this.t - this.pointer.lastMove > 0.5;
-    return { at: curAt, fixate: settled };
+    return { at: curAt, fixate: settled, key: cur.id };
+  }
+
+  /** Its eyes on you: now and then it looks away a moment (see AVERT). Where to, while it does; else null. */
+  private averted(you: Point): Point | null {
+    const v = this.avert;
+    if (this.t - this.pointer.lastMove < AVERT.still) {
+      v.next = v.until = -1; // a hand that moves is watched
+      return null;
+    }
+    if (this.t < v.until) return v.at;
+    if (v.next < 0) v.next = this.t + lognormal(...AVERT.after);
+    if (this.t < v.next) return null;
+    v.until = this.t + lognormal(...AVERT.hold);
+    v.next = v.until + lognormal(...AVERT.after);
+    // to one side (the room's, not off its edge) and a little down or up
+    const W = innerWidth, H = innerHeight;
+    const dx = (rand(...AVERT.off) / TURN.yaw) * (W / 2), dy = (rand(...AVERT.drop) / TURN.pitch) * (H / 2);
+    let side = Math.random() < 0.5 ? -1 : 1;
+    if (you.x + side * dx < 0 || you.x + side * dx > W) side = -side;
+    v.at = { x: clamp(you.x + side * dx, 0, W), y: clamp(you.y + dy, 0, H) };
+    return v.at;
   }
 
   /** Boredom's gaze: a corner (the bottom centre on a phone, where the thumb lives), and back on you every 3-6s. */
-  private wander(): Point {
+  private wander(): { at: Point; key: string } {
     const w = innerWidth, h = innerHeight, i = this.idle;
     const you = this.you();
-    if (i.checkUntil > this.t && you) return you;
+    if (i.checkUntil > this.t && you) return { at: you, key: "pointer" };
     if (!i.corner || this.t >= i.next) {
       if (i.corner && you && i.checkUntil < this.t && Math.random() < 0.8) {
         i.checkUntil = this.t + BORED.checkFor; // a check on you first
         i.next = this.t + BORED.checkFor;
         i.corner = Math.random() < 0.5 ? i.corner : null;
-        return you;
+        return { at: you, key: "pointer" };
       }
       const phone = this.pointer.touch || matchMedia("(hover: none)").matches;
       const corners = phone
@@ -742,7 +888,7 @@ export class Attention {
       i.corner = i.corner && phone ? i.corner : (others.length ? others : corners)[Math.floor(Math.random() * (others.length || corners.length))];
       i.next = this.t + rand(...BORED.check);
     }
-    return i.corner;
+    return { at: i.corner, key: `corner:${Math.round(i.corner.x)},${Math.round(i.corner.y)}` };
   }
 
   /**
@@ -804,7 +950,7 @@ export class Attention {
     this.apply();
   }
 
-  /** The mood, the hours, listening, the bed and alertness, turned into the character's settings. */
+  /** The mood, the hours, listening, the bed, alertness and grogginess, turned into the character's settings. */
   apply(force = false) {
     const ch = this.ch;
     const a = this.alertness;
@@ -825,6 +971,13 @@ export class Attention {
       gap = [Math.max(gap[0], SOFT.gap[0]), Math.max(gap[1], SOFT.gap[1])];
       hold = Math.max(hold, SOFT.hold);
     }
+    const g = this.groggy; // clearing as it wears off
+    if (g > 0) {
+      period = Math.max(period, lerp(period, GROGGY.period, g));
+      lid = Math.max(lid, g * (this.reduced ? GROGGY.lidReduced : GROGGY.lid));
+      gap = [Math.max(gap[0], lerp(gap[0], GROGGY.gap[0], g)), Math.max(gap[1], lerp(gap[1], GROGGY.gap[1], g))];
+      hold = Math.max(hold, lerp(hold, GROGGY.hold, g));
+    }
     const s = asleep
       ? { period: this.mood === "asleep" ? 6.5 : 6.2, depth: this.mood === "asleep" ? 1.4 : 1.25, gap: [6, 12], hold: 0.15, lid: 0, tilts: null, sway: 0, darts: "still" as const }
       : {
@@ -833,7 +986,7 @@ export class Attention {
           gap,
           hold,
           lid,
-          tilts: this.listening || this.steadying ? null : late ? [8, 14] : [4, 9],
+          tilts: this.listening || this.steadying || g > 0.5 ? null : late ? [8, 14] : [4, 9],
           sway: this.listening ? 2.5 : 0,
           darts: this.listening ? ("drift" as const) : ("dart" as const),
         };

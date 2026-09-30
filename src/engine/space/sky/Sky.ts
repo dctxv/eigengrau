@@ -173,7 +173,14 @@ export class Sky {
     const h = hashSeed(this.seed), variants = this.config.variants;
     const weights = Object.fromEntries(Object.entries(variants).map(([k, v]) => [k, v.weight]));
     this.variant = this.forced && variants[this.forced] ? this.forced : pickWeighted(weights, unitOf(h, "variant"));
-    const view = (this.view = { width: this.room.width, height: this.room.height, ratio: this.room.ratio, zoom: { min: ZOOM.min, max: ZOOM.max } });
+    const buffer = this.room.renderer.domElement;
+    const view = (this.view = {
+      width: this.room.width,
+      height: this.room.height,
+      ratio: this.room.ratio,
+      zoom: { min: ZOOM.min, max: ZOOM.max },
+      grid: { x: buffer.width / Math.max(1, this.room.width), y: buffer.height / Math.max(1, this.room.height) },
+    });
     for (const e of this.entries) {
       const name = e.layer.name as keyof SkyLayers, seed = subSeed(h, name);
       const config = merge<LayerConfig>(this.layers[name], variants[this.variant]?.layers[name] as Patch<LayerConfig> | undefined);

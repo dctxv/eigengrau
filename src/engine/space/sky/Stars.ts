@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { pixelCellAt } from "../RoomScene";
 import type { LayerConfig, SkyFrame, SkyLayer, SkyView } from "./layer";
 import { pickWeighted, rng, subSeed, type Colour, type Num, type Resolved } from "./tune";
 
@@ -7,8 +8,10 @@ import { pickWeighted, rng, subSeed, type Colour, type Num, type Resolved } from
  * tiny stars and a few large, warm white, pale blue and faint gold, each a soft round core with a
  * small glow, at a few depths that the zoom moves by different amounts; the brightest few with a
  * soft four-point glint. One draw call: a quad per star, instanced, shaped in its shader at the
- * screen's own resolution, so it is clean at any zoom and any pixel ratio. Laid out once per sky;
- * each frame sets only uniforms.
+ * screen's own resolution, so it is clean at any zoom and any pixel ratio, until the zoom takes
+ * Urchi far enough away that its signal weakens: then each depth in turn is drawn in square cells
+ * of whole device pixels, the farthest first (see bands). Laid out once per sky; each frame sets
+ * only uniforms.
  */
 export type StarsConfig = LayerConfig & {
   /** The ground behind the sky, while it is there (the room's own eigengrau by default). */
@@ -31,8 +34,17 @@ export type StarsConfig = LayerConfig & {
    * by its own `zoomResponse` (times the layer's), and scales its stars' size and brightness by
    * `scale`. The nearer, the more they move, and the zoom reads as depth. Leaning with the pointer
    * (the layer's parallax), the nearer lean more too.
+   *
+   * Zoomed out past `pixelFrom` (0: never), a depth loses its signal as Urchi does (RoomScene's
+   * ZOOM, the same steps): drawn in square cells of whole device pixels, one at first, growing a
+   * pixel at a time to `pixelMost` CSS px at the zoom's farthest, so the farthest depth goes first
+   * and the nearest stays smooth the longest. Each star is then a solid block of whole cells, as
+   * many as cover its core, at its own brightness (a small square, never its light spread thin);
+   * its glow and glint are taken a cell at a time, so a glint becomes a small cross of cells. The
+   * Milky Way's haze goes with the farthest depth, a shooting star with the nearest. Under reduced
+   * motion it pixelates as Urchi does; nothing in it moves between zooms.
    */
-  bands: { share: Num; zoomResponse: Num; scale: Num }[];
+  bands: { share: Num; zoomResponse: Num; scale: Num; pixelFrom: Num; pixelMost: Num }[];
   /** Twinkling: each star dims by up to `amount` (0 .. 1) at about `speed` radians a second, some faster, some slower. Off under reduced motion. */
   twinkle: { speed: Num; amount: Num };
   /**
@@ -92,31 +104,40 @@ uniform vec3 uGlint;     // arm length (CSS px), turn (rad), strength
 uniform float uOpacity;
 uniform vec4 uShootA;    // the shooting star's head (room CSS px), its heading (rad)
 uniform vec4 uShootB;    // its tail's length, its width (CSS px), its brightness now (0: none)
+uniform vec4 uCell;      // each band's pixelation cell this frame, device px (0: smooth)
+uniform float uShotCell; // the shooting star's cell: the nearest band's
+uniform vec4 uGrid;      // the room's half width and height (CSS px); the drawing buffer's device px per CSS px across and up
 varying vec2 vAt;        // CSS px from the centre (the shooting star's and the haze's: along their heading, and across)
 varying vec4 vShape;     // core radius, glow radius, glint arm, kind (the shooting star's width and tail; the haze's width, half length and patchiness)
 varying float vTurn;
 varying vec3 vColour;
 varying vec2 vCloud;     // the haze's place in its clouds
+varying vec4 vPix;       // pixelated: its cell (device px; 0 smooth), a star's block (cells across) and its centre on the drawing buffer (device px)
 
 void main() {
   vec2 corner = position.xy;
   float kind = iPlace.w;
+  vPix = vec4(0.0);
   if (kind > 1.5) {
     if (uShootB.z <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+    // pixelated, never thinner than most of a cell, so taken a cell at a time it does not break up
+    float cell = uShotCell / min(uGrid.z, uGrid.w);
     vec2 dir = vec2(cos(uShootA.z), sin(uShootA.z)), side = vec2(-dir.y, dir.x);
-    float len = uShootB.x, w = max(uShootB.y, 0.6 * uPx), m = 3.0 * w + 2.0 * uPx;
+    float len = uShootB.x, w = max(max(uShootB.y, 0.6 * uPx), 0.75 * cell), m = 3.0 * w + 2.0 * uPx + cell;
     vAt = vec2(mix(-len - m, m, corner.x * 0.5 + 0.5), corner.y * m);
     vShape = vec4(w, len, 0.0, 2.0);
     vTurn = 0.0;
     vColour = iColour * uShootB.z * uOpacity;
+    vPix.x = uShotCell;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(uShootA.xy + dir * vAt.x + side * vAt.y, 0.0, 1.0);
     return;
   }
   int band = int(iPlace.z + 0.5);
-  float scale = uScale[band];
+  float scale = uScale[band], cell = uCell[band];
   vec2 centre = iPlace.xy * uField * scale + uLean * uDepth[band];
   float light = iLook.y * uOpacity;
   float reach;
+  vPix.x = cell;
   if (kind > 0.5) {
     // the haze: one long quad along the band, three widths either side of its line
     float w = max(iLook.x * uField * scale, 1.0), len = iLook.w * uField * scale;
@@ -137,6 +158,14 @@ void main() {
     float g = max(r * uGlow.x, 0.01);
     float arm = iLook.z > 0.0 ? uGlint.x * (0.55 + 0.45 * iLook.z) : 0.0;
     reach = max(max(r + uPx, 2.2 * g), arm) + uPx;
+    if (cell > 0.0) {
+      // pixelated: a block of whole cells, as many across as cover its core and at least one, about the
+      // cell its centre is in; the quad reaches past it and its glint by a cell more
+      float c = cell / min(uGrid.z, uGrid.w);
+      float n = max(1.0, floor(2.0 * r / c + 0.5));
+      vPix.yzw = vec3(n, (centre + uGrid.xy) * uGrid.zw);
+      reach = max(reach, (0.5 * n + 1.0) * c) + c;
+    }
     vShape = vec4(r, g, arm, 0.0);
     vTurn = uGlint.y + iLook.w;
   }
@@ -149,11 +178,13 @@ const fragmentShader = /* glsl */ `
 uniform float uPx;
 uniform vec2 uGlow;
 uniform vec3 uGlint;
+uniform vec4 uGrid;
 varying vec2 vAt;
 varying vec4 vShape;
 varying float vTurn;
 varying vec3 vColour;
 varying vec2 vCloud;
+varying vec4 vPix;
 
 // value noise, and three octaves of it: the haze's clouds
 float hash(vec2 p) {
@@ -169,29 +200,53 @@ float clouds(vec2 p) {
   return 0.55 * noise(p) + 0.3 * noise(2.03 * p + 7.1) + 0.15 * noise(4.1 * p + 3.7);
 }
 
-// a glint's arm: a fine line tapering to nothing at its length (never thinner than half a device
-// px), in a soft haze of its own four times as wide
-float arm(float along, float across, float len, float r) {
+// a glint's arm: a fine line tapering to nothing at its length (never thinner than least), in a
+// soft haze of its own four times as wide, as much of it as haze says (none pixelated: a line of cells, crisp)
+float arm(float along, float across, float len, float r, float least, float haze) {
   float taper = 1.0 - min(abs(along) / len, 1.0);
-  float thick = max(0.55 * uPx, 0.3 * r * (0.35 + 0.65 * taper)), soft = 4.0 * thick;
-  return taper * taper * exp(-(across * across) / (thick * thick)) + 0.22 * taper * taper * taper * exp(-(across * across) / (soft * soft));
+  float thick = max(least, 0.3 * r * (0.35 + 0.65 * taper)), soft = 4.0 * thick;
+  return taper * taper * exp(-(across * across) / (thick * thick)) + haze * 0.22 * taper * taper * taper * exp(-(across * across) / (soft * soft));
 }
 
 void main() {
-  float kind = vShape.w;
+  float kind = vShape.w, cell = vPix.x;
   vec3 colour = vColour;
   float light;
+  // pixelated, what is taken a cell at a time is taken at the middle of this fragment's cell: its
+  // place there found from how it changes across the screen (so on the slant too), as Urchi's is
+  vec2 dAtX = dFdx(vAt), dAtY = dFdy(vAt), dCloudX = dFdx(vCloud), dCloudY = dFdy(vCloud);
+  vec2 toMid = cell > 0.0 ? (floor(gl_FragCoord.xy / cell) + 0.5) * cell - gl_FragCoord.xy : vec2(0.0);
+  vec2 at = vAt + dAtX * toMid.x + dAtY * toMid.y;
   if (kind > 1.5) {
     // the shooting star: a tail thinning and fading behind a soft head
     float w = vShape.x, len = max(vShape.y, 0.001);
-    float t = clamp(1.0 + vAt.x / len, 0.0, 1.0), thin = w * (0.3 + 0.7 * t);
-    float tail = vAt.x <= 0.0 ? t * t * exp(-(vAt.y * vAt.y) / (thin * thin)) : 0.0;
-    light = tail + exp(-dot(vAt, vAt) / (2.5 * w * w));
+    float t = clamp(1.0 + at.x / len, 0.0, 1.0), thin = w * (0.3 + 0.7 * t);
+    float tail = at.x <= 0.0 ? t * t * exp(-(at.y * at.y) / (thin * thin)) : 0.0;
+    light = tail + exp(-dot(at, at) / (2.5 * w * w));
   } else if (kind > 0.5) {
     // brightest along its line, broken into clouds as far as it is patchy, fading out at its ends
-    float across = vAt.y / vShape.x;
-    light = exp(-0.5 * across * across) * mix(1.0, 2.6 * pow(clouds(vCloud), 1.6), vShape.z);
-    light *= 1.0 - smoothstep(0.85, 1.0, abs(vAt.x) / vShape.y);
+    vec2 cloud = vCloud + dCloudX * toMid.x + dCloudY * toMid.y;
+    float across = at.y / vShape.x;
+    light = exp(-0.5 * across * across) * mix(1.0, 2.6 * pow(clouds(cloud), 1.6), vShape.z);
+    light *= 1.0 - smoothstep(0.85, 1.0, abs(at.x) / vShape.y);
+  } else if (cell > 0.0) {
+    // pixelated: a flat block of whole cells at the brightness of its smooth core's middle (its own,
+    // not its light spread over the block, so a far star reads as a small square and never fades
+    // out), and outside it the glow and the glint taken at each cell's middle from the block's, the
+    // glint never thinner than half a cell, so it comes out as a small cross of cells
+    float n = vPix.y, r = vShape.x, g = vShape.y;
+    vec2 first = ceil(vPix.zw / cell - 0.5 * n - 0.5), mine = floor(gl_FragCoord.xy / cell);
+    bool block = all(greaterThanEqual(mine, first)) && all(lessThan(mine, first + n));
+    vec2 q = (mine + 0.5 - first - 0.5 * n) * cell / uGrid.zw;
+    float d = length(q);
+    light = block ? 1.0 + uGlow.y : uGlow.y * exp(-(d * d) / (g * g));
+    if (!block && vShape.z > 0.0) {
+      float c = cos(vTurn), s = sin(vTurn), least = max(0.55 * uPx, 0.5 * cell / min(uGrid.z, uGrid.w));
+      vec2 p = vec2(c * q.x + s * q.y, c * q.y - s * q.x);
+      light += uGlint.z * (arm(p.x, p.y, vShape.z, r, least, 0.0) + arm(p.y, p.x, vShape.z, r, least, 0.0));
+    }
+    float peak = max(colour.r, max(colour.g, colour.b));
+    colour = mix(colour, vec3(peak), block ? 0.4 : 0.0);
   } else {
     float d = length(vAt), r = vShape.x, g = vShape.y;
     float core = 1.0 - smoothstep(r - max(uPx, 0.5 * r), r + 0.5 * uPx, d);
@@ -199,7 +254,7 @@ void main() {
     if (vShape.z > 0.0) {
       float c = cos(vTurn), s = sin(vTurn);
       vec2 q = vec2(c * vAt.x + s * vAt.y, c * vAt.y - s * vAt.x);
-      light += uGlint.z * (arm(q.x, q.y, vShape.z, r) + arm(q.y, q.x, vShape.z, r));
+      light += uGlint.z * (arm(q.x, q.y, vShape.z, r, 0.55 * uPx, 1.0) + arm(q.y, q.x, vShape.z, r, 0.55 * uPx, 1.0));
     }
     // the core a little whiter than its colour, as a painted star's is
     float peak = max(colour.r, max(colour.g, colour.b));
@@ -234,12 +289,19 @@ export class Stars implements SkyLayer<StarsConfig> {
     uOpacity: { value: 0 },
     uShootA: { value: new THREE.Vector4() },
     uShootB: { value: new THREE.Vector4() },
+    uCell: { value: new THREE.Vector4() },
+    uShotCell: { value: 0 },
+    uGrid: { value: new THREE.Vector4(1, 1, 1, 1) },
   };
   /** The shooting star crossing now (its start, heading and clock), and when the next may come (the sky's clock; -1 not yet decided). */
   private shot: { x: number; y: number; heading: number; t0: number } | null = null;
   private nextShot = -1;
   /** Each depth's power of the zoom (the layer's response times its own), as laid out; 0 past the last. */
   private readonly powers = [0, 0, 0, 0];
+  /** Each depth's loss of signal, as laid out: the zoom it pixelates from, and its cell at the zoom's farthest (device px). */
+  private pixel: { from: number; most: number }[] = [];
+  /** Each depth's cell this frame (device px, 0 smooth); 0 past the last. */
+  private readonly cells = [0, 0, 0, 0];
 
   constructor() {
     const material = new THREE.ShaderMaterial({
@@ -306,6 +368,8 @@ export class Stars implements SkyLayer<StarsConfig> {
     const bands = this.bands(config), most = Math.max(...bands.map((b) => Math.abs(b.zoomResponse)));
     u.uDepth.value.fromArray([0, 1, 2, 3].map((k) => (k < bands.length ? (most > 0 ? Math.abs(bands[k].zoomResponse) / most : (k + 1) / bands.length) : 0)));
     for (let k = 0; k < MOST_BANDS; k++) this.powers[k] = k < bands.length ? config.zoomResponse * bands[k].zoomResponse : 0;
+    this.pixel = bands.map((b) => ({ from: b.pixelFrom, most: Math.max(1, b.pixelMost * view.ratio) }));
+    u.uGrid.value.set(view.width / 2, view.height / 2, view.grid.x, view.grid.y);
     this.shot = null;
     this.nextShot = -1;
     u.uShootB.value.z = 0;
@@ -320,6 +384,11 @@ export class Stars implements SkyLayer<StarsConfig> {
     u.uTwinkle.value.set(c.twinkle.speed, f.reducedMotion ? 0 : Math.min(1, Math.max(0, c.twinkle.amount)));
     const z = Math.max(f.zoom, 1e-3);
     u.uScale.value.set(z ** p[0], z ** p[1], z ** p[2], z ** p[3]);
+    // what each depth has lost of its signal at this zoom (see bands), the shooting star with the nearest
+    const cells = this.cells, px = this.pixel;
+    for (let k = 0; k < MOST_BANDS; k++) cells[k] = k < px.length ? pixelCellAt(f.zoom, px[k].from, px[k].most) : 0;
+    u.uCell.value.fromArray(cells);
+    u.uShotCell.value = px.length ? cells[px.length - 1] : 0;
     // leaning away from the pointer, as what is nearer does when you move your head
     const lean = f.reducedMotion ? 0 : c.parallax;
     u.uLean.value.set(-f.pointer.x * lean, -f.pointer.y * lean);
@@ -338,7 +407,7 @@ export class Stars implements SkyLayer<StarsConfig> {
   /** The bands in use: at most MOST_BANDS, and at least one. */
   private bands(c: Resolved<StarsConfig>) {
     const b = c.bands.slice(0, MOST_BANDS);
-    return b.length ? b : [{ share: 1, zoomResponse: 0, scale: 1 }];
+    return b.length ? b : [{ share: 1, zoomResponse: 0, scale: 1, pixelFrom: 0, pixelMost: 1 }];
   }
 
   /**

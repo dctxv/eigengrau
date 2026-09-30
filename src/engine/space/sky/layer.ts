@@ -20,8 +20,6 @@ export type LayerConfig = {
   zoomResponse: Num;
   /** How far it leans against the pointer, CSS px with the pointer at the room's edge; 0 none (not under reduced motion). */
   parallax: Num;
-  /** Reserved for its pixelation: a cell in device px, 0 off. Nothing reads it yet. */
-  pixelSize: Num;
 };
 
 /**
@@ -30,8 +28,12 @@ export type LayerConfig = {
  */
 export type SkyState = "off" | "arriving" | "afloat" | "leaving";
 
-/** The room as the layers lay out in it: CSS px, device px per CSS px, and the zoom's bounds. */
-export type SkyView = { width: number; height: number; ratio: number; zoom: { min: number; max: number } };
+/**
+ * The room as the layers lay out in it: CSS px, device px per CSS px, and the zoom's bounds; and
+ * `grid`, the drawing buffer's device px per CSS px across and up, the grid gl_FragCoord cuts it
+ * into from its bottom left, on which what pixelates snaps (as Urchi does, see RoomScene's ZOOM).
+ */
+export type SkyView = { width: number; height: number; ratio: number; zoom: { min: number; max: number }; grid: { x: number; y: number } };
 
 /** What the manager gives each layer every frame. */
 export type SkyFrame = {

@@ -37,7 +37,6 @@ export const STARS: StarsConfig = {
   renderOrder: 0,
   zoomResponse: 1,
   parallax: 0,
-  pixelSize: 0,
   backdrop: "#16161d",
   count: { range: [420, 560] },
   size: { min: 0.35, max: { range: [1.7, 2.3] }, bias: { range: [3.2, 4.2] } },
@@ -49,9 +48,9 @@ export const STARS: StarsConfig = {
   brightness: { min: 0.22, max: 0.95, follow: 0.6 },
   glow: { size: 3.2, strength: 0.32 },
   bands: [
-    { share: 0.55, zoomResponse: 0.05, scale: 0.8 },
-    { share: 0.3, zoomResponse: 0.1, scale: 1 },
-    { share: 0.15, zoomResponse: 0.18, scale: 1.15 },
+    { share: 0.55, zoomResponse: 0.05, scale: 0.8, pixelFrom: 0.4, pixelMost: 6 },
+    { share: 0.3, zoomResponse: 0.1, scale: 1, pixelFrom: 0.25, pixelMost: 4 },
+    { share: 0.15, zoomResponse: 0.18, scale: 1.15, pixelFrom: 0.15, pixelMost: 2.5 },
   ],
   twinkle: { speed: { range: [0.5, 0.8] }, amount: 0.35 },
   sparkle: {

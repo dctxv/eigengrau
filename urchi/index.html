@@ -367,9 +367,18 @@
     return { white: [...upper, ...lower], pupil: null };
   }
   // A calm, deliberate blink: ~90ms to close, 150ms fully shut, ~140ms to open (opening is slower),
-  // every 2.5-6s, now and then twice in a row.
+  // the middle half of them 2.5-6s apart, now and then twice in a row.
   const BLINK = { close: 0.09, hold: 0.15, open: 0.14 };
   const blink = { start: -1, next: 1.2 + Math.random() * 2, double: false };
+  // The gap to the next blink is log-normal, as people's are, so there is no beat to it: most gaps
+  // near the middle, now and then two blinks close together or a long look without one. `lo` and
+  // `hi` are its quartiles; no gap is under `min` seconds or over `most` times `hi`.
+  const BLINK_GAP = { lo: 2.5, hi: 6, min: 0.8, most: 2.5 };
+  function blinkGap() {
+    const { lo, hi } = BLINK_GAP, sigma = Math.log(hi / lo) / 1.349;   // a normal's quartiles are 1.349 sigmas apart
+    const z = Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+    return Math.min(hi * BLINK_GAP.most, Math.max(BLINK_GAP.min, Math.sqrt(lo * hi) * Math.exp(sigma * z)));
+  }
   function stepBlink(t) {
     if (blink.start < 0) { if (t >= blink.next) blink.start = t; else return 0; }
     const e = t - blink.start, { close, hold, open } = BLINK;
@@ -378,7 +387,7 @@
     if (e < close + hold + open) { const u = (e - close - hold) / open; return 1 - (1 - (1 - u) * (1 - u)); }   // eases open
     blink.start = -1;
     blink.double = !blink.double && Math.random() < 0.18;   // at most two in a row
-    blink.next = t + (blink.double ? 0.12 : 2.5 + Math.random() * 3.5);
+    blink.next = t + (blink.double ? 0.12 : blinkGap());
     return 0;
   }
 

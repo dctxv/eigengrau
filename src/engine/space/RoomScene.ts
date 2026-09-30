@@ -106,6 +106,17 @@ export const ZOOM = { min: 0.1, max: 2, ease: 0.12, farCells: 7.5, pixelFrom: 0.
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 /**
+ * The signal lost at a zoom, as a cell of whole device px (Urchi's, and each depth of the sky's):
+ * none down to `from`; past it one device pixel, growing a pixel at a time as a power of the
+ * distance past it, to `most` device px at ZOOM.min. A `from` at or under ZOOM.min never pixelates.
+ */
+export function pixelCellAt(zoom: number, from: number, most: number) {
+  if (zoom >= from || from <= ZOOM.min) return 0;
+  const grow = Math.log(Math.max(1, most)) / Math.log(from / ZOOM.min);
+  return Math.max(1, Math.round((from / Math.max(zoom, ZOOM.min)) ** grow));
+}
+
+/**
  * CSS px per art pixel at a step: the step itself on a 1x, 2x or 3x screen; elsewhere (a 1.25x
  * or 1.5x laptop) rounded to whole device pixels, so every art pixel is the same number of them.
  */
@@ -315,9 +326,7 @@ export class RoomScene {
     if (zoom >= ZOOM.pixelFrom) return 0;
     const device = this.renderer.domElement.width / this.width;
     const tall = (URCHI_FIGURE.bottom - URCHI_FIGURE.top) * (this.pixel / ART_CELL) * this.floatZoom * device;
-    const far = Math.max(1, (tall * ZOOM.min) / ZOOM.farCells);
-    const grow = Math.log(far) / Math.log(ZOOM.pixelFrom / ZOOM.min);
-    return Math.max(1, Math.round((ZOOM.pixelFrom / zoom) ** grow));
+    return pixelCellAt(zoom, ZOOM.pixelFrom, (tall * ZOOM.min) / ZOOM.farCells);
   }
 
   /**

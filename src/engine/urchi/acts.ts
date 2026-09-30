@@ -228,7 +228,11 @@ export function* peek(a: Attention): Act {
   }
 }
 
-/** Woken properly: a slow stretch upward and back, the eyes opening with it, then two blinks. */
+/**
+ * Woken properly: a slow stretch upward and back, the eyes opening with it, then two blinks. Wide
+ * awake at once and straight at you: a glare, for a second wake the same night (the first is
+ * wakeGroggy's).
+ */
 export function* wake(a: Attention): Act {
   a.setMood("awake", 0.7);
   a.look("you");
@@ -237,6 +241,35 @@ export function* wake(a: Attention): Act {
     yield 1.25;
     a.ch.doubleBlink();
     yield 0.5;
+  } finally {
+    a.restPose();
+    a.look(null);
+  }
+}
+
+/** The first wake of his night: the lids' opening (s), the head's dip still on its pillow (degrees), and the slow blink's hold (s). */
+const GROGGY_WAKE = { open: 1.6, dip: 4, blink: 0.6 };
+
+/**
+ * Woken from its sleep for the first time in his night (in this browser: see hours.ts): groggy,
+ * not cross, for whoever touched it may never have been here before. No stretch. The lids come up
+ * slowly and only part way (Attention's groggy lid), the head still low; it looks out ahead, finds
+ * you a moment later, and gives one slow blink. It stays groggy for a while after (see
+ * Attention.setGroggy), and clears by itself.
+ */
+export function* wakeGroggy(a: Attention): Act {
+  a.setGroggy();
+  a.setMood("awake", GROGGY_WAKE.open);
+  try {
+    a.ch.pose(0, GROGGY_WAKE.dip, 0, 1.5);
+    a.look(face(a));
+    yield 1.1;
+    a.look("you");
+    yield 0.9;
+    a.ch.slowBlink(GROGGY_WAKE.blink);
+    yield 1.4;
+    a.restPose(1.5);
+    yield 0.6;
   } finally {
     a.restPose();
     a.look(null);

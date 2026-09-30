@@ -29,7 +29,6 @@ const layerRows = (): Group => ({
     num(["renderOrder"], "renderOrder", -10, 10, 1, { whole: true, fixed: true }),
     num(["zoomResponse"], "zoomResponse", -1, 3, 0.01),
     num(["parallax"], "parallax", 0, 60, 0.5, { note: "px" }),
-    num(["pixelSize"], "pixelSize", 0, 16, 1, { whole: true, off: true, note: "not yet" }),
   ],
 });
 
@@ -58,6 +57,8 @@ export function starsGroups(c: Resolved<SkyLayers["stars"]>): Group[] {
         num(["bands", i, "share"], `${i + 1} share`, 0, 1, 0.01),
         num(["bands", i, "zoomResponse"], `${i + 1} zoomResponse`, -0.5, 1, 0.005),
         num(["bands", i, "scale"], `${i + 1} scale`, 0.2, 2, 0.01),
+        num(["bands", i, "pixelFrom"], `${i + 1} pixelFrom`, 0, 1, 0.01, { note: "zoom; 0 never" }),
+        num(["bands", i, "pixelMost"], `${i + 1} pixelMost`, 1, 24, 0.5, { note: "px, zoomed out" }),
       ]),
     },
     { title: "Twinkle", rows: [num(["twinkle", "speed"], "speed", 0, 5, 0.05, { note: "rad/s" }), num(["twinkle", "amount"], "amount", 0, 1, 0.01)] },

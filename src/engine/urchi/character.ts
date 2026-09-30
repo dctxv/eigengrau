@@ -562,8 +562,10 @@ export type UrchiCharacter = {
    * Look at a point instead of the pointer: nx, ny in the pointer's space (the viewport, x right,
    * y down, each -1..1). The pupils go at once and, when the look moves far, the head follows
    * about 80ms later on its usual springs (`how` can make it snap there or turn quickly); the
-   * pupils settle toward it with small flicks. lookAt(null) hands the gaze back to the pointer
-   * (or straight ahead without one). Reduced motion keeps the head front.
+   * pupils settle toward it with small flicks. Attended, the eyes stay ahead of a head still on
+   * its way (EYES_FIRST), and a small turn is quick and a big one slow (TURN_SPEED). lookAt(null)
+   * hands the gaze back to the pointer (or straight ahead without one). Reduced motion keeps the
+   * head front.
    */
   lookAt(nx: number | null, ny?: number, how?: LookHow): void;
   /**
@@ -645,7 +647,11 @@ export type UrchiCharacter = {
   setBreathPeriod(seconds: number): void;
   /** The breath's depth, 1 by default: 1.4 is a sleeper's deeper nod. */
   setBreathDepth(depth: number): void;
-  /** The gap between ordinary blinks, in seconds (2.5..6 by default). */
+  /**
+   * The gap between ordinary blinks, in seconds: log-normal, the middle half of the gaps between
+   * `min` and `max` (2.5..6 by default), so now and then a pair comes close and now and then a
+   * long look goes without one.
+   */
   setBlinkGap(min: number, max: number): void;
   /** How long an ordinary blink stays shut (0.15s by default); longer as it gets sleepy. */
   setBlinkHold(seconds: number): void;
@@ -895,6 +901,12 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   const FIX = { flick: 2, gap: [0.6, 1.4] as Vec2 };
   const DRIFT = { gap: [1.2, 2.4] as Vec2, omega: 6 };
   const EYES_REACH = { x: 20, y: 16, omega: 34 };
+  /**
+   * Eyes first (attended looks): while the head is still turning, the pupils are further round than
+   * they rest, by `lead` of the turn still to go, up to their own reach (EYES_REACH), and they come
+   * back as the head arrives, as eyes do when the head catches up with them.
+   */
+  const EYES_FIRST = { lead: 0.8 };
   /** Pupils toward the nose at full convergence, in mesh units. */
   const CONVERGE = 16;
   const gaze = { x: spring(), y: spring(), h: spring(1), conv: spring(), next: 0.5, undip: -1, fixed: false, darts: "dart" as "dart" | "drift" | "still", instant: false };
@@ -924,9 +936,10 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       gaze.y.target = clamp(selfAim[1] * GAZE.y + look.fy * 0.5, -GAZE.y, GAZE.y);
     } else if (eyes.on) {
       gaze.x.target = eyes.x * EYES_REACH.x; gaze.y.target = eyes.y * EYES_REACH.y;
-    } else if (look.on) {   // kept on the target as it moves
-      gaze.x.target = clamp(look.nx * GAZE.x + look.fx, -GAZE.x, GAZE.x);
-      gaze.y.target = clamp(look.ny * GAZE.y + look.fy, -GAZE.y, GAZE.y);
+    } else if (look.on) {   // kept on the target as it moves, and ahead of a head still turning there
+      const [ax, ay] = attended && !reduceMotion ? eyesAhead() : [0, 0];
+      gaze.x.target = clamp(clamp(look.nx * GAZE.x + look.fx, -GAZE.x, GAZE.x) + ax, -EYES_REACH.x, EYES_REACH.x);
+      gaze.y.target = clamp(clamp(look.ny * GAZE.y + look.fy, -GAZE.y, GAZE.y) + ay, -EYES_REACH.y, EYES_REACH.y);
     } else if (gaze.darts === "still") {
       gaze.x.target = gaze.y.target = 0;
     }
@@ -937,6 +950,11 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     }
     const w = eyes.on ? EYES_REACH.omega : gaze.darts === "drift" ? DRIFT.omega : 22;
     stepSpring(gaze.x, dt, w, 0.9); stepSpring(gaze.y, dt, w, 0.9); stepSpring(gaze.h, dt, 22, 0.9); stepSpring(gaze.conv, dt, 6, 0.9);
+  }
+  /** How much further round the pupils are than they rest (mesh units), for the turn the head has still to make to the look (see EYES_FIRST). */
+  function eyesAhead(): Vec2 {
+    const [yaw, pitch] = headAim(look.nx, look.ny);
+    return [EYES_FIRST.lead * ((yaw - S.yaw.v) / LOOK.yaw) * GAZE.x, EYES_FIRST.lead * (lookOfPitch(pitch) - lookOfPitch(S.pitch.v)) * GAZE.y];
   }
 
   // ------------------------------------------------------------------ eyes + blink
@@ -1032,12 +1050,24 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     return { white: [...upper, ...lower], pupil: null };
   }
   // A calm, deliberate blink: ~90ms to close, 150ms fully shut, ~140ms to open (opening is slower),
-  // every 2.5-6s, now and then twice in a row.
+  // the middle half of them 2.5-6s apart, now and then twice in a row.
   type BlinkTiming = { close: number; hold: number; open: number };
   const BLINK: BlinkTiming = { close: 0.09, hold: 0.15, open: 0.14 };
   /** The site's slow blink: the same curves, drawn out. */
   const SLOW_BLINK: BlinkTiming = { close: 0.35, hold: 0.2, open: 0.35 };
   const blink = { start: -1, next: 1.2 + Math.random() * 2, double: false, timing: BLINK, cued: false, twice: false, gap: [2.5, 6] as Vec2 };
+  /**
+   * The gap to the next ordinary blink is log-normal, as people's are, so there is no beat to it:
+   * most gaps near the middle of `blink.gap`, now and then two blinks close together or a long
+   * look without one. The gap's two ends are its quartiles (the middle half of the gaps falls
+   * between them); no gap is under `min` seconds or over `most` times the gap's top.
+   */
+  const BLINK_GAP = { min: 0.8, most: 2.5 };
+  function blinkGap() {
+    const [lo, hi] = blink.gap, sigma = Math.log(hi / lo) / 1.349;   // a normal's quartiles are 1.349 sigmas apart
+    const z = Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+    return clamp(Math.sqrt(lo * hi) * Math.exp(sigma * z), BLINK_GAP.min, hi * BLINK_GAP.most);
+  }
   function stepBlink(t: number) {
     if (blink.start < 0) { if (t >= blink.next) blink.start = t; else return 0; }
     const e = t - blink.start, { close, hold, open } = blink.timing;
@@ -1048,7 +1078,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     blink.start = -1; blink.timing = BLINK; blink.cued = false;
     blink.double = blink.twice || (!lone && !blink.double && Math.random() < 0.18);   // at most two in a row
     blink.twice = false;
-    blink.next = t + (blink.double ? 0.12 : blink.gap[0] + Math.random() * (blink.gap[1] - blink.gap[0]));
+    blink.next = t + (blink.double ? 0.12 : blinkGap());
     return 0;
   }
 
@@ -2053,10 +2083,23 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   // ------------------------------------------------------------------ frame
   // Eyes lead, head follows: when a look moves far, the pupils go at once and the head's aim
   // catches up this much later (a quick turn stiffens the head's springs for a moment).
-  const LEAD = { seconds: 0.08, jump: 0.08, quick: 0.6 };
+  const LEAD = { seconds: 0.08, jump: 0.05, quick: 0.6 };
   const HEAD = { omega: 9, quick: 16 };
+  /**
+   * How fast the head turns, by how far (attended only: the host's looks): a small turn is quick
+   * and a big one slow, as a neck's are. A new turn (its aim moving `jump` degrees or more) sets
+   * the head's spring for itself from the turn it has to make: HEAD.omega at `ref` degrees, and as
+   * the square root of `ref` over the turn, so a turn's top speed grows only as its square root and
+   * its time with it (3 degrees in about 0.17s, 40 in about 0.6s); never stiffer than `fast` nor
+   * softer than `slow`.
+   */
+  const TURN_SPEED = { ref: 12, fast: 18, slow: 4.5, jump: 1 };
+  /** The head's spring as the current turn has it, and the aim that turn was for (radians). */
+  const turning = { omega: HEAD.omega, yaw: 0, pitch: 0 };
   /** The head's angles for an aim in the pointer's space. */
   const headAim = (nx: number, ny: number): Vec2 => [nx * LOOK.yaw, ny > 0 ? ny * LOOK.pitchDown : ny * LOOK.pitchUp];
+  /** A head pitch back in the pointer's space: headAim's own, the other way. */
+  const lookOfPitch = (pitch: number) => (pitch > 0 ? pitch / LOOK.pitchDown : pitch / LOOK.pitchUp);
   /** Shut enough for a face to swap unseen: the closed arc. */
   const SHUT = 0.97;
   /** Blinks and pupil moves run: always, except under reduced motion with nothing attending (or ?still). */
@@ -2096,7 +2139,14 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
       tx = look.hx; ty = look.hy;
     } else if (P.has) { tx = P.nx; ty = P.ny; }
     [S.yaw.target, S.pitch.target] = headAim(tx, ty);
-    const omega = S.t < look.quick ? HEAD.quick : HEAD.omega;
+    if (!attended) turning.omega = HEAD.omega;
+    else if (Math.hypot(S.yaw.target - turning.yaw, S.pitch.target - turning.pitch) >= TURN_SPEED.jump * D2R) {
+      // a new turn: its spring from how far the head has to go (see TURN_SPEED)
+      const far = Math.max(1e-3, Math.hypot(S.yaw.target - S.yaw.v, S.pitch.target - S.pitch.v) / D2R);
+      turning.omega = clamp(HEAD.omega * Math.sqrt(TURN_SPEED.ref / far), TURN_SPEED.slow, TURN_SPEED.fast);
+      turning.yaw = S.yaw.target; turning.pitch = S.pitch.target;
+    }
+    const omega = S.t < look.quick ? Math.max(HEAD.quick, turning.omega) : turning.omega;
     stepSpring(S.yaw, dt, omega); stepSpring(S.pitch, dt, omega);
     if (STILL) { S.yaw.v = S.yaw.target; S.pitch.v = S.pitch.target; }
     if (FORCED) { S.yaw.v = FORCED[0]; S.pitch.v = FORCED[1]; }
@@ -2230,9 +2280,9 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     },
     lookAt(nx, ny = 0, how) {
       if (nx === null) { look.on = false; look.headAt = -1; gaze.next = S.t; return; }
-      if (!look.on) {   // the head was on the pointer (or ahead): the lead starts from there
+      if (!look.on) {   // the head was on the pointer (or ahead): the lead starts from where it has got to
         look.fx = look.fy = 0;
-        look.hx = P.has ? P.nx : 0; look.hy = P.has ? P.ny : 0;
+        look.hx = S.yaw.v / LOOK.yaw; look.hy = lookOfPitch(S.pitch.v);
       }
       look.on = true; look.nx = clamp(nx, -1, 1); look.ny = clamp(ny, -1, 1);   // the pupils go at once; the head follows on its springs
       if (how === "snap") {   // already there: head, pupils and all
@@ -2352,7 +2402,8 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     },
     setBlinkGap(min, max) {
       blink.gap = [Math.max(0.2, min), Math.max(min, max)];
-      if (blink.start < 0 && !blink.double) blink.next = Math.min(blink.next, S.t + blink.gap[1]);
+      // a blink already drawn waits its gap, unless it is longer than any the new gap allows
+      if (blink.start < 0 && !blink.double) blink.next = Math.min(blink.next, S.t + blink.gap[1] * BLINK_GAP.most);
     },
     setBlinkHold(seconds) {
       BLINK.hold = clamp(seconds, 0.05, 2);
