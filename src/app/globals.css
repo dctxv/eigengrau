@@ -1484,3 +1484,168 @@ button {
     transition: none;
   }
 }
+
+/*
+ * The case of what Urchi has found (components/FoundCase.tsx). The word in Space's corner, once it
+ * has caught anything, in the Elsewhere row's grotesk; on a phone, under the tabs, clear of the
+ * caption. The case over the whole room, eigengrau all but opaque: its head (a serif word, a line,
+ * Close), the chosen thing large with its tier, name, line and day, and every place in a row that
+ * wraps, each a square with the thing turning in it (drawn by the canvas under them all) and its
+ * name, or, empty, a hairline circle and its tier.
+ */
+.found-word {
+  position: absolute;
+  left: 16px;
+  bottom: var(--bottom-ui);
+  font: 500 12px/140% var(--font-grotesk);
+  color: var(--ink);
+  opacity: 0.7;
+  z-index: 6;
+  transition: opacity 150ms var(--ease-ui), transform 150ms var(--ease-ui);
+}
+.found-word:hover,
+.found-word:focus-visible {
+  opacity: 1;
+  transform: translateY(-1px);
+}
+.found-case {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  background: var(--bg);
+  color: var(--ink);
+}
+.found-inner {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  grid-template-rows: auto 1fr;
+  gap: 24px 48px;
+  padding: 88px 48px 48px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.found-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+.found-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.found-head h2 {
+  font: 300 32px/1 var(--font-serif);
+  margin: 0;
+}
+.found-head p {
+  font: 400 14px/1.4 var(--font-serif);
+  margin: 0;
+  opacity: 0.7;
+}
+.found-close {
+  margin-left: auto;
+  font: 500 12px/140% var(--font-grotesk);
+  color: var(--ink);
+}
+.found-chosen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  align-self: start;
+}
+.found-big {
+  width: min(340px, 36vw);
+  aspect-ratio: 1;
+}
+.found-words {
+  text-align: center;
+  max-width: 340px;
+}
+.found-words h3 {
+  font: 500 12px/140% var(--font-grotesk);
+  margin: 4px 0 0;
+}
+.found-words p {
+  font: 400 15px/1.4 var(--font-serif);
+  margin: 8px 0 0;
+}
+.found-tier,
+.found-when {
+  font: 500 11px/140% var(--font-grotesk);
+  opacity: 0.45;
+  text-transform: capitalize;
+}
+.found-when {
+  display: block;
+  margin-top: 12px;
+  text-transform: none;
+}
+.found-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: 20px 12px;
+  align-content: start;
+}
+.found-slot {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  border-radius: var(--r);
+}
+.found-slot[data-has] {
+  cursor: pointer;
+}
+.found-place {
+  width: 100%;
+  max-width: 116px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  outline: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  outline-offset: -18px;
+}
+.found-slot[data-has] .found-place {
+  outline-color: transparent;
+}
+.found-slot[data-chosen] .found-place {
+  outline-color: color-mix(in srgb, var(--ink) 22%, transparent);
+  outline-offset: -4px;
+}
+.found-name {
+  font: 500 11px/140% var(--font-grotesk);
+  opacity: 0.8;
+}
+.found-slot:not([data-has]) .found-name {
+  opacity: 0.3;
+  text-transform: capitalize;
+}
+@media (max-width: 640px) {
+  .found-word {
+    bottom: auto;
+    top: 64px;
+  }
+  .found-inner {
+    grid-template-columns: 1fr;
+    padding: 72px 16px 32px;
+    gap: 20px;
+  }
+  .found-big {
+    width: min(220px, 56vw);
+  }
+  .found-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

@@ -17,6 +17,7 @@ import { caught, comeBack, glanceAt, glanceDown, read, tug, type Caught } from "
 import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
 import { clock } from "@/engine/urchi/hours";
 import { CursorLabel } from "@/components/CursorLabel";
+import { CASE_EVENT, FoundCase } from "@/components/FoundCase";
 import { MaskedChars, MaskedWords } from "@/components/Mask";
 import { alongOn } from "@/lib/along";
 import { getFlags, onFlags, setFlag } from "@/lib/flags";
@@ -307,7 +308,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const tellLive = (text: string) => {
       if (live.current) live.current.textContent = text;
     };
-    catcher = new Catch({ room, att, float: fl, sky: foundSky, reducedMotion, say: (title, line, dwell) => say("catch", title, line, { dwell }), tell: tellLive, onChange: () => labelUrchi() });
+    catcher = new Catch({ room, att, float: fl, sky: foundSky, reducedMotion, phone, say: (title, line, dwell) => say("catch", title, line, { dwell }), tell: tellLive, onChange: () => labelUrchi() });
     const catches = catcher;
     // (whoever opens the console gets a word about where Urchi keeps what it catches)
     hintFound();
@@ -845,9 +846,17 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     // Its tab is kept while the visitor is elsewhere: the room holds still, as it was, and comes back
     // to life as the tab slides in, still watching the pill of the tab they left.
     let away = false;
+    // the case of what it has found open over the room: the room holds still behind it
+    let caseOpen = false, shownHere = true;
+    const onCase = (e: Event) => {
+      caseOpen = !!(e as CustomEvent<{ open: boolean }>).detail?.open;
+      room.paused = caseOpen || !shownHere;
+    };
+    window.addEventListener(CASE_EVENT, onCase);
     const offShown = onShown((s) => {
       const on = s.has("/");
-      room.paused = !on;
+      shownHere = on;
+      room.paused = !on || caseOpen;
       if (!on) {
         away = true;
         return;
@@ -904,6 +913,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       zoomEl.removeEventListener("input", onSlide);
       gsap.killTweensOf(zoomEl);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener(CASE_EVENT, onCase);
       document.removeEventListener("visibilitychange", onVisibility);
       cursor.destroy();
       catches.dispose();
@@ -960,6 +970,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
 
       {/* Beside the stage rather than inside it, so it is not aria-hidden: what's new, and Urchi going out and coming home, are read out here. */}
       <p ref={live} className="sr-only" aria-live="polite" />
+
+      {/* What Urchi has caught, to come back to: a word in the corner, and the case it opens. */}
+      <FoundCase />
     </div>
   );
 }

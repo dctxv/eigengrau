@@ -14,30 +14,56 @@ import type { FoundSky } from "./sky/Found";
 
 /**
  * The glint: something drifting by, afloat. The first comes `first` seconds after Urchi has floated
- * in, the next `every` seconds after the last has gone (a wait drawn between the two). It comes up
+ * in (`firstNew` for a visitor who has caught nothing yet, so a newcomer meets one before they
+ * wander off), the next `every` seconds after the last has gone (a wait drawn between the two). It comes up
  * over `in` seconds somewhere Urchi could get to (see Float.canReach), between `far` of the room's
  * width from it, within `band` of the room's height of its middle, and never more than `below`
  * radians under level from it (it swims head first, and will not go at something head down);
  * drifts `speed` px a second for `life` seconds on a line it could get to all along; and goes over
  * `out`. It is `size` CSS px across at zoom 1, a soft four-point glint as the items' crystals catch
  * the light in a faint round `halo`, warmer than any star (`colour`); unlike a star's, its arms
- * turn (`turn` rad/s) and it breathes by `twinkle` every `pulse` seconds. It is drawn in the cells
- * Urchi is drawn in afloat. Urchi notices it `notice` seconds after it starts to come up. A press within `hit` px of
+ * turn (`turn` rad/s), it breathes by `twinkle` every `pulse` seconds, and every `ring.every`
+ * seconds a thin ring goes out from it and fades (over `ring.for`, to `ring.reach` of its size,
+ * `ring.amount` bright at first), a ping no star gives. It is drawn in the cells Urchi is drawn in
+ * afloat. Urchi notices it `notice` seconds after it starts to come up, and points at it with the
+ * arm on that side for `point` seconds as well as looking. A press within `hit` px of
  * it (`hitTouch` for a finger) goes for it. Gone for it, it slows to a stop over `stop` seconds and
  * brightens by `ready`; given up on, it drifts on for at least `after` seconds more.
  */
-const GLINT = { first: [9, 14] as [number, number], every: [20, 40] as [number, number], in: 1.2, out: 1.8, far: [0.18, 0.42] as [number, number], band: 0.3, below: 0.5, speed: [8, 15] as [number, number], life: [16, 22] as [number, number], size: 40, colour: "#ffe9bf", twinkle: 0.35, pulse: 1.7, turn: 0.35, halo: 0.22, notice: 0.5, hit: 30, hitTouch: 44, stop: 0.35, ready: 0.35, after: 4 };
+const GLINT = { first: [9, 14] as [number, number], firstNew: [3, 5] as [number, number], every: [20, 40] as [number, number], in: 1.2, out: 1.8, far: [0.18, 0.42] as [number, number], band: 0.3, below: 0.5, speed: [8, 15] as [number, number], life: [16, 22] as [number, number], size: 72, colour: "#ffe9bf", twinkle: 0.35, pulse: 1.7, turn: 0.35, halo: 0.4, ring: { every: 2.2, for: 1.5, reach: 0.95, amount: 0.55 }, notice: 0.5, point: 2.2, hit: 40, hitTouch: 52, stop: 0.35, ready: 0.35, after: 4 };
 /**
- * The catch, in seconds: the glint flares as the hand closes on it and is gone over `flare`; what
- * was caught grows between its hands over `grow`, held in both of them in front of it, as wide as
- * they are apart (`between` times that: a mitten either side of it), never under `min` or over `max`
- * CSS px (zoomed as Urchi is), turning; Urchi looks at it for `hold` (by how rare it is, or what it is)
+ * Something new, held up: once the hands have brought it in (`carry`, and `wait` more), Urchi holds
+ * it up high in one hand over `for` seconds (Float.raise), a little out from the glove (`out` of its
+ * size), and as it gets there (`burst` of the way up) a star flares behind it (BURST); it is held up
+ * for the tier's hold (HOLD) from then.
+ */
+const RAISE = { wait: 0.15, for: 0.65, burst: 0.7, out: 0.45 };
+/**
+ * The star behind something new held up: a lens flare, white, as bright as anything on the page. Its
+ * core comes up over `grow` seconds (overshooting a little) with a flash (`flash` over its strength,
+ * falling away over `flashFor`); then its arms shoot out over `rays`, starting `raysAt` in: four very
+ * long thin ones along its axes, reaching `reach` times the size of what it is behind, and four
+ * shorter on its diagonals, with fine faint streaks all round. It turns `spin[0]` rad/s at first and
+ * `spin[1]` once its arms are out, fast. Let go (what it was behind goes up into the sky), it goes
+ * with it and fades over `out`. Under reduced motion it is simply there, still, and fades.
+ */
+const BURST = { grow: 0.3, flash: 1.5, flashFor: 0.25, raysAt: 0.15, rays: 0.5, reach: 2.6, spin: [0.6, 7] as [number, number], out: 0.9 };
+
+/** The caption's word to a visitor who has caught nothing yet, once a page, as Urchi first notices a glint: held this long (s). */
+const HINT_FOR = 5.5;
+let hinted = false;
+/**
+ * The catch, in seconds: the glint flares as the hands close on it and is gone over `flare`; what
+ * was caught is there where the glint was (coming up over `grow`), and over `carry` the hands bring
+ * it in front of Urchi, growing as it comes, to be held in both of them, as wide as they are apart
+ * (`between` times that: it sits in front of the mittens either side of it), never under `min` or
+ * over `max` CSS px (zoomed as Urchi is), turning; Urchi looks at it for `hold` (by how rare it is, or what it is)
  * while the caption says what it is; then it goes up into the sky over `toSky`, or, one it has
  * already, it lets it go: it drifts off at `drift` of Urchi's height a second, fading over `fade`.
  * Under reduced motion nothing swims: the glint goes, and what it was is there in front of Urchi at
  * once.
  */
-const CATCH = { flare: 0.3, grow: 0.5, size: 0.34, between: 1.15, min: 64, max: 150, toSky: 2.6, drift: 0.28, fade: 2.6 };
+const CATCH = { flare: 0.3, grow: 0.25, carry: 0.9, size: 0.45, between: 1.5, min: 84, max: 170, toSky: 2.6, drift: 0.28, fade: 2.6 };
 const HOLD: Record<ItemTier | "again" | "forged", number> = { common: 2.4, uncommon: 3, rare: 3.6, top: 4.4, again: 2.4, forged: 3.8 };
 /** How rare each tier is, as the sky's own variants are (by weight): only tiers with something made in them are drawn. */
 const ODDS: Record<ItemTier, number> = { common: 70, uncommon: 20, rare: 8, top: 2 };
@@ -78,6 +104,8 @@ uniform float uHalf;
 uniform float uCell;
 uniform float uAngle;
 uniform float uHalo;
+uniform float uRing;
+uniform float uRingAmount;
 float arm(float along, float across) { float t = 1.0 - min(abs(along), 1.0); return t * t * t * exp(-across * across / (0.0025 + 0.004 * t)); }
 void main() {
   vec2 p = uCell > 0.0 ? (floor(gl_FragCoord.xy / uCell) + 0.5) * uCell : gl_FragCoord.xy;
@@ -85,13 +113,91 @@ void main() {
   float c = cos(uAngle), s = sin(uAngle);
   vec2 q = vec2(c * d.x - s * d.y, s * d.x + c * d.y);
   float a = (arm(q.x, q.y) + arm(q.y, q.x) + 0.6 * exp(-dot(q, q) * 40.0) + uHalo * exp(-dot(q, q) * 7.0)) * uStrength;
+  // the ping: a thin ring going out from it and fading
+  if (uRing >= 0.0) {
+    float r = mix(0.12, ${GLINT.ring.reach.toFixed(3)}, uRing), k = (length(d) - r) / 0.045;
+    a += uRingAmount * (1.0 - uRing) * (1.0 - uRing) * exp(-k * k) * uStrength;
+  }
   gl_FragColor = vec4(uColour, min(a, 1.0));
 }`;
+
+const burstFragment = /* glsl */ `
+uniform vec2 uCentre;
+uniform float uHalf;
+uniform float uCell;
+uniform float uAngle;
+uniform float uGrow;
+uniform float uRays;
+uniform float uStrength;
+float hash(float n) { return fract(sin(n) * 43758.5453); }
+// a spike along x: thin, and thinner and fainter toward its tip at L
+float spike(float along, float across, float L, float w) {
+  float u = min(along / max(L, 1e-3), 1.0);
+  return exp(-pow(across / (w * (0.35 + 0.65 * (1.0 - u))), 2.0)) * pow(1.0 - u, 1.6);
+}
+void main() {
+  vec2 p = uCell > 0.0 ? (floor(gl_FragCoord.xy / uCell) + 0.5) * uCell : gl_FragCoord.xy;
+  vec2 d = (p - uCentre) / uHalf;
+  float c = cos(uAngle), s = sin(uAngle);
+  vec2 q = vec2(c * d.x - s * d.y, s * d.x + c * d.y);
+  float r = length(q), g = max(uGrow, 1e-3);
+  // the core: blinding at the middle, a soft glow round it
+  float v = 1.6 * exp(-r * r / (0.004 * g * g)) + 0.6 * exp(-r / (0.05 * g)) + 0.2 * exp(-r / (0.16 * g));
+  // four long arms along its axes, four shorter on its diagonals
+  float L = uRays, D = 0.5 * uRays;
+  v += spike(abs(q.x), abs(q.y), L, 0.012) + spike(abs(q.y), abs(q.x), L, 0.012);
+  vec2 w = vec2(q.x + q.y, q.x - q.y) * 0.70710678;
+  v += 0.6 * (spike(abs(w.x), abs(w.y), D, 0.016) + spike(abs(w.y), abs(w.x), D, 0.016));
+  // and fine faint streaks all round
+  float k = floor((atan(q.y, q.x) + 3.14159265) / 6.2831853 * 96.0);
+  v += 0.25 * uRays * step(0.55, hash(k)) * hash(k + 7.0) * exp(-r / 0.3) * smoothstep(0.03, 0.1, r);
+  v *= uStrength;
+  vec3 col = mix(vec3(0.82, 0.88, 1.0), vec3(1.0), min(1.0, v * 0.8));
+  gl_FragColor = vec4(col, min(v, 1.0));
+}`;
+
+/** The star behind something new held up (see BURST), in the room's scene: over Urchi, under what it is behind. */
+class Burst {
+  readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private u = { uCentre: { value: new THREE.Vector2() }, uHalf: { value: 1 }, uCell: { value: 0 }, uAngle: { value: 0 }, uGrow: { value: 0 }, uRays: { value: 0 }, uStrength: { value: 0 } };
+
+  constructor() {
+    this.mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.ShaderMaterial({ uniforms: this.u, vertexShader: glintVertex, fragmentShader: burstFragment, transparent: true, depthTest: false, depthWrite: false, ...ADD }),
+    );
+    this.mesh.renderOrder = 0.45;
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+  }
+
+  /** At room point x, y, reaching `half` CSS px from its middle, its core `grow` and its arms `rays` of the way out, turned `angle`, at `strength`, in cells `cell` device px. */
+  draw(x: number, y: number, half: number, grow: number, rays: number, angle: number, strength: number, cell: number, room: { width: number; height: number }, grid: { x: number; y: number }) {
+    this.mesh.visible = strength > 0.002 && half > 1;
+    if (!this.mesh.visible) return;
+    const c = Math.max(1, cell), cx = (Math.floor(((x + room.width / 2) * grid.x) / c) + 0.5) * c, cy = (Math.floor(((y + room.height / 2) * grid.y) / c) + 0.5) * c;
+    this.u.uCell.value = cell;
+    this.u.uCentre.value.set(cx, cy);
+    this.u.uHalf.value = half * grid.x;
+    this.u.uAngle.value = angle;
+    this.u.uGrow.value = grow;
+    this.u.uRays.value = rays;
+    this.u.uStrength.value = strength;
+    this.mesh.position.set(cx / grid.x - room.width / 2, cy / grid.y - room.height / 2, 0);
+    this.mesh.scale.set(2 * half, 2 * half, 1);
+  }
+
+  dispose() {
+    this.mesh.removeFromParent();
+    this.mesh.geometry.dispose();
+    this.mesh.material.dispose();
+  }
+}
 
 /** The glint, in the room's scene: behind Urchi and its line, over the sky. Placed and lit each frame. */
 class Glint {
   readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
-  private u = { uColour: { value: rawColor(GLINT.colour) }, uStrength: { value: 0 }, uCentre: { value: new THREE.Vector2() }, uHalf: { value: 1 }, uCell: { value: 0 }, uAngle: { value: 0 }, uHalo: { value: GLINT.halo } };
+  private u = { uColour: { value: rawColor(GLINT.colour) }, uStrength: { value: 0 }, uCentre: { value: new THREE.Vector2() }, uHalf: { value: 1 }, uCell: { value: 0 }, uAngle: { value: 0 }, uHalo: { value: GLINT.halo }, uRing: { value: -1 }, uRingAmount: { value: GLINT.ring.amount } };
 
   constructor() {
     this.mesh = new THREE.Mesh(
@@ -103,11 +209,12 @@ class Glint {
     this.mesh.visible = false;
   }
 
-  /** At room point x, y (CSS px, y up), `size` across, at `strength`, its arms turned `angle`, in cells `cell` device px square; the room's size and its buffer's device px per CSS px. */
-  draw(x: number, y: number, size: number, strength: number, angle: number, cell: number, room: { width: number; height: number }, grid: { x: number; y: number }) {
+  /** At room point x, y (CSS px, y up), `size` across, at `strength`, its arms turned `angle`, its ring `ring` of the way out (-1 none), in cells `cell` device px square; the room's size and its buffer's device px per CSS px. */
+  draw(x: number, y: number, size: number, strength: number, angle: number, ring: number, cell: number, room: { width: number; height: number }, grid: { x: number; y: number }) {
     this.mesh.visible = strength > 0.002 && size > 0.5;
     if (!this.mesh.visible) return;
     this.u.uAngle.value = angle;
+    this.u.uRing.value = ring;
     // its middle on a cell's middle, so its arms are even
     const c = Math.max(1, cell), cx = (Math.floor(((x + room.width / 2) * grid.x) / c) + 0.5) * c, cy = (Math.floor(((y + room.height / 2) * grid.y) / c) + 0.5) * c;
     this.u.uCentre.value.set(cx, cy);
@@ -135,12 +242,17 @@ export type CatchOptions = {
   say(title: string, line: string, dwell: number): void;
   /** Said for a screen reader. */
   tell(text: string): void;
+  /** A phone (no pointer to click with): the hint says tap. */
+  phone: boolean;
   /** Something there to be caught came or went: the cursor's word and the control's name follow. */
   onChange(): void;
 };
 
 type Out = { x: number; y: number; vx: number; vy: number; born: number; life: number; gone: number; t: number; ready: number; noticed: boolean };
-type Held = { id: string; text: ItemText & { tier: ItemTier }; kind: "new" | "again" | "forged"; sprite: ItemSprite; t0: number; shown: boolean };
+/** What it caught: which, what it turned out to be, its sprite, when it was shown (t0) and caught, and where (room px: where the glint was). */
+type Held = { id: string; text: ItemText & { tier: ItemTier }; kind: "new" | "again" | "forged"; sprite: ItemSprite; t0: number; shown: boolean; caughtAt: number; from: Point; raisedAt: number; raiseFrom: Point };
+/** The star behind something new: since when (its clock), how big what it is behind was, how far it has turned, what it is behind, and since when it has been going (-1 not). */
+type Star = { t0: number; size: number; angle: number; sprite: ItemSprite; out: number };
 type Loose = { sprite: ItemSprite; vx: number; vy: number; t: number; fade: number };
 
 /**
@@ -166,6 +278,8 @@ export class Catch {
   /** Gone for (the glint stays put and Urchi swims to it), and what it will turn out to be (its code loading). */
   private going: { id: string; tier: ItemTier; forged: boolean; maker: Promise<() => Item> } | null = null;
   private held: Held | null = null;
+  private burst = new Burst();
+  private star: Star | null = null;
   private loose: Loose[] = [];
   /** When the next glint comes (its clock, s), and its clock. */
   private next = Infinity;
@@ -177,7 +291,7 @@ export class Catch {
 
   constructor(o: CatchOptions) {
     this.o = o;
-    o.room.scene.add(this.glint.mesh);
+    o.room.scene.add(this.glint.mesh, this.burst.mesh);
     this.stopFrame = o.room.onFrame((dt) => this.frame(dt));
     // (after Urchi is placed: what is in its hand follows its hand)
     this.stopAfter = o.room.afterUrchi((dt) => this.draw(dt));
@@ -204,7 +318,7 @@ export class Catch {
   /** The float's state changed: a glint's first comes a while after floating in; gone home, whatever was out goes. */
   floatChanged(floating: boolean) {
     if (floating) {
-      if (!Number.isFinite(this.next)) this.next = this.t + (this.dev ? 2 : rand(...GLINT.first));
+      if (!Number.isFinite(this.next)) this.next = this.t + (this.dev ? 2 : rand(...(found().items.size ? GLINT.first : GLINT.firstNew)));
       return;
     }
     this.next = Infinity;
@@ -255,7 +369,8 @@ export class Catch {
     const sprite = new ItemSprite();
     sprite.mesh.renderOrder = 0.5; // in its hand, in front of it
     o.room.scene.add(sprite.mesh);
-    this.held = { id: g.id, text, kind, sprite, t0: this.t, shown: false };
+    const at = this.out ? { x: this.out.x, y: this.out.y } : (o.float.handAt() ?? { x: 0, y: 0 });
+    this.held = { id: g.id, text, kind, sprite, t0: this.t, shown: false, caughtAt: this.t, from: at, raisedAt: -1, raiseFrom: at };
     g.maker.then(
       (maker) => {
         const h = this.held;
@@ -313,6 +428,13 @@ export class Catch {
     if (!h) return;
     this.held = null;
     o.float.openHand();
+    // the star goes up with it, fading; with Urchi gone, at once
+    if (this.star) {
+      if (now) {
+        this.star = null;
+        this.burst.mesh.visible = false;
+      } else this.star.out = this.t;
+    }
     if (h.kind === "forged") keepForged(h.id);
     else if (h.kind === "new") keepFound(h.id);
     const from = h.sprite.placed;
@@ -390,6 +512,12 @@ export class Catch {
         g.noticed = true;
         o.att.add({ id: "glint", kind: "glint", weight: 1, at: () => this.clientOf(this.out) }, 1);
         o.att.play("notice", 3, () => notice(o.att, () => this.clientOf(this.out)));
+        o.float.pointAt(() => (this.out && this.out.gone < 0 ? { x: this.out.x, y: this.out.y } : null), GLINT.point);
+        // someone who has never caught anything is told what it is, once a page
+        if (!hinted && !found().items.size) {
+          hinted = true;
+          o.say("Urchi", fillLine(CATCH_LINES.hint, { click: o.phone ? "Tap" : "Click" }), HINT_FOR);
+        }
       }
       // missed: its time is up and it goes
       if (g.gone < 0 && !this.going && this.t - g.born > GLINT.in + g.life) {
@@ -407,7 +535,15 @@ export class Catch {
     if (this.out && this.out.gone < 0 && fl.state !== "floating") this.fade();
     // done looking at what it caught
     const h = this.held;
-    if (h && h.shown && this.t - h.t0 >= HOLD[h.kind === "new" ? h.text.tier : h.kind]) this.finish();
+    // something new: held up high in one hand once the hands have brought it in, and a star flares behind it
+    if (h && h.kind === "new" && h.shown && h.raisedAt < 0 && this.t >= h.caughtAt + CATCH.carry + RAISE.wait) {
+      h.raisedAt = this.t;
+      h.raiseFrom = { x: h.sprite.placed.x, y: h.sprite.placed.y };
+      fl.raise();
+    }
+    if (h && h.raisedAt >= 0 && !this.star && this.t >= h.raisedAt + RAISE.for * RAISE.burst) this.star = { t0: this.t, size: h.sprite.placed.size, angle: Math.random() * Math.PI, sprite: h.sprite, out: -1 };
+    const done = h && h.shown && (h.kind === "new" ? h.raisedAt >= 0 && this.t - h.raisedAt >= RAISE.for + HOLD[h.text.tier] : this.t - h.t0 >= HOLD[h.kind]);
+    if (done) this.finish();
   }
 
   /** The glint, what is in Urchi's hand, and what it let go: drawn where they are this frame (after Urchi is placed). */
@@ -424,11 +560,13 @@ export class Catch {
         fade = this.held ? (1 - smooth(u)) * (1 + 1.5 * Math.sin(Math.PI * Math.min(1, u * 2))) : inU * (1 - smooth(u));
       }
       const twinkle = o.reducedMotion ? 1 : 1 - GLINT.twinkle + GLINT.twinkle * Math.sin((Math.PI * g.t) / GLINT.pulse) ** 2;
-      const at = this.held ? (o.float.handAt() ?? g) : g;
+      const at = g;
       // (in the sky, it goes with it for a tab's slide)
       const strength = Math.max(0, fade) * twinkle * (0.75 + GLINT.ready * g.ready) * o.sky.skyPresence;
-      this.glint.draw(at.x, at.y, GLINT.size * Math.max(0.35, zoom), strength, o.reducedMotion ? 0 : g.t * GLINT.turn, cell, room, grid);
-    } else this.glint.draw(0, 0, 0, 0, 0, 0, room, grid);
+      // (no ping once it is gone for, or going)
+      const ring = o.reducedMotion || this.going || this.held || g.gone >= 0 ? -1 : (g.t % GLINT.ring.every) / GLINT.ring.for;
+      this.glint.draw(at.x, at.y, GLINT.size * Math.max(0.35, zoom), strength, o.reducedMotion ? 0 : g.t * GLINT.turn, ring > 1 ? -1 : ring, cell, room, grid);
+    } else this.glint.draw(0, 0, 0, 0, 0, -1, 0, room, grid);
     const stage = { width: room.width, height: room.height, grid };
     const h = this.held;
     if (h) {
@@ -437,13 +575,38 @@ export class Catch {
       const hand: Point & { apart?: number } = o.float.handAt() ?? (p ? room.onFigure(0, 780) : { x: 0, y: 0 });
       const wide = hand.apart ? hand.apart * CATCH.between : CATCH.size * tall;
       const size = Math.min(CATCH.max * Math.max(zoom, 0.4), Math.max(CATCH.min * Math.min(1, zoom), wide));
-      const grow = h.shown ? (o.reducedMotion ? 1 : smooth((this.t - h.t0) / CATCH.grow)) : 0;
-      const s = size * (0.25 + 0.75 * grow);
+      // the glint is what it caught: it grows out of where the glint was, and the hands bring it in
+      const carry = o.reducedMotion ? 1 : smooth((this.t - h.caughtAt) / CATCH.carry);
+      const shown = h.shown ? (o.reducedMotion ? 1 : smooth((this.t - h.t0) / CATCH.grow)) : 0;
+      const s = size * (0.3 + 0.7 * carry);
       const forged = h.kind === "forged", c = forged ? Math.max(cell, Math.round((s * grid.x) / FORGED_CELLS)) : Math.max(1, cell);
-      const pose: SpritePose = { x: hand.x, y: hand.y, size: s, cell: c, fade: grow, wrong: forged ? 1 : 0 };
+      let x = h.from.x + (hand.x - h.from.x) * carry, y = h.from.y + (hand.y - h.from.y) * carry;
+      if (h.raisedAt >= 0) {
+        // held up: over the raised glove, a little out from it (away from its middle)
+        const up = o.reducedMotion ? 1 : smooth((this.t - h.raisedAt) / RAISE.for), mx = p?.x ?? 0, my = p?.y ?? 0, dx = hand.x - mx, dy = hand.y - my, dl = Math.hypot(dx, dy) || 1;
+        const tx = hand.x + (dx / dl) * RAISE.out * s, ty = hand.y + (dy / dl) * RAISE.out * s;
+        x = h.raiseFrom.x + (tx - h.raiseFrom.x) * up;
+        y = h.raiseFrom.y + (ty - h.raiseFrom.y) * up;
+      }
+      const pose: SpritePose = { x, y, size: s, cell: c, fade: shown, wrong: forged ? 1 : 0 };
       h.sprite.place(pose);
       h.sprite.frame(dt, o.reducedMotion);
       h.sprite.draw(room.renderer, stage);
+    }
+    // the star, behind what it flares for (held up, then going up into the sky)
+    const st = this.star;
+    if (st) {
+      const u = this.t - st.t0, at = st.sprite.placed, still = o.reducedMotion;
+      const k = Math.min(1, u / BURST.grow), grow = still ? 1 : k * (2 - k) + 0.18 * Math.sin(Math.PI * k);
+      const rays = still ? 1 : smooth((u - BURST.raysAt) / BURST.rays);
+      st.angle += still ? 0 : dt * (BURST.spin[0] + (BURST.spin[1] - BURST.spin[0]) * rays);
+      const fade = st.out < 0 ? 1 : 1 - smooth((this.t - st.out) / BURST.out);
+      const strength = fade * (1 + (still ? 0 : BURST.flash * Math.exp(-u / BURST.flashFor)));
+      this.burst.draw(at.x, at.y, st.size * BURST.reach, Math.max(0, grow), rays, st.angle, strength, Math.max(1, cell), room, grid);
+      if (fade <= 0) {
+        this.star = null;
+        this.burst.draw(0, 0, 0, 0, 0, 0, 0, 0, room, grid);
+      }
     }
     for (let i = this.loose.length - 1; i >= 0; i--) {
       const l = this.loose[i], p = l.sprite.placed;
@@ -472,6 +635,7 @@ export class Catch {
     this.stopAfter();
     this.o.att.remove("glint");
     this.glint.dispose();
+    this.burst.dispose();
     this.held?.sprite.dispose();
     this.loose.forEach((l) => l.sprite.dispose());
   }

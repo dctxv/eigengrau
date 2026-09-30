@@ -300,11 +300,13 @@ export const ITEMS: Record<ItemTier, ItemText[]> = {
 };
 
 /**
- * What the caption says of a catch on Space that is not a first (his voice, no exclamation marks):
- * something Urchi has already, which it lets go; and a forgery, a thing it never caught, handed to
+ * What the caption says of the catch on Space (his voice, no exclamation marks): the hint to a
+ * newcomer; something Urchi has already, which it lets go; and a forgery, a thing it never caught, handed to
  * whoever wrote it into its list (see src/lib/found.ts). {name} is the item's name in lower case.
  */
 export const CATCH_LINES = {
+  /** Under Urchi's name the first time it notices something, for a visitor who has caught nothing yet. {click} is "Click", or "Tap" on a phone. */
+  hint: "Something is drifting by. {click} it to catch it.",
   again: "It has one already, and lets this one go.",
   forgedTitle: "Forged {name}",
   forged: "You didn't catch this one. You made it.",

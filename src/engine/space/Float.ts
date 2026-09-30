@@ -173,9 +173,11 @@ const REACH_FOR = { still: 1, near: 1.3, off: 0.42, z: 260, hold: 3.4, rest: 8 }
  * within `touch` of its height of it, or the arms have come all the way out and it is still
  * `stretch` short (a mitten's width: near enough). Caught, it holds it in both hands in front of
  * its middle, at `hold` (head space: the arms come in as near as they go below the helmet, a hand
- * either side of it), and looks at it. Longer than `most` seconds, and it gives up.
+ * either side of it), and looks at it. Something new it then holds up high in one hand (raise): that
+ * arm goes up at `raise` (the `.R` side's terms: up and out past its helmet, further than it
+ * reaches, so the arm is straight), the other lets go. Longer than `most` seconds, and it gives up.
  */
-const FETCH = { arrive: 0.35, glide: 0.3, reach: 1.25, touch: 0.12, stretch: 0.3, hold: [0, 780, 300] as [number, number, number], most: 14 };
+const FETCH = { arrive: 0.35, glide: 0.3, reach: 1.25, touch: 0.12, stretch: 0.3, hold: [0, 780, 300] as [number, number, number], raise: [900, -250, 120] as [number, number, number], most: 14 };
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
@@ -259,7 +261,9 @@ export class Float {
    * it first reaches), since when (its clock), whether its hand has closed on it, and what the page
    * is told: caught, or lost (held, flung, asleep, gone home, or too long).
    */
-  private fetch: { to: () => Point | null; side: 0 | 1 | null; t0: number; caught: boolean; on: { caught(): void; lost(): void } } | null = null;
+  private fetch: { to: () => Point | null; side: 0 | 1 | null; t0: number; caught: boolean; raised?: boolean; on: { caught(): void; lost(): void } } | null = null;
+  /** Pointing at something (see pointAt): where it is now (room px), and until when (its clock). */
+  private pointing: { to: () => Point | null; until: number } | null = null;
   private tl: gsap.core.Timeline | null = null;
   private stopFrame: () => void;
   private disposed = false;
@@ -385,6 +389,30 @@ export class Float {
     return true;
   }
 
+  /**
+   * Points at something for `seconds` (Space's catch: a glint it has noticed): the arm on that side
+   * held out toward where `to` says it is (room px, y up), as far as it goes. Only floating, awake,
+   * not held and not going for something; not under reduced motion, where nothing of it moves.
+   */
+  pointAt(to: () => Point | null, seconds: number) {
+    if (this.state !== "floating" || this.hold || this.fetch || this.att.asleep || !this.limbs) return;
+    this.pointing = { to, until: this.t + seconds };
+    this.limbs.calm();
+  }
+
+  /**
+   * Holding what it caught in both hands: it holds it up high in one (see FETCH.raise), the arm on the
+   * side toward the room's middle, where there is room to hold it up (either hand has it).
+   */
+  raise() {
+    const f = this.fetch, p = this.room.float;
+    if (!f?.caught || !p) return;
+    f.raised = true;
+    // (in its own frame: which way the room's middle is from it, turned as it is)
+    const bx = -p.x * Math.cos(p.angle) - p.y * Math.sin(p.angle);
+    f.side = bx >= 0 ? 0 : 1;
+  }
+
   /** Whatever is in its hand let go: the hand opens and the arm comes back to it. */
   openHand() {
     const f = this.fetch;
@@ -418,6 +446,10 @@ export class Float {
   handAt(): (Point & { apart?: number }) | null {
     const L = this.limbs, f = this.fetch, side = L?.reachSide ?? f?.side ?? null;
     if (!L || side === null || !this.room.float) return null;
+    if (f?.caught && f.raised) {
+      const [x, y] = L.hand(f.side ?? 0);
+      return this.room.onFigure(x, y);
+    }
     if (f?.caught) {
       const [ax, ay] = L.hand(0), [bx, by] = L.hand(1), a = this.room.onFigure(ax, ay), b = this.room.onFigure(bx, by);
       return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, apart: Math.hypot(a.x - b.x, a.y - b.y) };
@@ -835,7 +867,9 @@ export class Float {
     const f = this.fetch!, p = this.room.float;
     if (!p) return;
     if (f.caught) {
-      L.reachFor(FETCH.hold, f.side ?? 0, true);
+      const s = f.side ?? 0, r = FETCH.raise;
+      if (f.raised) L.reachFor([s ? -r[0] : r[0], r[1], r[2]], s);
+      else L.reachFor(FETCH.hold, s, true);
       return;
     }
     const to = f.to();
@@ -887,7 +921,22 @@ export class Float {
   /** Curious: reaching for what it watches, near it (see REACH_FOR). */
   private reachOut(L: NonNullable<Float["limbs"]>) {
     if (this.fetch) {
+      this.pointing = null;
       this.reachFetch(L);
+      return;
+    }
+    const pt = this.pointing, fp = this.room.float, to = pt?.to();
+    if (pt) {
+      if (!fp || !to || this.t > pt.until || this.hold || this.state !== "floating" || this.att.asleep) {
+        this.pointing = null;
+        L.reachFor(null);
+        this.reachAgain = this.t + REACH_FOR.rest;
+        return;
+      }
+      // into its own frame, and the arm on that side out toward it (pointing, if it is beyond reach)
+      const u = this.unit, c = Math.cos(fp.angle), s = Math.sin(fp.angle), dx = to.x - fp.x, dy = to.y - fp.y;
+      const bx = (dx * c + dy * s) / u, by = (-dx * s + dy * c) / u;
+      L.reachFor([bx, FIGURE_MIDDLE - by, REACH_FOR.z], bx >= 0 ? 0 : 1);
       return;
     }
     const f = this.att.focus, you = this.att.you(), p = this.room.float;
@@ -919,7 +968,7 @@ export class Float {
       return;
     }
     const sw = this.swim, L = this.limbs;
-    const free = this.state === "floating" && !this.hold && !this.sending && !this.taut && !this.att.asleep && this.life.v > 0.9 && this.t >= this.calmAt && this.reachSince < 0;
+    const free = this.state === "floating" && !this.hold && !this.sending && !this.taut && !this.att.asleep && this.life.v > 0.9 && this.t >= this.calmAt && this.reachSince < 0 && !this.pointing;
     if (sw) {
       const to = this.at(sw.x, sw.y), b = this.b, there = Math.hypot(to.x - b.x, to.y - b.y) < SWIM.arrive * this.tall;
       if (there || !free || this.t - sw.t0 > SWIM.most) this.endSwim();
