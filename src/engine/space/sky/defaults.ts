@@ -94,8 +94,8 @@ export const PLANETS: PlanetsConfig = {
   pool: { ocean: 1 },
   count: { min: 2, max: 3 },
   depth: {
-    far: { zoomResponse: 0.25, size: 0.75, pixelFrom: 0.3, pixelMost: 3.5 },
-    near: { zoomResponse: 0.5, size: 1.3, pixelFrom: 0.2, pixelMost: 2.5 },
+    far: { zoomResponse: 0.25, size: 0.75, pixelFrom: 0.7, pixelMost: 6 },
+    near: { zoomResponse: 0.5, size: 1.3, pixelFrom: 0.55, pixelMost: 5 },
   },
   minPx: 18,
   light: { x: 0.55, y: 0.62, z: 0.56 },
@@ -104,7 +104,7 @@ export const PLANETS: PlanetsConfig = {
   tip: { min: 10, max: 26 },
   place: { top: 70, bottom: 76, left: 16, right: 60, tries: 32, apart: 1.5, clear: 0.62, enough: 0.12, pull: 0.5 },
   ocean: {
-    size: 0.2,
+    size: 0.5,
     vary: 0.12,
     bake: { width: 1024, cover: 0.46, puff: 1 },
     islands: 0,

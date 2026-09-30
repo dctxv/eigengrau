@@ -83,7 +83,8 @@ export type PlanetsConfig = LayerConfig & {
    * depth's `zoomResponse` (times the layer's), about the room's middle, as the stars' depths do but
    * nearer, so they move more than any star; is drawn `size` times its kind's size; and zoomed out
    * past `pixelFrom` loses its signal as Urchi does, in square cells of whole device pixels growing
-   * to `pixelMost` CSS px at the zoom's farthest, the far ones first.
+   * to `pixelMost` CSS px at the zoom's farthest, the far ones first. Farther off than Urchi, a
+   * planet loses its signal sooner than it does (Urchi from ZOOM.pixelFrom, 40%).
    */
   depth: { far: Depth; near: Depth };
   /** Never smaller than this across (CSS px) at zoom 1: a phone's sky still reads. */
