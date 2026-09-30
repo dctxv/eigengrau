@@ -157,7 +157,71 @@ export function glint(size = 0.4, colour = "#ffffff") {
     blending: THREE.AdditiveBlending,
   });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), material);
-  mesh.renderOrder = 2;
+  mesh.renderOrder = 3;
+  // it faces the camera whatever it is fixed to (a corner of a turning shard)
+  const q = new THREE.Quaternion();
+  mesh.onBeforeRender = (_r, _s, camera) => {
+    mesh.parent?.getWorldQuaternion(q);
+    mesh.quaternion.copy(q.invert()).multiply(camera.quaternion);
+    mesh.updateMatrixWorld();
+  };
+  return {
+    mesh,
+    set strength(v: number) {
+      uniforms.uStrength.value = v;
+    },
+  };
+}
+
+const glassFragment = /* glsl */ `
+uniform vec3 uTint;
+uniform vec3 uKey;
+uniform float uClear;
+varying vec3 vN;
+varying vec3 vP;
+void main() {
+  vec3 n = normalize(vN), v = normalize(-vP);
+  if (!gl_FrontFacing) n = -n;
+  // clear in the middle of a face, brighter and whiter toward its grazing edges, and a highlight where the key catches it
+  float fres = pow(1.0 - abs(dot(n, v)), 2.2);
+  float spec = pow(max(dot(reflect(-uKey, n), v), 0.0), 24.0);
+  float a = uClear + 0.5 * fres + 0.6 * spec;
+  vec3 c = mix(uTint, vec3(1.0), clamp(fres + spec, 0.0, 1.0));
+  gl_FragColor = vec4(c * a, a);
+}`;
+
+/**
+ * Clear glass, faceted: a faint tint of `tint` face on, brighter and whiter toward the edges it is
+ * seen at a slant, with a highlight where the key light catches a face. One side of it (`side`):
+ * a glass thing is drawn back faces first, what is inside it, then its front faces.
+ */
+export function glass(tint: string, side: THREE.Side, clear = 0.06) {
+  return new THREE.ShaderMaterial({
+    vertexShader,
+    fragmentShader: glassFragment,
+    uniforms: { uTint: { value: rawColor(tint) }, uKey: { value: KEY }, uClear: { value: clear } },
+    transparent: true,
+    premultipliedAlpha: true,
+    depthWrite: false,
+    side,
+  });
+}
+
+/** A soft halo round what glows, in the host's view, `size` across: light added round it. Set its `strength` as it glows. */
+export function halo(colour: string, size = 2, strength = 0.2) {
+  const uniforms = { uColour: { value: rawColor(colour) }, uStrength: { value: strength } };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform vec3 uColour; uniform float uStrength; varying vec2 vUv;
+      void main() { vec2 q = (vUv - 0.5) * 2.0; float a = exp(-4.0 * dot(q, q)) * (1.0 - smoothstep(0.8, 1.0, length(q))) * uStrength; gl_FragColor = vec4(uColour, a); }`,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), material);
+  mesh.renderOrder = -0.5;
   return {
     mesh,
     set strength(v: number) {

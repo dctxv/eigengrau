@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import * as THREE from "three";
 import { ITEMS } from "@/content/site";
 import { makeRenderer } from "@/engine/common/loader";
@@ -10,10 +10,14 @@ import { ITEM_MAKERS, type Item } from "@/engine/items";
 const BIG = 420;
 const SMALL = 96;
 
+const noop = () => () => {};
+
 /** Space's items up close (see page.tsx). */
 export function ItemSheet() {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [q] = useState(() => (typeof location === "undefined" ? new URLSearchParams() : new URLSearchParams(location.search)));
+  // (its words wait for the page to be in the browser: the server has no address to read the item from)
+  const shown = useSyncExternalStore(noop, () => true, () => false);
   const all = Object.entries(ITEMS).flatMap(([tier, list]) => list.map((i) => ({ ...i, tier })));
   const id = q.get("item") ?? all.find((i) => ITEM_MAKERS[i.id])?.id ?? "";
   const text = all.find((i) => i.id === id);
@@ -76,7 +80,7 @@ export function ItemSheet() {
   return (
     <main style={{ position: "fixed", inset: 0, background: "#16161d", color: "#e9e9e2", font: "13px/1.4 ui-monospace, monospace" }}>
       <canvas ref={canvas} style={{ width: "100%", height: "100%", display: "block" }} />
-      {text && (
+      {shown && text && (
         <div style={{ position: "absolute", left: 80 + big, top: 60 + SMALL + 24, maxWidth: 360 }}>
           <div style={{ opacity: 0.5 }}>{text.tier}</div>
           <div style={{ fontSize: 16, margin: "4px 0" }}>{text.name}</div>
