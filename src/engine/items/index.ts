@@ -11,6 +11,7 @@ export const ITEM_MAKERS: Record<string, () => Promise<() => Item>> = {
   "magnet-stone": () => import("./magnet").then((m) => m.makeMagnet),
   "comet-minnows": () => import("./minnows").then((m) => m.makeMinnows),
   "phase-shard": () => import("./phase").then((m) => m.makePhaseShard),
+  "dark-matter": () => import("./darkmatter").then((m) => m.makeDarkMatter),
 };
 
 export type { Item } from "./look";
