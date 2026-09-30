@@ -4,11 +4,14 @@ import { rawColor } from "@/engine/common/color";
 import { faceted, glass, glint, halo, haze, release, type Item } from "./look";
 
 /**
- * Its beat: a pulse every `every` seconds runs from the trunk out to the tips over `run`, a band
- * `band` of the tree's length wide; the tree glows at `rest` between pulses and flares by `flare`
- * as one passes. Its glass turns once in `turn` seconds.
+ * How it strikes, as lightning does, in seconds: a faint leader forks its way down from the top over
+ * `leader`; the return stroke lights the whole bolt at `flash` for `stroke`; it flickers with a
+ * restrike at each of `restrikes` (after the stroke), and fades over `fade`, its branches first. A
+ * dark pause of `gap[0]` to `gap[1]`, and the next strike takes a new path. The whole time it
+ * crackles: its forks jump a little `crackle` times a second, by up to `jitter` of the shard's
+ * height. Its glass turns once in `turn` seconds.
  */
-const BEAT = { every: 3.4, run: 1.1, band: 0.09, rest: 0.55, flare: 0.9, turn: 26 };
+const STRIKE = { leader: 0.14, flash: 1.8, stroke: 0.07, restrikes: [0.1, 0.22, 0.3], fade: 0.35, gap: [0.4, 1.6] as [number, number], crackle: 24, jitter: 0.012, turn: 26 };
 
 /** A small seeded generator (mulberry32), so it is the same bolt every time. */
 function seeded(seed: number) {
@@ -37,12 +40,12 @@ function shardGeometry(rand: () => number) {
   return { geometry: faceted(new ConvexGeometry(pts)), corners: pts };
 }
 
-type Seg = { a: THREE.Vector3; b: THREE.Vector3; da: number; db: number; w: number };
+type Seg = { a: THREE.Vector3; b: THREE.Vector3; da: number; db: number; w: number; depth: number };
 
 /**
- * The lightning: a trunk up the shard's length and branches off it, and branches off those, each a
- * run of short pieces whose direction wanders, kept inside the glass. Each end knows how far along
- * the tree it is from the trunk's root, for the pulse.
+ * A bolt: a trunk down the shard's length from its top and branches off it, and branches off those,
+ * each a run of short pieces whose direction wanders, kept inside the glass. Each end knows how far
+ * along the bolt it is from where it struck, for the leader's way down.
  */
 function bolt(rand: () => number): Seg[] {
   const segs: Seg[] = [];
@@ -59,16 +62,18 @@ function bolt(rand: () => number): Seg[] {
     for (let i = 0; i < n; i++) {
       const q = keep(p.clone().addScaledVector(dir, step).addScaledVector(wander(), step * (depth === 0 ? 0.9 : 1.2)));
       const len = p.distanceTo(q);
-      segs.push({ a: p, b: q, da: d, db: d + len, w: width * (1 - (0.45 * i) / n) });
+      segs.push({ a: p, b: q, da: d, db: d + len, w: width * (1 - (0.45 * i) / n), depth });
       if (depth < 2 && i > 0 && i < n - 1 && rand() < (depth === 0 ? 0.75 : 0.5)) {
         const side = wander().setY(0).normalize().multiplyScalar(depth === 0 ? 1.8 : 1.4);
         grow(q, dir.clone().add(side).normalize(), length * (depth === 0 ? 0.3 : 0.55), width * 0.6, d + len, depth + 1);
       }
       p = q;
       d += len;
+      // (it has reached the bottom of the glass: it grounds there)
+      if (q.y < -0.85) break;
     }
   };
-  grow(new THREE.Vector3(0.02, -0.8, 0), new THREE.Vector3(0, 1, 0), 1.62, 0.045, 0, 0);
+  grow(new THREE.Vector3((rand() - 0.5) * 0.1, 0.84, (rand() - 0.5) * 0.1), new THREE.Vector3(0, -1, 0), 1.62, 0.045, 0, 0);
   const most = Math.max(...segs.map((s) => s.db));
   for (const s of segs) {
     s.da /= most;
@@ -80,7 +85,9 @@ function bolt(rand: () => number): Seg[] {
 /**
  * Each piece of the bolt a ribbon facing you, as wide as its glow: its core white, its glow pale
  * violet, fading to nothing round its ends so the pieces join. Light added to what is under it, so
- * it blooms; brighter where the pulse is.
+ * it blooms. Only as far down as the leader has reached, brightest at its tip; its branches dimmer
+ * than its trunk as it fades; and every end jumps a little with the crackle (the same jump for the
+ * two pieces an end joins, so they stay joined).
  */
 const boltVertex = /* glsl */ `
 attribute vec3 aA;
@@ -89,13 +96,25 @@ attribute float aEnd;
 attribute float aSide;
 attribute vec2 aDist;
 attribute float aWidth;
+attribute float aDepth;
 uniform float uGlow;
+uniform float uCrackle;
+uniform float uJitter;
 varying vec2 vUV;
 varying float vLen;
 varying float vDist;
+varying float vDepth;
+vec2 jump(vec3 p) {
+  vec3 q = fract(p * vec3(12.9898, 78.233, 37.719) + uCrackle * 0.6180339);
+  q += dot(q, q.yzx + 19.19);
+  return fract(vec2(q.x * q.y, q.y * q.z)) * 2.0 - 1.0;
+}
 void main() {
   vec4 A = modelViewMatrix * vec4(aA, 1.0), B = modelViewMatrix * vec4(aB, 1.0);
   float scale = length(modelViewMatrix[0].xyz), w = aWidth * uGlow * scale;
+  // (where it struck from holds still; every other end jumps)
+  A.xy += jump(aA) * uJitter * scale * step(0.001, aDist.x);
+  B.xy += jump(aB) * uJitter * scale;
   vec2 d = B.xy - A.xy;
   float len = length(d);
   vec2 dir = len > 1e-6 ? d / len : vec2(1.0, 0.0), across = vec2(-dir.y, dir.x);
@@ -104,32 +123,35 @@ void main() {
   vLen = len / w;
   vUV = vec2(aEnd * (vLen + 2.0) - 1.0, aSide);
   vDist = mix(aDist.x, aDist.y, aEnd);
+  vDepth = aDepth;
   gl_Position = projectionMatrix * P;
 }`;
 const boltFragment = /* glsl */ `
 uniform vec3 uCore;
 uniform vec3 uGlowColour;
 uniform float uGlow;
-uniform float uRest;
-uniform float uPulse;
-uniform float uBand;
-uniform float uFlare;
+uniform float uReveal;
+uniform float uBright;
+uniform float uBranch;
 varying vec2 vUV;
 varying float vLen;
 varying float vDist;
+varying float vDepth;
 void main() {
+  if (vDist > uReveal) discard;
   // how far from the piece's own line, in its glow's widths (round at its ends)
   float r = length(vec2(max(0.0, max(-vUV.x, vUV.x - vLen)), vUV.y));
   float core = exp(-r * r * uGlow * uGlow * 3.5), glow = exp(-r * r * 3.0) * (1.0 - smoothstep(0.7, 1.0, r));
-  float x = (vDist - uPulse) / uBand, pulse = exp(-x * x);
-  float bright = uRest + uFlare * pulse;
-  vec3 c = (uCore * core + uGlowColour * glow * 0.4) * bright;
-  gl_FragColor = vec4(c, 1.0);
+  // the leader's tip burns brightest; branches go before the trunk as it fades
+  float x = (uReveal - vDist) / 0.05;
+  float tip = 1.0 + 2.0 * exp(-x * x) * step(uReveal, 1.0);
+  float bright = uBright * tip * (vDepth > 0.5 ? uBranch : 1.0);
+  gl_FragColor = vec4((uCore * core + uGlowColour * glow * 0.4) * bright, 1.0);
 }`;
 
-function boltMesh(segs: Seg[]) {
+function boltGeometry(segs: Seg[]) {
   const n = segs.length, A = new Float32Array(n * 12), B = new Float32Array(n * 12), end = new Float32Array(n * 4), side = new Float32Array(n * 4);
-  const dist = new Float32Array(n * 8), width = new Float32Array(n * 4), index: number[] = [];
+  const dist = new Float32Array(n * 8), width = new Float32Array(n * 4), depth = new Float32Array(n * 4), index: number[] = [];
   segs.forEach((s, i) => {
     for (let k = 0; k < 4; k++) {
       const v = i * 4 + k;
@@ -139,6 +161,7 @@ function boltMesh(segs: Seg[]) {
       side[v] = k & 1 ? 1 : -1;
       dist.set([s.da, s.db], v * 2);
       width[v] = s.w;
+      depth[v] = s.depth;
     }
     const o = i * 4;
     index.push(o, o + 1, o + 2, o + 2, o + 1, o + 3);
@@ -151,28 +174,76 @@ function boltMesh(segs: Seg[]) {
   g.setAttribute("aSide", new THREE.BufferAttribute(side, 1));
   g.setAttribute("aDist", new THREE.BufferAttribute(dist, 2));
   g.setAttribute("aWidth", new THREE.BufferAttribute(width, 1));
+  g.setAttribute("aDepth", new THREE.BufferAttribute(depth, 1));
   g.setIndex(index);
+  return g;
+}
+
+function boltMesh() {
   const uniforms = {
     uCore: { value: rawColor("#ffffff") },
     uGlowColour: { value: rawColor("#b89cff") },
     uGlow: { value: 3.2 },
-    uRest: { value: BEAT.rest },
-    uPulse: { value: -1 },
-    uBand: { value: BEAT.band },
-    uFlare: { value: 0 },
+    uCrackle: { value: 0 },
+    uJitter: { value: STRIKE.jitter },
+    uReveal: { value: 0 },
+    uBright: { value: 0 },
+    uBranch: { value: 1 },
   };
+  // (a ribbon's winding goes either way as it faces you: both sides are drawn)
   const material = new THREE.ShaderMaterial({ vertexShader: boltVertex, fragmentShader: boltFragment, uniforms, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-  const mesh = new THREE.Mesh(g, material);
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
   mesh.frustumCulled = false;
   mesh.renderOrder = 1;
   return { mesh, uniforms };
 }
 
 /**
- * Frozen lightning (uncommon): branching light in pale violet and white, trapped inside a clear
- * glass shard; every few seconds a bright pulse runs from the trunk out to the tips. The light
- * blooms, with a faint violet halo round it that swells with the pulse, and the glass catches a
- * small four-point glint at its corners now and then. It turns slowly.
+ * The strikes, from the clock: when each starts (a fixed sequence, so a held clock holds it), and
+ * how a strike looks `s` seconds in: how far down its leader has reached (past 1, all of it), how
+ * bright it is, and how bright its branches are against its trunk.
+ */
+function strikes() {
+  const last = STRIKE.restrikes[STRIKE.restrikes.length - 1];
+  const starts: number[] = [];
+  let at = 0.3, k = 7;
+  while (at < 3600) {
+    starts.push(at);
+    k = (k * 16807) % 2147483647;
+    at += STRIKE.leader + STRIKE.stroke + last + 0.05 + STRIKE.fade + STRIKE.gap[0] + (k / 2147483647) * (STRIKE.gap[1] - STRIKE.gap[0]);
+  }
+  const which = (t: number) => {
+    const u = t % 3600;
+    let lo = 0, hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= u) lo = mid;
+      else hi = mid - 1;
+    }
+    return starts[lo] <= u ? { n: lo, s: u - starts[lo] } : { n: -1, s: 0 };
+  };
+  const dark = { reveal: 0, bright: 0, branch: 0 };
+  const look = (s: number) => {
+    if (s < STRIKE.leader) return { reveal: (s / STRIKE.leader) ** 0.7, bright: 0.45, branch: 1 };
+    const after = s - STRIKE.leader;
+    if (after < STRIKE.stroke) return { reveal: 2, bright: STRIKE.flash, branch: 1 };
+    const k = after - STRIKE.stroke;
+    // the restrikes: sharp flares on a dying glow, and an afterglow under them that the fade takes
+    let bright = Math.max(0.9 * Math.exp(-k / 0.12), 0.32 * Math.exp(-k / 0.45));
+    for (const r of STRIKE.restrikes) if (k >= r) bright = Math.max(bright, 1.4 * Math.exp(-(k - r) / 0.05));
+    if (k < last + 0.05) return { reveal: 2, bright, branch: Math.exp(-k / 0.2) };
+    const f = (k - last - 0.05) / STRIKE.fade;
+    return f < 1 ? { reveal: 2, bright: bright * (1 - f), branch: Math.max(0, 0.4 * (1 - 2 * f)) } : dark;
+  };
+  return { which, look, dark };
+}
+
+/**
+ * Frozen lightning (uncommon): lightning in pale violet and white, trapped inside a clear glass
+ * shard, striking over and over as lightning does (see STRIKE): a leader forking down from the top,
+ * the flash of the return stroke, a flicker of restrikes, a fade, a dark pause, and a new path. It
+ * blooms, with a faint violet halo that flares with each strike, crackles while it is lit, and the
+ * glass catches a small four-point glint at its corners now and then. It turns slowly.
  */
 export function makeLightning(): Item {
   const rand = seeded(20260930);
@@ -184,7 +255,7 @@ export function makeLightning(): Item {
   front.renderOrder = 2;
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 20), new THREE.LineBasicMaterial({ color: rawColor("#ffffff"), transparent: true, opacity: 0.35, depthWrite: false }));
   edges.renderOrder = 2;
-  const light = boltMesh(bolt(rand));
+  const light = boltMesh();
   shard.add(back, light.mesh, front, edges);
   // glints on three of its corners, each on a beat of its own
   const glints = [1, 8, 14].map((i, k) => {
@@ -196,25 +267,38 @@ export function makeLightning(): Item {
   const body = new THREE.Group();
   body.add(shard);
   body.rotation.z = -0.38;
-  const glow = halo("#9d7dff", 1.9, 0.2);
+  const glow = halo("#9d7dff", 2.1, 0.05);
   const under = haze("#b9a6ff", 1.7, 0.08);
   under.position.set(0, -1.02, -0.5);
   const root = new THREE.Group();
   root.add(under, glow.mesh, body);
+  const { which, look, dark } = strikes();
+  let shown = -2;
 
   return {
     object: root,
     update(_dt, t) {
-      shard.rotation.set(0.18 * Math.sin(t * 0.23), (Math.PI * 2 * t) / BEAT.turn, 0.08 * Math.sin(t * 0.31));
-      // the pulse: out from the trunk's root past the farthest tip, then quiet until the next
-      const p = (t % BEAT.every) / BEAT.run;
-      const on = p < 1;
-      light.uniforms.uPulse.value = on ? -0.15 + 1.4 * p : -1;
-      light.uniforms.uFlare.value = on ? BEAT.flare : 0;
-      glow.strength = 0.16 + (on ? 0.22 * Math.sin(Math.PI * p) : 0);
+      shard.rotation.set(0.18 * Math.sin(t * 0.23), (Math.PI * 2 * t) / STRIKE.turn, 0.08 * Math.sin(t * 0.31));
+      // each strike its own bolt, drawn afresh from its number
+      const { n, s } = which(t);
+      if (n !== shown) {
+        shown = n;
+        light.mesh.geometry.dispose();
+        light.mesh.geometry = boltGeometry(bolt(seeded(9001 + n * 7919)));
+      }
+      const l = n < 0 ? dark : look(s);
+      const u = light.uniforms;
+      u.uReveal.value = l.reveal;
+      u.uBright.value = l.bright;
+      u.uBranch.value = l.branch;
+      u.uCrackle.value = Math.floor(t * STRIKE.crackle) % 1000;
+      light.mesh.visible = l.bright > 0;
+      // the halo flares with the strike; between strikes only a trace of it is left
+      glow.strength = 0.05 + 0.16 * Math.min(1.5, l.bright);
       for (const { g, rate, phase } of glints) g.strength = Math.max(0, Math.sin(t * rate + phase)) ** 16;
     },
     dispose() {
+      light.mesh.geometry.dispose();
       release(root);
     },
   };
