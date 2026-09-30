@@ -14,6 +14,7 @@ import { FoundSky } from "@/engine/space/sky/Found";
 import { Sky } from "@/engine/space/sky/Sky";
 import { LINE_LOOK } from "@/engine/space/Tether";
 import { runIntro } from "@/engine/space/intro";
+import { VisorLight } from "@/engine/space/VisorLight";
 import { caught, comeBack, glanceAt, glanceDown, read, tug, type Caught } from "@/engine/urchi/acts";
 import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
 import { clock } from "@/engine/urchi/hours";
@@ -324,6 +325,10 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     // what hangs in the sky, taken down: held, thrown, given back (Handling.ts)
     hands = new Handling({ room, att, float: fl, sky: foundSky, reducedMotion, say: (title, line, dwell) => say("catch", title, line, { dwell }), tell: tellLive });
     const handled = hands;
+    Object.assign(stageEl, { __catch: catches, __hands: handled }); // (for debugging and headless QA, as above)
+    // what it holds lighting its visor (the pocket universe)
+    const visor = new VisorLight(room);
+    const stopVisor = room.afterUrchi((dt) => visor.frame(dt, catches.holdingId === "pocket-universe" || handled.givenId === "pocket-universe"));
     const onGive = (e: Event) => {
       const id = (e as CustomEvent<{ id: string }>).detail?.id;
       if (!id) return;
@@ -979,6 +984,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       window.removeEventListener(GIVE_EVENT, onGive);
       document.removeEventListener("visibilitychange", onVisibility);
       cursor.destroy();
+      stopVisor();
+      visor.dispose();
       catches.dispose();
       handled.dispose();
       foundSky.dispose();

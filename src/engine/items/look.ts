@@ -33,6 +33,8 @@ export type Item = {
   point?(at: { x: number; y: number } | null): void;
   /** Whether it has focus (the keyboard's), for an item that answers being looked at (the phase shard, as it does the cursor over it). */
   focus?(on: boolean): void;
+  /** Whether Urchi is holding it, for an item that answers being held (the pocket universe settles). */
+  held?(on: boolean): void;
   /** Its pixel level (common/pixel.ts): the host draws it pixelated in cells that big. None, level 1 (the new zero: never smoother). */
   pixel?: number;
   /**

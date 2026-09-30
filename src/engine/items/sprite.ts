@@ -63,6 +63,8 @@ export class ItemSprite {
   item: Item | null = null;
   /** Its item's own clock (s). */
   t = 0;
+  /** Whether Urchi is holding it (its item is told: Item.held). */
+  held = false;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 50);
   private readonly target = new THREE.WebGLRenderTarget(1, 1, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
@@ -139,6 +141,7 @@ export class ItemSprite {
       const p = this.pose, a = this.at, half = this.drawn / 2;
       item.point(a && half > 0 ? { x: ((a.x - p.x) / half) * SPAN, y: ((a.y - p.y) / half) * SPAN } : null);
     }
+    item.held?.(this.held);
     item.update(still ? 0 : dt, this.t, still);
     // (turned as a whole in the picture's plane, over its own turning: a glove waving, a school scattering)
     item.object.rotation.z = this.pose.turn ?? 0;

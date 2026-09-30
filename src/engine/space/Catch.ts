@@ -310,6 +310,11 @@ export class Catch {
     return !!this.out && !this.going && !this.held && this.out.gone < 0 && this.t - this.out.born > GLINT.in * 0.5;
   }
 
+  /** What it holds now, caught (its id), or null. */
+  get holdingId() {
+    return this.held?.id ?? null;
+  }
+
   /** Busy with a catch: going for one, or holding it. */
   get busy() {
     return !!this.going || !!this.held;
@@ -376,6 +381,7 @@ export class Catch {
     const text = ALL.get(g.id)!, kind = g.forged ? "forged" : hasFound(g.id) ? "again" : "new";
     const sprite = new ItemSprite();
     sprite.mesh.renderOrder = 0.5; // in its hand, in front of it
+    sprite.held = true;
     o.room.scene.add(sprite.mesh);
     // (where it was caught, at Urchi's depth: the view may pan while it is carried in)
     const hand = o.float.handAt(), pan = o.room.pan;
@@ -437,6 +443,7 @@ export class Catch {
     const h = this.held, o = this.o;
     if (!h) return;
     this.held = null;
+    h.sprite.held = false;
     o.float.openHand();
     // (and once it has gone up, the view comes back to where it was)
     o.room.panToward(0, 0, CENTRE.back);

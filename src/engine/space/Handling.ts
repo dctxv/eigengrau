@@ -174,6 +174,11 @@ export class Handling {
     return this.out?.mode === "given";
   }
 
+  /** What Urchi holds now, given it (its id), or null. */
+  get givenId() {
+    return this.out?.mode === "given" ? this.out.id : null;
+  }
+
   /** Whether a client point is on the thing out (not while Urchi has it). */
   hit(clientX: number, clientY: number) {
     const u = this.out;
@@ -594,6 +599,7 @@ export class Handling {
     const wrong = u.forged ? 1 : this.t < u.wrongUntil ? 0.6 : 0;
     u.sprite.place({ x, y, size: s, cell, fade: 1, wrong, turn: u.turn });
     u.sprite.point(this.pointer ? { x: this.pointer.x - pan.x, y: this.pointer.y - pan.y } : null);
+    u.sprite.held = u.mode === "given";
     u.sprite.frame(dt, o.reducedMotion);
     u.sprite.draw(room.renderer, stage);
   }
