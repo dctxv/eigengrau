@@ -57,7 +57,7 @@ export function starsGroups(c: Resolved<SkyLayers["stars"]>): Group[] {
         num(["bands", i, "share"], `${i + 1} share`, 0, 1, 0.01),
         num(["bands", i, "zoomResponse"], `${i + 1} zoomResponse`, -0.5, 1, 0.005),
         num(["bands", i, "scale"], `${i + 1} scale`, 0.2, 2, 0.01),
-        num(["bands", i, "pixelFrom"], `${i + 1} pixelFrom`, 0, 1, 0.01, { note: "zoom; 0 never" }),
+        num(["bands", i, "pixelFrom"], `${i + 1} pixelFrom`, 0, 1, 0.01, { note: "zoom it coarsens past level 1 from; 0 never" }),
         num(["bands", i, "pixelMost"], `${i + 1} pixelMost`, 1, 24, 0.5, { note: "px, zoomed out" }),
       ]),
     },
@@ -114,7 +114,7 @@ export function planetsGroups(): Group[] {
       rows: (["far", "near"] as const).flatMap((d) => [
         num(["depth", d, "zoomResponse"], `${d} zoomResponse`, -0.5, 1.5, 0.005),
         num(["depth", d, "size"], `${d} size`, 0.2, 3, 0.01, { note: "× kind" }),
-        num(["depth", d, "pixelFrom"], `${d} pixelFrom`, 0, 1, 0.01, { note: "zoom; 0 never" }),
+        num(["depth", d, "pixelFrom"], `${d} pixelFrom`, 0, 1, 0.01, { note: "zoom it coarsens past level 1 from; 0 never" }),
         num(["depth", d, "pixelMost"], `${d} pixelMost`, 1, 24, 0.5, { note: "px, zoomed out" }),
       ]),
     },

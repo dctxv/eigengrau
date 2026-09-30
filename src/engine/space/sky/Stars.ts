@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { PIXEL_LEAST, levelCell } from "@/engine/common/pixel";
 import { pixelCellAt } from "../RoomScene";
 import type { LayerConfig, SkyFrame, SkyLayer, SkyView } from "./layer";
 import { pickWeighted, rng, subSeed, type Colour, type Num, type Resolved } from "./tune";
@@ -35,10 +36,11 @@ export type StarsConfig = LayerConfig & {
    * `scale`. The nearer, the more they move, and the zoom reads as depth. Leaning with the pointer
    * (the layer's parallax), the nearer lean more too.
    *
-   * Zoomed out past `pixelFrom` (0: never), a depth loses its signal as Urchi does (RoomScene's
-   * ZOOM, the same steps): drawn in square cells of whole device pixels, one at first, growing a
-   * pixel at a time to `pixelMost` CSS px at the zoom's farthest, so the farthest depth goes first
-   * and the nearest stays smooth the longest. Each star is then a solid block of whole cells, as
+   * Drawn in square cells of whole device pixels, never finer than pixel level 1 (common/pixel.ts:
+   * the new zero) however close the zoom comes; zoomed out past `pixelFrom` (0: never), a depth
+   * loses more of its signal as Urchi does (RoomScene's ZOOM, the same steps), its cells growing
+   * from level 1's a pixel at a time to `pixelMost` CSS px at the zoom's farthest, so the farthest
+   * depth goes first and the nearest keeps its fine cells the longest. Each star is then a solid block of whole cells, as
    * many as cover its core, at its own brightness (a small square, never its light spread thin);
    * its glow and glint are taken a cell at a time, so a glint becomes a small cross of cells. The
    * Milky Way's haze goes with the farthest depth, a shooting star with the nearest. Under reduced
@@ -300,6 +302,8 @@ export class Stars implements SkyLayer<StarsConfig> {
   private readonly powers = [0, 0, 0, 0];
   /** Each depth's loss of signal, as laid out: the zoom it pixelates from, and its cell at the zoom's farthest (device px). */
   private pixel: { from: number; most: number }[] = [];
+  /** The least cell there is, device px: pixel level 1's (the new zero). */
+  private least = 0;
   /** Each depth's cell this frame (device px, 0 smooth); 0 past the last. */
   private readonly cells = [0, 0, 0, 0];
 
@@ -369,6 +373,7 @@ export class Stars implements SkyLayer<StarsConfig> {
     u.uDepth.value.fromArray([0, 1, 2, 3].map((k) => (k < bands.length ? (most > 0 ? Math.abs(bands[k].zoomResponse) / most : (k + 1) / bands.length) : 0)));
     for (let k = 0; k < MOST_BANDS; k++) this.powers[k] = k < bands.length ? config.zoomResponse * bands[k].zoomResponse : 0;
     this.pixel = bands.map((b) => ({ from: b.pixelFrom, most: Math.max(1, b.pixelMost * view.ratio) }));
+    this.least = levelCell(PIXEL_LEAST, view.ratio);
     u.uGrid.value.set(view.width / 2, view.height / 2, view.grid.x, view.grid.y);
     this.shot = null;
     this.nextShot = -1;
@@ -386,7 +391,7 @@ export class Stars implements SkyLayer<StarsConfig> {
     u.uScale.value.set(z ** p[0], z ** p[1], z ** p[2], z ** p[3]);
     // what each depth has lost of its signal at this zoom (see bands), the shooting star with the nearest
     const cells = this.cells, px = this.pixel;
-    for (let k = 0; k < MOST_BANDS; k++) cells[k] = k < px.length ? pixelCellAt(f.zoom, px[k].from, px[k].most) : 0;
+    for (let k = 0; k < MOST_BANDS; k++) cells[k] = k < px.length ? pixelCellAt(f.zoom, px[k].from, px[k].most, this.least) : 0;
     u.uCell.value.fromArray(cells);
     u.uShotCell.value = px.length ? cells[px.length - 1] : 0;
     // leaning away from the pointer, as what is nearer does when you move your head

@@ -62,7 +62,6 @@ export function makeGlove(): Item {
 
   return {
     object: root,
-    pixel: 1,
     update(_dt, t) {
       pose(t);
     },

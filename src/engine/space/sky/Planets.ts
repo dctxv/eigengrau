@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { REST } from "../Float";
+import { PIXEL_LEAST, levelCell } from "@/engine/common/pixel";
 import { pixelCellAt } from "../RoomScene";
 import type { LayerConfig, SkyFrame, SkyLayer, SkyView } from "./layer";
 import type { PlanetBody } from "./planets/body";
@@ -81,9 +82,10 @@ export type PlanetsConfig = LayerConfig & {
   /**
    * Their depths run from `far` to `near`, one planet in each stretch: each follows the zoom by its
    * depth's `zoomResponse` (times the layer's), about the room's middle, as the stars' depths do but
-   * nearer, so they move more than any star; is drawn `size` times its kind's size; and zoomed out
-   * past `pixelFrom` loses its signal as Urchi does, in square cells of whole device pixels growing
-   * to `pixelMost` CSS px at the zoom's farthest, the far ones first. Farther off than Urchi, a
+   * nearer, so they move more than any star; is drawn `size` times its kind's size; is drawn in
+   * square cells of whole device pixels, never finer than pixel level 1 (the new zero); and zoomed
+   * out past `pixelFrom` loses more of its signal as Urchi does, its cells growing from level 1's to
+   * `pixelMost` CSS px at the zoom's farthest, the far ones first. Farther off than Urchi, a
    * planet loses its signal sooner than it does (Urchi from ZOOM.pixelFrom, 40%).
    */
   depth: { far: Depth; near: Depth };
@@ -146,6 +148,8 @@ export class Planets implements SkyLayer<PlanetsConfig> {
   readonly object = new THREE.Object3D();
   private cfg: Resolved<PlanetsConfig> | null = null;
   private view: SkyView | null = null;
+  /** The least cell there is, device px: pixel level 1's (the new zero). */
+  private least = 0;
   private slots: Slot[] = [];
   /** Bodies made, by their pick's key, kept across layouts (a resize, a tuned value). */
   private bodies = new Map<string, PlanetBody>();
@@ -169,6 +173,7 @@ export class Planets implements SkyLayer<PlanetsConfig> {
   setup(config: Resolved<PlanetsConfig>, seed: number, view: SkyView) {
     this.cfg = config;
     this.view = view;
+    this.least = levelCell(PIXEL_LEAST, view.ratio);
     const picks = this.pick(config, seed);
     const far = config.depth.far, near = config.depth.near, old = new Map(this.slots.map((s) => [s.key, s]));
     this.slots = picks.map((p, i) => {
@@ -338,7 +343,7 @@ export class Planets implements SkyLayer<PlanetsConfig> {
           x: s.x * k - f.pointer.x * lean * share,
           y: s.y * k - f.pointer.y * lean * share,
           radius: s.radius * k,
-          cell: pixelCellAt(f.zoom, s.from, s.most),
+          cell: pixelCellAt(f.zoom, s.from, s.most, this.least),
           fade: fade * s.appear,
           spin: s.phase + (Math.PI * 2 * this.t) / s.period,
           tilt: s.tilt,

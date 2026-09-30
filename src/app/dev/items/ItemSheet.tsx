@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { ITEMS } from "@/content/site";
 import { makeRenderer } from "@/engine/common/loader";
 import { ITEM_MAKERS, type Item } from "@/engine/items";
-import { PIXEL_LEVELS } from "@/engine/items/look";
+import { PIXEL_LEAST, levelCell } from "@/engine/common/pixel";
 import { Pixelated } from "@/engine/items/pixels";
 
 /** The close view's size by default, and the size an item must read at (px). */
@@ -49,7 +49,7 @@ export function ItemSheet() {
       }
     };
     const leave = () => (pointer = null);
-    // pixelated as the item asks (Item.pixel), or at ?pixel= (a level; 0 smooth) to compare
+    // pixelated as the item asks (Item.pixel; level 1 if it does not), or at ?pixel= (a level; 0 smooth) to compare
     const pixels = new Pixelated(), forced = q.has("pixel") ? Number(q.get("pixel")) : null;
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerleave", leave);
@@ -84,7 +84,7 @@ export function ItemSheet() {
         lastHeld = held;
       } else item.update(still ? 0 : dt, t, still);
       // the close view, and beside it the item as small as it must read
-      const level = forced ?? item.pixel ?? 0, cell = level > 0 ? Math.max(1, Math.round((PIXEL_LEVELS[level] ?? 0) * ratio)) : 0;
+      const cell = levelCell(forced ?? item.pixel ?? PIXEL_LEAST, ratio);
       for (const [x, size] of [[40, big], [80 + big, SMALL]] as const) {
         const y = h - 60 - size;
         renderer.setViewport(x, y, size, size);

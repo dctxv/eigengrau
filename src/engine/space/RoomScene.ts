@@ -3,6 +3,7 @@ import gsap from "gsap";
 import { makeRenderer } from "@/engine/common/loader";
 import { URCHI_BOX, URCHI_EARS, URCHI_EYES, URCHI_HEAD, URCHI_PIVOT } from "@/engine/urchi/character";
 import { Urchi } from "@/engine/urchi/Urchi";
+import { PIXEL_LEAST, levelCell } from "@/engine/common/pixel";
 
 export type RoomOptions = {
   reducedMotion?: boolean;
@@ -95,11 +96,11 @@ const DITHER_CELL = 2.5;
 /**
  * Afloat, the visitor can zoom: Urchi's size against where it floats (1), from `min` (a tenth as
  * big, ten times as far) to `max`, eased toward the level asked for over about `ease` seconds (a
- * time constant, on the logarithm, so in and out go alike). Down to `pixelFrom` it stays smooth;
- * farther, its signal weakens: it is pixelated in square cells of whole device pixels, one device
- * pixel just past `pixelFrom` (hardly to be seen but for its hard edge) and growing a pixel at a
- * time as a power of the distance past it, so that at `min` the figure is `farCells` of them tall.
- * Home it is 1 again.
+ * time constant, on the logarithm, so in and out go alike). Afloat it is always pixelated, in square
+ * cells of whole device pixels, never finer than pixel level 1 (common/pixel.ts: the new zero), down
+ * to `pixelFrom`; farther, its signal weakens: its cells grow from level 1's as a power of the
+ * distance past it, so that at `min` the figure is `farCells` of them tall. Home it is 1 again, and
+ * smooth.
  */
 export const ZOOM = { min: 0.1, max: 2, ease: 0.12, farCells: 7.5, pixelFrom: 0.4 } as const;
 
@@ -107,13 +108,14 @@ const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 /**
  * The signal lost at a zoom, as a cell of whole device px (Urchi's, and each depth of the sky's):
- * none down to `from`; past it one device pixel, growing a pixel at a time as a power of the
- * distance past it, to `most` device px at ZOOM.min. A `from` at or under ZOOM.min never pixelates.
+ * `least` (the level 1 cell afloat, the new zero; 0 smooth) down to `from`; past it growing from
+ * that (from one device pixel, were it 0) a pixel at a time as a power of the distance past it, to
+ * `most` device px at ZOOM.min. A `from` at or under ZOOM.min never grows past `least`.
  */
-export function pixelCellAt(zoom: number, from: number, most: number) {
-  if (zoom >= from || from <= ZOOM.min) return 0;
-  const grow = Math.log(Math.max(1, most)) / Math.log(from / ZOOM.min);
-  return Math.max(1, Math.round((from / Math.max(zoom, ZOOM.min)) ** grow));
+export function pixelCellAt(zoom: number, from: number, most: number, least = 0) {
+  if (zoom >= from || from <= ZOOM.min) return least;
+  const base = Math.max(1, least), grow = Math.log(Math.max(1, most / base)) / Math.log(from / ZOOM.min);
+  return Math.max(base, Math.round(base * (from / Math.max(zoom, ZOOM.min)) ** grow));
 }
 
 /**
@@ -323,15 +325,15 @@ export class RoomScene {
   }
 
   /**
-   * The pixelation's cell for a zoom, whole device px: none down to ZOOM.pixelFrom; past it one
-   * device pixel, growing as a power of the distance past it to the cell that has the figure
-   * ZOOM.farCells tall at ZOOM.min (see ZOOM).
+   * The pixelation's cell for a zoom afloat, whole device px: level 1's (the new zero) down to
+   * ZOOM.pixelFrom; past it growing from that as a power of the distance past it to the cell that
+   * has the figure ZOOM.farCells tall at ZOOM.min (see ZOOM).
    */
   private cellFor(zoom: number) {
-    if (zoom >= ZOOM.pixelFrom) return 0;
-    const device = this.renderer.domElement.width / this.width;
+    const device = this.renderer.domElement.width / this.width, least = levelCell(PIXEL_LEAST, device);
+    if (zoom >= ZOOM.pixelFrom) return least;
     const tall = (URCHI_FIGURE.bottom - URCHI_FIGURE.top) * (this.pixel / ART_CELL) * this.floatZoom * device;
-    return pixelCellAt(zoom, ZOOM.pixelFrom, (tall * ZOOM.min) / ZOOM.farCells);
+    return pixelCellAt(zoom, ZOOM.pixelFrom, (tall * ZOOM.min) / ZOOM.farCells, least);
   }
 
   /**

@@ -31,16 +31,11 @@ export type Item = {
    * null when there is none over it. The host calls it before each update.
    */
   point?(at: { x: number; y: number } | null): void;
-  /** Its pixel level (see PIXEL_LEVELS): the host draws it pixelated in cells that big. None or 0, smooth. */
+  /** Its pixel level (common/pixel.ts): the host draws it pixelated in cells that big. None, level 1 (the new zero: never smoother). */
   pixel?: number;
   dispose(): void;
 };
 
-/**
- * The pixel levels an item can be drawn at: each level's cell, CSS px (the host rounds it to whole
- * device pixels). Level 1 is the lightest, the first of the steps the planets' close-up sheet shows.
- */
-export const PIXEL_LEVELS = [0, 2, 3, 4] as const;
 
 /**
  * Light added to what is under it (a glow, so it blooms), leaving it as covered as it was: on screen

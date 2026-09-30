@@ -399,7 +399,6 @@ export function makeLightning(): Item {
 
   return {
     object: root,
-    pixel: 1,
     update(_dt, t) {
       shard.rotation.set(0.18 * Math.sin(t * 0.23), (Math.PI * 2 * t) / STRIKE.turn, 0.08 * Math.sin(t * 0.31));
       // each strike its own bolt, drawn afresh from its number
