@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
 import { rawColor } from "@/engine/common/color";
-import { KEY, faceted, glassEdges, glint, halo, haze, ice, release, type Item } from "./look";
+import { ADD, KEY, faceted, glassEdges, glint, halo, haze, ice, release, type Item } from "./look";
 
 /**
  * How it strikes, as lightning does, in seconds: a faint leader forks its way down from the top over
@@ -256,7 +256,7 @@ function boltMesh() {
     uViewport: { value: new THREE.Vector4() },
   };
   // (a ribbon's winding goes either way as it faces you: both sides are drawn)
-  const material = new THREE.ShaderMaterial({ vertexShader: boltVertex, fragmentShader: boltFragment, uniforms, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const material = new THREE.ShaderMaterial({ vertexShader: boltVertex, fragmentShader: boltFragment, uniforms, transparent: true, depthWrite: false, depthTest: false, ...ADD, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
   mesh.frustumCulled = false;
   mesh.renderOrder = 1;
@@ -332,7 +332,7 @@ function fractures(rand: () => number) {
     transparent: true,
     depthWrite: false,
     depthTest: false,
-    blending: THREE.AdditiveBlending,
+    ...ADD,
     side: THREE.DoubleSide,
   });
   const group = new THREE.Group();
@@ -399,6 +399,7 @@ export function makeLightning(): Item {
 
   return {
     object: root,
+    pixel: 1,
     update(_dt, t) {
       shard.rotation.set(0.18 * Math.sin(t * 0.23), (Math.PI * 2 * t) / STRIKE.turn, 0.08 * Math.sin(t * 0.31));
       // each strike its own bolt, drawn afresh from its number

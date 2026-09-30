@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { rawColor } from "@/engine/common/color";
+import { ADD } from "./look";
 
 /** A glowing line: its points, and how far its glow reaches from it (at each point, or all along it). */
 export type GlowLine = { pts: THREE.Vector3[]; width: number | number[] };
@@ -173,7 +174,7 @@ export function glowLines(lines: GlowLine[], look: GlowLinesLook = {}) {
     transparent: true,
     depthWrite: false,
     depthTest: look.depthTest ?? false,
-    blending: THREE.AdditiveBlending,
+    ...ADD,
     // (a ribbon's winding goes either way as it faces you: both sides are drawn)
     side: THREE.DoubleSide,
   });

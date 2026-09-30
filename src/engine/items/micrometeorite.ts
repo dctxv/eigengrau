@@ -29,6 +29,7 @@ export function makeMicrometeorite(): Item {
 
   return {
     object: root,
+    pixel: 1,
     update(_dt, t) {
       pose(t);
       shine.strength = 0.65 + 0.35 * Math.sin(t * 1.7) ** 2;
