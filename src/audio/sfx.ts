@@ -1112,6 +1112,43 @@ function chime(kind: ChimeKind): () => void {
   return takeBack;
 }
 
+// ---------------------------------------------------------------- a bell
+
+/**
+ * One soft bell note, as the chime's are (a sine with a whisper of its octave, rounded in and dying
+ * away over `decay`), at `level`: the time crystal's beat. A note asked for again within `again`
+ * seconds (two of the same thing drawn at once) rings once.
+ */
+const BELL = { decay: 1.4, attack: 0.006, level: 0.06, again: 0.08 };
+const lastBell = new Map<number, number>();
+
+function bell(hz: number, level = BELL.level) {
+  if (!enabled || !ctx || ctx.state !== "running") return;
+  const c = ensure();
+  if (!c || !master) return;
+  const now = c.currentTime;
+  if (now - (lastBell.get(hz) ?? -1) < BELL.again) return;
+  lastBell.set(hz, now);
+  const t = now + 0.01, out = c.createGain();
+  out.connect(master);
+  let left = 2;
+  for (const [mult, share] of [[1, 1], [2, 0.18]] as const) {
+    const osc = c.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = hz * mult;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(level * share, t + BELL.attack);
+    g.gain.exponentialRampToValueAtTime(level * share * 1e-3, t + BELL.decay / mult);
+    osc.connect(g).connect(out);
+    osc.start(t);
+    osc.stop(t + BELL.decay / mult + 0.02);
+    osc.onended = () => {
+      if (--left === 0) out.disconnect();
+    };
+  }
+}
+
 // ---------------------------------------------------------------- the horizon's pluck
 
 /**
@@ -1444,6 +1481,10 @@ export const sfx = {
    */
   chime(kind: ChimeKind): () => void {
     return chime(kind);
+  },
+  /** One soft bell note at `hz` (see BELL), with sound on: the time crystal's beat. */
+  bell(hz: number, level?: number) {
+    bell(hz, level);
   },
   /**
    * Puts the bed through a wall, or takes the wall away: the bed's lowpass

@@ -85,6 +85,8 @@ uniform float uRimAmount;
 uniform vec3 uGlowColour;
 uniform float uGlowFrom;
 uniform float uGlowAmount;
+uniform vec3 uFlashColour;
+uniform float uFlash;
 varying vec3 vN;
 varying vec3 vP;
 varying vec3 vNO;
@@ -99,13 +101,16 @@ void main() {
   // where it glows: the faces turned along its own up and down (its poles), past uGlowFrom
   float g = uGlowFrom > 0.0 ? smoothstep(uGlowFrom, uGlowFrom + 0.15, abs(normalize(vNO).y)) * uGlowAmount : 0.0;
   c = mix(c, uGlowColour, min(g, 1.0)) + uGlowColour * g * 0.4;
+  // lit up from within all over, as much as uFlash (0 not at all)
+  c += uFlashColour * uFlash;
   gl_FragColor = vec4(c, 1.0);
 }`;
 
 /**
  * A faceted material: `lit` where the key falls, `shade` turned from it. With `glow`, the faces
  * turned along its own up and down (its poles: past `from`, 0 to 1, of the way there) glow in
- * `colour`, at `uniforms.uGlowAmount`.
+ * `colour`, at `uniforms.uGlowAmount`. It lights up from within all over with `uniforms.uFlash`
+ * (0, the default: not at all) in `uniforms.uFlashColour` (its lit colour, unless set).
  */
 export function facets(lit: string, shade: string, rim = 0.55, glow?: { colour: string; from: number; amount?: number }) {
   return new THREE.ShaderMaterial({
@@ -120,6 +125,8 @@ export function facets(lit: string, shade: string, rim = 0.55, glow?: { colour: 
       uGlowColour: { value: rawColor(glow?.colour ?? "#ffffff") },
       uGlowFrom: { value: glow?.from ?? 0 },
       uGlowAmount: { value: glow?.amount ?? 1 },
+      uFlashColour: { value: rawColor(lit) },
+      uFlash: { value: 0 },
     },
     // pushed back a hair, so the edge lines over it are never lost in it
     polygonOffset: true,
