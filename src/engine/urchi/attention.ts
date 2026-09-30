@@ -40,7 +40,7 @@ export type Mood = "awake" | "dozing" | "asleep";
 /** Asleep for the night, its head tips this far to one side (degrees), as on a pillow (see sleepSide). */
 export const SLEEP_ROLL = 12;
 
-export type TargetKind = "pointer" | "pill" | "exit" | "mote";
+export type TargetKind = "pointer" | "pill" | "exit" | "mote" | "glint";
 export type TargetSpec = {
   id: string;
   kind: TargetKind;
@@ -73,8 +73,11 @@ export type AttentionOptions = {
   origin?: () => { x: number; y: number; angle: number } | null;
 };
 
-/** What a target pulls with at no novelty at all. */
-const FLOOR: Record<TargetKind, number> = { pointer: 0.3, pill: 0.6, exit: 0.65, mote: 0.2 };
+/**
+ * What a target pulls with at no novelty at all. A glint drifting by afloat (Space's catch) pulls
+ * harder than you do at rest: it keeps going back to it, and you follow its eyes there.
+ */
+const FLOOR: Record<TargetKind, number> = { pointer: 0.3, pill: 0.6, exit: 0.65, mote: 0.2, glint: 0.75 };
 /** A hovered pill's weight: a pet watching you head for the door. */
 const PILL_WEIGHT = 1.3;
 const NOVELTY = { halfLife: 5, wiggleHalfLife: 2, habituate: 0.45, recent: 6 };

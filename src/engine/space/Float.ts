@@ -163,6 +163,19 @@ const LIMBS = { hello: 0.25, splay: 0.35, bump: 0.8, braceEvery: 1.2 };
  * for `rest`. Only floating, awake, left alone, not held and doing nothing else.
  */
 const REACH_FOR = { still: 1, near: 1.3, off: 0.42, z: 260, hold: 3.4, rest: 8 };
+/**
+ * Going for something drifting by (Space's catch, see goFor): it swims to it, head first as it
+ * always swims, until its middle is within `arrive` of its height of it; all the way there it is
+ * also drawn straight at it (`glide` of its height per second squared, less within `arrive`), so a
+ * thing below it, which it will not swim at head down, is still got to; within `reach` of its
+ * height it reaches for it with the arm on that side (whatever it is doing, and for as long as it
+ * takes), and its hand closes on it once the hand is within `touch` of its height of it, or the arm
+ * has come all the way out and it is still `stretch` short (a mitten's width: near enough). Caught,
+ * it holds the hand out to that side, at `show` (the `.R` side's terms: clear of its helmet, a
+ * little in front), so what is in it is seen against the sky and not against its suit, and looks at
+ * it. Longer than `most` seconds, and it gives up.
+ */
+const FETCH = { arrive: 0.35, glide: 0.3, reach: 1.25, touch: 0.12, stretch: 0.3, show: [600, 520, 260] as [number, number, number], most: 14 };
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
@@ -241,6 +254,12 @@ export class Float {
   /** When it may next swim off (its clock), and where it floats meanwhile (shares of the room; null: REST). */
   private swimAt = 0;
   private stay: Point | null = null;
+  /**
+   * Going for something (see FETCH): where it is now (room px), which arm reaches for it (chosen as
+   * it first reaches), since when (its clock), whether its hand has closed on it, and what the page
+   * is told: caught, or lost (held, flung, asleep, gone home, or too long).
+   */
+  private fetch: { to: () => Point | null; side: 0 | 1 | null; t0: number; caught: boolean; on: { caught(): void; lost(): void } } | null = null;
   private tl: gsap.core.Timeline | null = null;
   private stopFrame: () => void;
   private disposed = false;
@@ -345,6 +364,72 @@ export class Float {
   }
 
   // ---------------------------------------------------------------- what the page asks of it
+
+  /**
+   * Goes for something drifting by (Space's catch): swims to where `to` says it is (room px, y up;
+   * null once it is not there), reaches for it and closes its hand on it (see FETCH). `on.caught` is
+   * told as the hand closes (the hand then holds it up in front to be looked at, until openHand);
+   * `on.lost` if it never gets there. Only floating, awake, not held and not under reduced motion,
+   * where nothing of it moves: returns whether it goes.
+   */
+  goFor(to: () => Point | null, on: { caught(): void; lost(): void }) {
+    if (this.state !== "floating" || this.hold || this.att.asleep || this.reduced || this.disposed || !this.limbs) return false;
+    this.dropFetch(false);
+    const p = to();
+    if (!p) return false;
+    this.fetch = { to, side: null, t0: this.t, caught: false, on };
+    // it floats there once it has it, rather than drifting back to where it was
+    this.stay = { x: p.x / this.room.width + 0.5, y: 0.5 - p.y / this.room.height };
+    this.calmAt = Math.min(this.calmAt, this.t);
+    this.limbs.calm();
+    return true;
+  }
+
+  /** Whatever is in its hand let go: the hand opens and the arm comes back to it. */
+  openHand() {
+    const f = this.fetch;
+    this.fetch = null;
+    this.limbs?.grip(false);
+    this.limbs?.reachFor(null);
+    if (f && !f.caught) f.on.lost();
+    this.reachAgain = this.t + REACH_FOR.rest;
+  }
+
+  /** The going for it ended (`caught` false: lost, and the page told so). */
+  private dropFetch(caught: boolean) {
+    const f = this.fetch;
+    if (!f) return;
+    this.fetch = null;
+    if (this.swim) this.endSwim();
+    this.limbs?.grip(false);
+    this.limbs?.reachFor(null);
+    if (!caught && !f.caught) f.on.lost();
+  }
+
+  /** Going for something, or holding what it caught. */
+  get fetching() {
+    return this.fetch !== null;
+  }
+
+  /** The middle of the hand reaching (or holding what it caught), room px; null when no hand is. */
+  handAt(): Point | null {
+    const L = this.limbs, side = L?.reachSide ?? this.fetch?.side ?? null;
+    if (!L || side === null || !this.room.float) return null;
+    const [x, y] = L.hand(side);
+    return this.room.onFigure(x, y);
+  }
+
+  /**
+   * Whether it could go for something at a room point (px, y up) and get there: inside the walls
+   * with room for itself round it, clear of the zoom slider on the right, and within its line's reach
+   * of the root (its middle can be there with the line not quite straight).
+   */
+  canReach(p: Point) {
+    const w = this.walls(), e = this.extent(0), r = this.root(), side = Math.min(e.x, e.y) * 0.6;
+    if (p.x < w.left + side || p.x > w.right - Math.max(side, 72) || p.y < w.bottom + side || p.y > w.top - side) return false;
+    const c = this.clipOffset();
+    return Math.hypot(p.x + c.x - r.x, p.y + c.y - r.y) <= this.length * SWIM.slack;
+  }
 
   /** Taken with you, from home (awake: the page wakes it first). */
   take() {
@@ -504,6 +589,7 @@ export class Float {
 
   private set(state: FloatState) {
     if (state === this.state) return;
+    if (state !== "floating") this.dropFetch(false);
     this.state = state;
     this.o.onState?.(state);
   }
@@ -737,8 +823,67 @@ export class Float {
     f.w = b.w;
   }
 
+  /** Going for something (see FETCH): reaching for it once it is near, the hand closing on it; caught, holding it up in front. */
+  private reachFetch(L: NonNullable<Float["limbs"]>) {
+    const f = this.fetch!, p = this.room.float;
+    if (!p) return;
+    if (f.caught) {
+      const s = f.side ?? 0;
+      L.reachFor([s ? -FETCH.show[0] : FETCH.show[0], FETCH.show[1], FETCH.show[2]], s);
+      return;
+    }
+    const to = f.to();
+    if (!to) {
+      this.dropFetch(false);
+      return;
+    }
+    // into its own frame: mesh units from the head's centre, y down
+    const u = this.unit, c = Math.cos(p.angle), s = Math.sin(p.angle), dx = to.x - p.x, dy = to.y - p.y;
+    const bx = (dx * c + dy * s) / u, by = (-dx * s + dy * c) / u;
+    if (Math.hypot(dx, dy) > FETCH.reach * this.tall) {
+      if (f.side !== null) L.reachFor(null);
+      return;
+    }
+    f.side ??= bx >= 0 ? 0 : 1;
+    L.reachFor([bx, FIGURE_MIDDLE - by, REACH_FOR.z], f.side);
+    const hand = this.handAt();
+    if (!hand || L.reached < 0.5) return;
+    const gap = Math.hypot(hand.x - to.x, hand.y - to.y) / this.tall;
+    if (gap < FETCH.touch || (L.reached > 0.98 && gap < FETCH.stretch)) {
+      f.caught = true;
+      L.grip(true);
+      if (this.swim) this.endSwim();
+      f.on.caught();
+    }
+  }
+
+  /** Going for something (see FETCH): it swims there until it is near, or gives up. */
+  private fetchStep() {
+    const f = this.fetch!, b = this.b;
+    if (this.hold || this.att.asleep || this.state !== "floating") {
+      this.dropFetch(false);
+      return;
+    }
+    if (f.caught) return;
+    const to = f.to();
+    if (!to || this.t - f.t0 > FETCH.most) {
+      this.dropFetch(false);
+      return;
+    }
+    const near = Math.hypot(to.x - b.x, to.y - b.y) < FETCH.arrive * this.tall;
+    if (!near) {
+      const x = to.x / this.room.width + 0.5, y = 0.5 - to.y / this.room.height;
+      if (this.swim) Object.assign(this.swim, { x, y });
+      else this.swim = { x, y, t0: this.t };
+    } else if (this.swim) this.endSwim();
+  }
+
   /** Curious: reaching for what it watches, near it (see REACH_FOR). */
   private reachOut(L: NonNullable<Float["limbs"]>) {
+    if (this.fetch) {
+      this.reachFetch(L);
+      return;
+    }
     const f = this.att.focus, you = this.att.you(), p = this.room.float;
     const thing = f?.kind === "mote" ? f.at : you && this.att.stillFor > REACH_FOR.still ? you : null;
     let at: [number, number, number] | null = null;
@@ -763,6 +908,10 @@ export class Float {
    * whether it is there, or has been stopped. Where it ends up, it floats until it swims off again.
    */
   private swimStep() {
+    if (this.fetch) {
+      this.fetchStep();
+      return;
+    }
     const sw = this.swim, L = this.limbs;
     const free = this.state === "floating" && !this.hold && !this.sending && !this.taut && !this.att.asleep && this.life.v > 0.9 && this.t >= this.calmAt && this.reachSince < 0;
     if (sw) {
@@ -864,7 +1013,7 @@ export class Float {
     }
     if (life > 0 && !sw) {
       const f = this.att.focus;
-      if (f && this.t >= this.calmAt && (f.kind === "mote" || (f.kind === "pointer" && this.att.stillFor > 0.8))) {
+      if (f && this.t >= this.calmAt && (f.kind === "mote" || f.kind === "glint" || (f.kind === "pointer" && this.att.stillFor > 0.8))) {
         const at = this.room.toRoom(f.at.x, f.at.y), dx = at.x - b.x, dy = at.y - b.y, d = Math.hypot(dx, dy), near = DRIFT.near * tall;
         if (d > near) {
           const pull = life * DRIFT.pull * tall * Math.min(1, (d - near) / tall);
@@ -897,6 +1046,14 @@ export class Float {
         ax += f * (-Math.sin(b.a) + (SWIM.steer * dx) / d);
         ay += f * (Math.cos(b.a) + (SWIM.steer * dy) / d);
       }
+    }
+
+    // going for something: drawn straight at it, as well as swimming there (see FETCH)
+    const fe = this.fetch, goal = fe && !fe.caught && !flying && !this.hold ? fe.to() : null;
+    if (goal) {
+      const dx = goal.x - b.x, dy = goal.y - b.y, d = Math.hypot(dx, dy) || 1, k = FETCH.glide * tall * Math.min(1, d / (FETCH.arrive * tall));
+      ax += (dx / d) * k;
+      ay += (dy / d) * k;
     }
 
     if (!flying && !this.arrival) {

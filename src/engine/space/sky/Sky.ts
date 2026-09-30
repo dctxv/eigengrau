@@ -80,6 +80,7 @@ export class Sky {
   private pointerNow = { x: 0, y: 0 };
   private cleared = "";
   private clear = new THREE.Color();
+  private followers = new Set<(frame: SkyFrame) => void>();
   private stopFrame: () => void;
 
   constructor(room: RoomScene, o: { reducedMotion: boolean }) {
@@ -145,6 +146,29 @@ export class Sky {
     }
     const r = this.room.canvas.getBoundingClientRect(), clamp = (v: number) => Math.max(-1, Math.min(1, v));
     this.pointerTo = { x: clamp((clientX - r.left - r.width / 2) / (r.width / 2 || 1)), y: clamp((r.top + r.height / 2 - clientY) / (r.height / 2 || 1)) };
+  }
+
+  /**
+   * What is drawn with the sky without being one of its tuned layers (the things Urchi has caught,
+   * sky/Found.ts): told every frame what each layer is, however much of the sky is there (none
+   * too), after the layers. Returns the way to stop.
+   */
+  follow(fn: (frame: SkyFrame) => void) {
+    this.followers.add(fn);
+    return () => {
+      this.followers.delete(fn);
+    };
+  }
+
+  /** The sky's seed as a number, for what is laid out with it (the same sky, the same places). */
+  get seedNumber() {
+    return hashSeed(this.seed);
+  }
+
+  /** Where its planets are (room CSS px at zoom 1, y up) and how big, for what keeps clear of them. */
+  get planetSpots(): { x: number; y: number; radius: number }[] {
+    const p = this.entries.find((e) => e.layer.name === "planets")?.layer as Planets | undefined;
+    return p ? p.picked.map(({ x, y, radius }) => ({ x, y, radius })) : [];
   }
 
   // ---------------------------------------------------------------- drawing a sky
@@ -247,6 +271,7 @@ export class Sky {
       e.layer.update(frame);
       backdrop ??= e.layer.backdrop();
     }
+    this.followers.forEach((fn) => fn(frame));
     this.paint(backdrop);
   }
 

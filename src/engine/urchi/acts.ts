@@ -734,3 +734,73 @@ export function* caught(a: Attention, pose: Caught, o: { rise: (on: boolean, sec
     a.look(null);
   }
 }
+
+// ------------------------------------------------------------------ the catch (afloat)
+
+/**
+ * Something drifting by, afloat (Space's catch): it notices it, as late as it notices anything,
+ * its breath catching and its eyes widening a moment, and looks at it a while. It is the bobber
+ * dipping: you follow its eyes there.
+ */
+export function* notice(a: Attention, glint: Where): Act {
+  try {
+    yield rand(0.12, 0.3);
+    const at = typeof glint === "function" ? glint() : glint;
+    if (at) a.startle(at);
+    a.look(glint);
+    yield rand(1.4, 2);
+  } finally {
+    a.look(null);
+  }
+}
+
+/** Going for it: its eyes on it all the way there, until it is caught (or it gives up). */
+export function* goFor(a: Attention, glint: Where, over: () => boolean): Act {
+  try {
+    a.look(glint);
+    yield* until(a, over, 25);
+  } finally {
+    a.look(null);
+  }
+}
+
+/**
+ * Caught: it looks at what is in its hand for `hold` seconds. Something new, a slow blink, pleased;
+ * something it has already, a glance up at you and back before it lets it go; a forgery (a thing it
+ * never caught), a long puzzled tilt at it.
+ */
+export function* lookAtCatch(a: Attention, held: Where, kind: "new" | "again" | "forged", hold: number): Act {
+  try {
+    a.look(held);
+    yield 0.6;
+    if (kind === "new") {
+      a.ch.slowBlink();
+      yield Math.max(0.4, hold - 0.6);
+    } else if (kind === "again") {
+      yield 0.7;
+      a.look("you");
+      yield 0.5;
+      a.look(held);
+      yield Math.max(0.3, hold - 1.8);
+    } else {
+      a.ch.tiltToward(Math.random() < 0.5 ? -1 : 1, 13);
+      if (a.reduced) a.ch.eyesTo(0, -0.6); // no tilt without motion: the pupils roll up instead
+      yield Math.max(0.6, hold - 0.6);
+    }
+  } finally {
+    a.eyes(null);
+    a.look(null);
+  }
+}
+
+/** What it caught going (up into the sky, or let go): it watches it for `seconds`, then looks back at you. */
+export function* watchGo(a: Attention, it: Where, seconds: number): Act {
+  try {
+    a.look(it);
+    yield seconds;
+    a.look("you");
+    yield 0.4;
+  } finally {
+    a.look(null);
+  }
+}

@@ -1,8 +1,8 @@
 /**
  * Sound (spec 11). Two sampled files in public/audio: a click for opening a
  * project and an ambient bed that loops with a crossfade at the seam. The
- * other cues are synthesised (Urchi's pats and its line's tug and snap, the Projects
- * horizon's pluck and the supernova's bloom among them), and ticks can come
+ * other cues are synthesised (Urchi's pats, its line's tug and snap and its catch's
+ * chime, the Projects horizon's pluck and the supernova's bloom among them), and ticks can come
  * as a train placed on the audio clock (Notes' riffle, and the Projects ball's
  * whirr as it charges). The bed has its own air, a lowpass that can put it
  * through a wall (the supernova's float does). Music adds a
@@ -1033,6 +1033,85 @@ function bloom(delay: number): () => void {
   return takeBack;
 }
 
+// ---------------------------------------------------------------- the catch's chime
+
+/**
+ * Urchi's catch on Space: a small chime, a note for each step of the thing's rarity, rising up the
+ * bed's F G A C D from A4: two for a common thing, three uncommon, four rare, five for the rarest.
+ * Something it has already, two notes falling, softer; a forgery, the common two and then a wrong
+ * one (E flat, against the bed's D and F). Each note is a sine with a whisper of its octave, rounded
+ * in over a few ms and dying away over `decay` (60 dB down), `gap` seconds after the one before.
+ */
+export type ChimeKind = "common" | "uncommon" | "rare" | "top" | "again" | "forged";
+const CHIME = {
+  notes: {
+    common: [440, 587.33],
+    uncommon: [440, 587.33, 698.46],
+    rare: [440, 587.33, 698.46, 880],
+    top: [440, 587.33, 698.46, 880, 1174.66],
+    again: [587.33, 440],
+    forged: [440, 587.33, 622.25],
+  } satisfies Record<ChimeKind, number[]>,
+  gap: 0.12,
+  decay: 1.6,
+  attack: 0.006,
+  level: 0.14,
+  soft: { again: 0.6 } as Partial<Record<ChimeKind, number>>,
+};
+/** Chimes scheduled and not over yet: turning the sound off takes them back too. */
+const chimesDue = new Set<() => void>();
+
+/** Schedules a chime now on the audio clock; returns how to take it back. See sfx.chime. */
+function chime(kind: ChimeKind): () => void {
+  if (!enabled || !ctx || ctx.state !== "running") return QUIET;
+  const c = ensure();
+  if (!c || !master) return QUIET;
+  const t0 = c.currentTime + 0.01, notes = CHIME.notes[kind], level = CHIME.level * (CHIME.soft[kind] ?? 1);
+  const out = c.createGain();
+  out.connect(master);
+  const oscs: OscillatorNode[] = [];
+  notes.forEach((hz, i) => {
+    const t = t0 + i * CHIME.gap;
+    for (const [mult, share] of [[1, 1], [2, 0.18]] as const) {
+      const osc = c.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = hz * mult;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(level * share, t + CHIME.attack);
+      g.gain.exponentialRampToValueAtTime(level * share * 1e-3, t + CHIME.decay / mult);
+      osc.connect(g).connect(out);
+      osc.start(t);
+      osc.stop(t + CHIME.decay / mult + 0.02);
+      oscs.push(osc);
+    }
+  });
+  let over = false;
+  const takeBack = () => {
+    if (over) return;
+    over = true;
+    chimesDue.delete(takeBack);
+    const now = c.currentTime;
+    hold(out.gain, now);
+    out.gain.linearRampToValueAtTime(0, now + BLOOM_CUT);
+    oscs.forEach((o) => {
+      try {
+        o.stop(now + BLOOM_CUT);
+      } catch {
+        /* already stopped */
+      }
+    });
+  };
+  oscs[oscs.length - 1].onended = () => {
+    over = true;
+    chimesDue.delete(takeBack);
+    out.disconnect();
+  };
+  chimesDue.add(takeBack);
+  duck();
+  return takeBack;
+}
+
 // ---------------------------------------------------------------- the horizon's pluck
 
 /**
@@ -1298,6 +1377,7 @@ export const sfx = {
       [...trains].forEach((cancel) => cancel());
       patsDue.forEach((takeBack) => takeBack());
       bloomsDue.forEach((takeBack) => takeBack());
+      chimesDue.forEach((takeBack) => takeBack());
     }
     setFlag("soundEnabled", on);
     listeners.forEach((l) => l(on));
@@ -1357,6 +1437,13 @@ export const sfx = {
    */
   bloom(delay = 0): () => void {
     return bloom(delay);
+  },
+  /**
+   * Urchi's catch (see CHIME): its chime, more notes the rarer what it caught. Returns how to take it
+   * back. Nothing plays with sound off, or before a gesture has woken the clock.
+   */
+  chime(kind: ChimeKind): () => void {
+    return chime(kind);
   },
   /**
    * Puts the bed through a wall, or takes the wall away: the bed's lowpass

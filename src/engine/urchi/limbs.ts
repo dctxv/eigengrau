@@ -405,6 +405,12 @@ export function quirkPose(rig: RigData, name: QuirkName, t: number, side: Side):
 const IDLE: [QuirkName, number][] = [["inspect", 3], ["tap", 2], ["swing", 3], ["cross", 2], ["fidget", 2], ["wiggle", 2], ["cheeks", 1.5], ["stretch", 1], ["swim", 1.5], ["pat", 1], ["wave", 1]];
 /** A reach comes in over REACH_IN seconds and lets go over REACH_OUT, its elbow out and down. */
 const REACH_IN = 0.7, REACH_OUT = 0.9;
+/**
+ * A hand closing on what it reached for (Space's catch): over `close` seconds its wrist turns to
+ * `twist` and bends in over it to `bend` (degrees, from the open reach's 35 and -12), as a mitten
+ * closes; opening again, over `open`.
+ */
+const GRIP = { close: 0.18, open: 0.5, twist: 60, bend: 34 };
 const REACH_POLE: [number, number, number] = [0.7, 0.7, -0.2];
 /**
  * Where a reach may aim, so the arm never goes into the helmet or the body: the least x out from the
@@ -523,7 +529,7 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
    * Reaching for something (reachFor): which side's arm, the point (the body's space, the `.R`
    * side's terms), and how far the reach has come in (eased toward 1 while on, 0 once let go).
    */
-  const reaching = { on: false, side: 0 as Side, x: 0, y: 0, z: 0, w: 0 };
+  const reaching = { on: false, side: 0 as Side, x: 0, y: 0, z: 0, w: 0, grip: 0, gripTo: 0 };
   /** Swimming: whether it strokes, where it is in the stroke (0..1), and how far the stroke has come in (0..1). */
   const swimming = { on: false, phase: 0, w: 0 };
   const strokeNow: Pose = {};
@@ -607,7 +613,9 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
     if (reaching.w <= 0) return;
     for (const d of DOFS) delete reachPose[d];
     reach(data, Math.max(reaching.x, safeX(reaching.y)), reaching.y, reaching.z, REACH_POLE, reachPose);
-    reachPose.wrTwist = 35; reachPose.wrBend = -12;
+    // the hand open, palm out; closed on something (grip), bent in over it
+    const g = smooth(reaching.grip);
+    reachPose.wrTwist = 35 + (GRIP.twist - 35) * g; reachPose.wrBend = -12 + (GRIP.bend + 12) * g;
     const w = smooth(reaching.w);
     for (let k = 0; k < 6; k++) {
       const v = reachPose[DOFS[k]];
@@ -637,6 +645,7 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
     }
     if (mode === "float" && !o.reducedMotion && !asleep && life > 0.5 && t >= nextSettle) settle();
     reaching.w = Math.max(0, Math.min(1, reaching.w + (reaching.on ? dt / REACH_IN : -dt / REACH_OUT)));
+    reaching.grip += Math.max(-dt / GRIP.open, Math.min(dt / GRIP.close, reaching.gripTo - reaching.grip));
     swimming.w = Math.max(0, Math.min(1, swimming.w + (swimming.on && mode === "float" ? dt / SWIM_IN : -dt / SWIM_OUT)));
     aim();
     aimSwim();
@@ -767,6 +776,21 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
     },
     /** Reaching for something (or coming back from it). */
     get reaching() { return reaching.w > 0; },
+    /** How far the reach has come in, 0 .. 1 (1: the hand is where it reached for, or as near as the arm goes). */
+    get reached() { return reaching.on ? smooth(reaching.w) : 0; },
+    /** The reaching hand closed on what it reached for (true), or open again (false). */
+    grip(on: boolean) { reaching.gripTo = on ? 1 : 0; },
+    /**
+     * Where the middle of a hand is now (0 the `.R`'s, on the viewer's right): the body's space, head
+     * space, mesh units, y down, z toward the viewer.
+     */
+    hand(side: Side): [number, number, number] {
+      const r = beyond[2], out: number[] = [0, 0, 0];
+      place(rig.transforms, CARRIER[2] + (side ? 9 : 0), side ? -r[0] : r[0], r[1], r[2], out);
+      return [out[0], out[1], out[2]];
+    },
+    /** The side reaching now (0 the `.R`), or null. */
+    get reachSide(): Side | null { return reaching.w > 0 ? reaching.side : null; },
     /**
      * Swimming: the breaststroke at `phase` (0..1 of a stroke, see STROKE), coming in over a moment;
      * null lets it go. It starts nothing of its own accord while it swims.

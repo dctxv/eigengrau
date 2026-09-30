@@ -2,12 +2,14 @@
 
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
-import { MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
+import { CATCH_LINES, MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
 import { Call } from "@/engine/space/Call";
+import { Catch } from "@/engine/space/Catch";
 import { Faces } from "@/engine/space/Faces";
 import { FLOAT_IN, Float, type FloatState } from "@/engine/space/Float";
 import { Motes } from "@/engine/space/Motes";
 import { RoomScene, ZOOM } from "@/engine/space/RoomScene";
+import { FoundSky } from "@/engine/space/sky/Found";
 import { Sky } from "@/engine/space/sky/Sky";
 import { LINE_LOOK } from "@/engine/space/Tether";
 import { runIntro } from "@/engine/space/intro";
@@ -18,6 +20,7 @@ import { CursorLabel } from "@/components/CursorLabel";
 import { MaskedChars, MaskedWords } from "@/components/Mask";
 import { alongOn } from "@/lib/along";
 import { getFlags, onFlags, setFlag } from "@/lib/flags";
+import { hintFound } from "@/lib/found";
 import { prefersReducedMotion } from "@/lib/motion";
 import { pollNow, type Track } from "@/lib/now";
 import { isTab } from "@/lib/routes";
@@ -108,9 +111,14 @@ const CAUGHT = { away: 45 * 1000, every: 10 * 60 * 1000 };
 /** When it was last caught (Date.now() ms, in memory): wall time, since a phone put away may stop the page's own clock. */
 let caughtAt = -Infinity;
 
-/** Who holds the caption: a timed line (what's new) outranks the hover caption. */
-type Slot = "hover" | "auto" | "news";
-const RANK: Record<Slot, number> = { hover: 1, auto: 1, news: 2 };
+/**
+ * Who holds the caption: a timed line (what's new, a catch) outranks the hover caption, Urchi's or
+ * that of something it caught hanging in the sky.
+ */
+type Slot = "hover" | "auto" | "news" | "catch" | "sky";
+const RANK: Record<Slot, number> = { hover: 1, auto: 1, sky: 1, news: 2, catch: 2 };
+/** A tap on something in the sky (a phone has no hover): its caption holds this long (s). */
+const SKY_TAP = 3.5;
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
@@ -202,6 +210,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const call = new Call(room, att, motes, { reducedMotion });
     // afloat, the sky behind it (sky/Sky.ts): in with the float-in, out with the flight home, never while the tabs slide
     const sky = new Sky(room, { reducedMotion });
+    // and in it, what Urchi has caught (sky/Found.ts)
+    const foundSky = new FoundSky(room, sky, { reducedMotion });
     sky.hold(getFlags().transitioning);
     const offSlide = onFlags((f) => sky.hold(f.transitioning));
     // ?debug=1, in development only: the sky's tuning panel (a production build never follows the import)
@@ -214,6 +224,11 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     }
     /** The pointer is on Urchi (the cursor label follows at once)... */
     let overUrchi = false;
+    /** ...or afloat, on a glint drifting by (Catch.ts), or on something it caught, hanging in the sky (its id). */
+    let overGlint = false;
+    let overFound: string | null = null;
+    // (made once the float is: see below)
+    let catcher: Catch | null = null;
     /** Where a mouse (or pen) pointer last was over the panel, client px; null for a finger, or gone. */
     let resting: Point | null = null;
     /**
@@ -222,10 +237,11 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
      */
     const urchiWord = () => (fl.busy ? null : att.asleep ? "Wake" : fl.afloat ? "Hold" : "Take with you");
     /** The control's name, the same thing said for the keyboard: afloat, Enter sends it home. */
-    const controlName = () => (att.asleep ? "Wake Urchi" : fl.afloat ? "Send Urchi home" : "Take Urchi with you");
+    const controlName = () => (att.asleep ? "Wake Urchi" : fl.afloat ? (catcher?.catchable ? "Catch it" : "Send Urchi home") : "Take Urchi with you");
     /** Its word, name and cursor follow what it is doing (and whether it is asleep). */
     const labelUrchi = () => {
       if (overUrchi) cursor.set(urchiWord());
+      else if (overGlint) cursor.set(catcher?.catchable ? "Catch it" : null);
       controlEl.setAttribute("aria-label", controlName());
       controlEl.setAttribute("aria-disabled", String(fl.busy || begun < 0));
       controlEl.toggleAttribute("data-afloat", fl.afloat);
@@ -264,6 +280,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const onFloat = (state: FloatState) => {
       labelUrchi();
       sky.setFloat(state);
+      // something drifts by only while it floats (Catch.ts)
+      catcher?.floatChanged(state === "floating");
       // the slider comes in with the float-in, goes as it flies home, and is back at the middle for next time
       if (state === "arriving") slider(true, FLOAT_IN);
       else if (state === "floating") slider(true);
@@ -285,7 +303,15 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (state !== "floating" && state !== "arriving") setOverUrchi(false);
     };
     const fl = (float = new Float({ room, att, reducedMotion, onState: (s) => onFloat(s), onJolt: (k) => faces.jolt(k) }));
-    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __float: fl, __faces: faces, __sky: sky }); // handy for debugging and headless QA
+    // something drifting by, afloat: Urchi goes for it, and what it caught hangs in the sky from then on
+    const tellLive = (text: string) => {
+      if (live.current) live.current.textContent = text;
+    };
+    catcher = new Catch({ room, att, float: fl, sky: foundSky, reducedMotion, say: (title, line, dwell) => say("catch", title, line, { dwell }), tell: tellLive, onChange: () => labelUrchi() });
+    const catches = catcher;
+    // (whoever opens the console gets a word about where Urchi keeps what it catches)
+    hintFound();
+    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __float: fl, __faces: faces, __sky: sky, __catch: catches, __found: foundSky }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
     let stopArrive: (() => void) | null = null;
 
@@ -388,6 +414,23 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       slot = null;
       att.cancel("read");
       hideCaption();
+    };
+
+    /** What the caption says of something in the sky: its name and line, or a forgery's. */
+    const skyWords = (f: { text: { name: string; caption: string }; forged: boolean }): [string, string] =>
+      f.forged ? [fillLine(CATCH_LINES.forgedTitle, { name: f.text.name.toLowerCase() }), CATCH_LINES.forged] : [f.text.name, f.text.caption];
+    /** The pointer on something Urchi caught, hanging in the sky: its caption rises, and sinks as it leaves. */
+    const overSky = (f: ReturnType<typeof foundSky.hit>) => {
+      const id = f?.id ?? null;
+      if (id === overFound) return;
+      overFound = id;
+      if (f) {
+        const [title, line] = skyWords(f);
+        say("sky", title, line);
+      } else if (slot === "sky") {
+        slot = null;
+        hideCaption();
+      }
     };
 
     // Falling asleep or waking under the pointer: the label follows, and the caption when its words change.
@@ -610,8 +653,16 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         return;
       }
       resting = e.pointerType === "touch" ? null : { x: e.clientX, y: e.clientY };
-      if (resting) sky.pointer(resting.x, resting.y);
+      if (resting) {
+        sky.pointer(resting.x, resting.y);
+        foundSky.pointer(resting.x, resting.y);
+      }
       setOverUrchi(room.urchiHit(e.clientX, e.clientY));
+      // afloat, off Urchi: a glint to catch, or something it caught
+      const touch = e.pointerType === "touch";
+      overGlint = !overUrchi && fl.afloat && catches.hit(e.clientX, e.clientY, touch);
+      if (!touch) overSky(!overUrchi && !overGlint && fl.afloat ? foundSky.hit(e.clientX, e.clientY) : null);
+      if (!overUrchi) cursor.set(overGlint ? "Catch it" : null);
       labelUrchi();
       // a mouse shaken over its face at home, awake: it glares
       faces.pointer(e.clientX, overUrchi && e.pointerType !== "touch" && fl.state === "home" && !att.asleep && begun >= 0);
@@ -619,6 +670,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const onLeave = () => {
       resting = null;
       sky.pointer(null);
+      foundSky.pointer(null);
+      overSky(null);
+      overGlint = false;
       if (down.held) return;
       setOverUrchi(false);
       labelUrchi();
@@ -692,6 +746,20 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         // Asleep, the first click wakes it; awake at home, it is taken with you.
         if (wake()) return;
         if (fl.state === "home" && begun >= 0) fl.take();
+      } else if (fl.afloat && catches.hit(e.clientX, e.clientY, e.pointerType === "touch")) {
+        // a glint drifting by: Urchi goes for it
+        call.abort();
+        if (catches.take()) {
+          overGlint = false;
+          cursor.set(null);
+        }
+        labelUrchi();
+      } else if (fl.afloat && e.pointerType === "touch" && foundSky.hit(e.clientX, e.clientY)) {
+        // a phone has no hover: a tap on something in the sky says what it is
+        call.abort();
+        const f = foundSky.hit(e.clientX, e.clientY)!;
+        const [title, line] = skyWords(f);
+        say("sky", title, line, { dwell: SKY_TAP });
       } else if (room.interactive) {
         if (begun >= 0) call.tap(e.clientX, e.clientY, down.t);
         else motes.release(e.clientX, e.clientY);
@@ -713,6 +781,12 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (e.detail !== 0 || fl.busy || begun < 0 || !room.interactive) return;
       call.abort();
       if (wake()) return;
+      // a glint out: Enter catches it (sending Urchi home waits for it to be gone, or caught)
+      if (fl.afloat && catches.catchable) {
+        catches.take();
+        labelUrchi();
+        return;
+      }
       if (fl.afloat) fl.sendHome();
       else fl.take();
     };
@@ -832,6 +906,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
       cursor.destroy();
+      catches.dispose();
+      foundSky.dispose();
       call.dispose();
       faces.dispose();
       motes.dispose();
