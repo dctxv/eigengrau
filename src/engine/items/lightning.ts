@@ -6,12 +6,13 @@ import { faceted, glass, glint, halo, haze, release, type Item } from "./look";
 /**
  * How it strikes, as lightning does, in seconds: a faint leader forks its way down from the top over
  * `leader`; the return stroke lights the whole bolt at `flash` for `stroke`; it flickers with a
- * restrike at each of `restrikes` (after the stroke), and fades over `fade`, its branches first. A
+ * restrike at each of `restrikes` (after the stroke), each gone in about `flicker`, and fades over
+ * `fade`, its branches first; all of it over in under half a second, as lightning is. A
  * dark pause of `gap[0]` to `gap[1]`, and the next strike takes a new path. The whole time it
  * crackles: its forks jump a little `crackle` times a second, by up to `jitter` of the shard's
  * height. Its glass turns once in `turn` seconds.
  */
-const STRIKE = { leader: 0.14, flash: 1.8, stroke: 0.07, restrikes: [0.1, 0.22, 0.3], fade: 0.35, gap: [0.4, 1.6] as [number, number], crackle: 24, jitter: 0.012, turn: 26 };
+const STRIKE = { leader: 0.06, flash: 1.8, stroke: 0.04, restrikes: [0.05, 0.11, 0.17], flicker: 0.025, fade: 0.16, gap: [0.3, 1.3] as [number, number], crackle: 30, jitter: 0.012, turn: 26 };
 
 /** A small seeded generator (mulberry32), so it is the same bolt every time. */
 function seeded(seed: number) {
@@ -210,7 +211,7 @@ function strikes() {
   while (at < 3600) {
     starts.push(at);
     k = (k * 16807) % 2147483647;
-    at += STRIKE.leader + STRIKE.stroke + last + 0.05 + STRIKE.fade + STRIKE.gap[0] + (k / 2147483647) * (STRIKE.gap[1] - STRIKE.gap[0]);
+    at += STRIKE.leader + STRIKE.stroke + last + 0.03 + STRIKE.fade + STRIKE.gap[0] + (k / 2147483647) * (STRIKE.gap[1] - STRIKE.gap[0]);
   }
   const which = (t: number) => {
     const u = t % 3600;
@@ -229,10 +230,10 @@ function strikes() {
     if (after < STRIKE.stroke) return { reveal: 2, bright: STRIKE.flash, branch: 1 };
     const k = after - STRIKE.stroke;
     // the restrikes: sharp flares on a dying glow, and an afterglow under them that the fade takes
-    let bright = Math.max(0.9 * Math.exp(-k / 0.12), 0.32 * Math.exp(-k / 0.45));
-    for (const r of STRIKE.restrikes) if (k >= r) bright = Math.max(bright, 1.4 * Math.exp(-(k - r) / 0.05));
-    if (k < last + 0.05) return { reveal: 2, bright, branch: Math.exp(-k / 0.2) };
-    const f = (k - last - 0.05) / STRIKE.fade;
+    let bright = Math.max(0.9 * Math.exp(-k / 0.06), 0.32 * Math.exp(-k / 0.2));
+    for (const r of STRIKE.restrikes) if (k >= r) bright = Math.max(bright, 1.4 * Math.exp(-(k - r) / STRIKE.flicker));
+    if (k < last + 0.03) return { reveal: 2, bright, branch: Math.exp(-k / 0.1) };
+    const f = (k - last - 0.03) / STRIKE.fade;
     return f < 1 ? { reveal: 2, bright: bright * (1 - f), branch: Math.max(0, 0.4 * (1 - 2 * f)) } : dark;
   };
   return { which, look, dark };
