@@ -3,7 +3,7 @@ import gsap from "gsap";
 /**
  * A word that trails the pointer, 32px down and right of its tip, white with
  * mix-blend-mode: difference (spec 4.5). Plain DOM controller, shared by the
- * Creative Space and Projects stages.
+ * Creative Space and Work stages.
  */
 export class CursorLabel {
   private el: HTMLElement;

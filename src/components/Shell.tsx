@@ -17,7 +17,7 @@ import { Nav } from "./chrome/Nav";
 import { SoundChip } from "./chrome/SoundChip";
 
 const CreativeSpacePanel = dynamic(() => import("./pages/CreativeSpacePanel").then((m) => m.CreativeSpacePanel), { ssr: false });
-const ProjectsPanel = dynamic(() => import("./pages/ProjectsPanel").then((m) => m.ProjectsPanel), { ssr: false });
+const WorkPanel = dynamic(() => import("./pages/WorkPanel").then((m) => m.WorkPanel), { ssr: false });
 const NotesPanel = dynamic(() => import("./pages/NotesPanel").then((m) => m.NotesPanel), { ssr: false });
 const MusicPanel = dynamic(() => import("./pages/MusicPanel").then((m) => m.MusicPanel), { ssr: false });
 const AboutPanel = dynamic(() => import("./pages/AboutPanel").then((m) => m.AboutPanel), { ssr: false });
@@ -28,7 +28,7 @@ type Panel = { key: string; path: string; intro: boolean };
 /** A tab's page. Memoised: a kept panel is not rendered again on every route change. */
 const Stage = memo(function Stage({ path, intro }: { path: string; intro: boolean }) {
   if (path === "/") return <CreativeSpacePanel intro={intro} />;
-  if (path === "/projects") return <ProjectsPanel />;
+  if (path === "/work") return <WorkPanel />;
   if (path === "/notes") return <NotesPanel />;
   if (path === "/music") return <MusicPanel />;
   if (path === "/about") return <AboutPanel />;

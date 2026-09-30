@@ -2,17 +2,18 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { NAME, PROJECTS, projectsLine, ROLE, SPACE_ITEMS, statusWord } from "@/content/site";
 
-export const metadata: Metadata = { title: "Projects" };
+export const metadata: Metadata = { title: "Work" };
 
 /**
- * Projects. The thread is drawn in WebGL; this is its accessible mirror, in
+ * Work. The thread is drawn in WebGL; this is its accessible mirror, in
  * the thread's order of things: each project with its status, its line, its
  * pieces and its case, then the studies, the pieces that belong to none.
+ * Skills, under the heading, is real DOM in the panel, so it is not repeated.
  * The thread runs by year, first to last, and a year's work in the order it
  * is listed (the sort is stable), so the mirror reads in the order the arrow
  * keys step through.
  */
-export default function ProjectsPage() {
+export default function WorkPage() {
   const byYear = <T extends { year: number }>(list: readonly T[]) => [...list].sort((a, b) => a.year - b.year);
   const projects = byYear(PROJECTS);
   const studies = byYear(SPACE_ITEMS.filter((s) => !s.project || !PROJECTS.some((p) => p.slug === s.project)));
@@ -21,7 +22,7 @@ export default function ProjectsPage() {
       <h1>
         {NAME} - {ROLE}
       </h1>
-      <h2>Projects</h2>
+      <h2>Work</h2>
       <p>{projectsLine()}</p>
       <ul>
         {projects.map((p) => {
@@ -39,7 +40,7 @@ export default function ProjectsPage() {
                     ))}
                   </ul>
                 )}
-                <Link href={`/projects/${p.slug}`}>Case: {p.title}</Link>
+                <Link href={`/work/${p.slug}`}>Case: {p.title}</Link>
               </article>
             </li>
           );

@@ -23,6 +23,13 @@ export type ThreadOptions = {
    * taut after the visitor has left for another tab is not plucked.
    */
   isCurrent?(): boolean;
+  /**
+   * The line the page sets under the heading (Work's link to Skills): where it goes, the
+   * heading's centre and the foot of its words (px), and how much ink it has, told whenever
+   * either changes. It rises with the heading's words and yields whenever the heading does, and
+   * to the whole supernova, whose covers come out just under it.
+   */
+  onHeading?(foot: { x: number; y: number }, ink: number): void;
 };
 
 /** A text and the box it rises out of: the site's masked entrance, done in troika. */
@@ -1290,6 +1297,9 @@ export class ThreadScene {
   /** The heading's ink as an opened project leaves it (see dimHeading); a charge takes it down further. */
   private headInk = { v: 1 };
   private headInkSet = 1;
+  /** The line under the heading: its ink, yielding or back (see onHeading), and what it was last told. */
+  private underInk = 1;
+  private underTold = "";
 
   private ready = false;
   private disposed = false;
@@ -4468,6 +4478,7 @@ export class ThreadScene {
     this.crossings();
     this.whirr(dt);
     this.dimHeading();
+    this.tellHeading(dt);
     this.glass.setVelocity(Math.abs(this.scroll.cur - this.lastScroll) / Math.max(dt, 1e-3) / 1500);
     this.lastScroll = this.scroll.cur;
     this.glass.enabled = this.glassOn;
@@ -5225,6 +5236,23 @@ export class ThreadScene {
     this.headInkSet = ink;
     this.heading.lead.t.material.opacity = ink;
     this.heading.tail.t.material.opacity = ink;
+  }
+
+  /** Tells the page where the line under the heading goes and how much ink it has, when either changes (see onHeading). */
+  private tellHeading(dt: number) {
+    const h = this.heading;
+    const tell = this.opts.onHeading;
+    if (!h || !tell) return;
+    const away = this.headingDimmed || this.novaActive ? 0 : 1;
+    this.underInk = this.opts.reducedMotion ? away : this.underInk + (away - this.underInk) * (1 - Math.exp(-dt / 0.1));
+    const risen = h.tail.span > 0 ? clamp01(1 - h.tail.offset / h.tail.span) : 1;
+    const ink = Math.round(this.underInk * risen * 100) / 100;
+    const x = Math.round(this.width / 2);
+    const y = Math.round(this.headY + this.headingHalf);
+    const told = `${x} ${y} ${ink}`;
+    if (told === this.underTold) return;
+    this.underTold = told;
+    tell({ x, y }, ink);
   }
 
   setVisible(on: boolean) {

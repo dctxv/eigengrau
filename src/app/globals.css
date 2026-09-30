@@ -321,11 +321,41 @@ button {
 .between[data-on] {
   display: block;
 }
-.stage-projects {
+.stage-work {
   touch-action: none;
   overscroll-behavior: none;
   user-select: none;
   -webkit-user-select: none;
+}
+/* Work's one DOM word over the canvas: Skills, under the heading, placed and inked by the thread (see onHeading). */
+.work-panel {
+  position: relative;
+  height: var(--app-h);
+}
+.work-skills {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* A bigger target that takes no room. */
+  padding: 6px 8px;
+  margin-top: -2px;
+  font: 500 12px/140% var(--font-grotesk);
+  white-space: nowrap;
+  z-index: 4;
+}
+.work-skills:not([data-placed]) {
+  visibility: hidden;
+}
+.work-skills:focus-visible {
+  outline: none;
+  text-decoration: underline 1px;
+  text-underline-offset: 3px;
+}
+@media (hover: hover) {
+  .work-skills:hover {
+    text-decoration: underline 1px;
+    text-underline-offset: 3px;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -552,6 +582,36 @@ button {
 }
 .case .case-back {
   font: 500 12px/1 var(--font-grotesk);
+}
+/* Skills (/work/skills): each area in one quiet column, its name, its line, then what was done, left to read. */
+.case.skills {
+  padding-inline: 16px;
+}
+.skills .skills-area {
+  width: min(100%, 450px);
+  margin-top: 40px;
+}
+.skills .skills-area h2 {
+  font: 500 12px/140% var(--font-grotesk);
+  margin: 0;
+}
+.skills .skills-why {
+  font: 400 16px/1.3 var(--font-serif);
+  margin: 8px 0 0;
+}
+.skills .skills-area ul {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  margin: 24px 0 0;
+}
+.skills .skills-area li {
+  font: 400 14px/1.4 var(--font-serif);
+  opacity: 0.8;
+}
+.skills .case-back {
+  margin-top: 40px;
 }
 /* The pieces from the thread, under the summary: one quiet column, each with its title and three lines. */
 .case .case-pieces {

@@ -494,7 +494,7 @@ function glide(p: AudioParam, to: number, now: number, at: number, over: number,
   }
 }
 
-/** The tab a route belongs to: a case page is in Projects; anything else outside the tabs (a page not found) is off Space. */
+/** The tab a route belongs to: a case page or Skills is in Work; anything else outside the tabs (a page not found) is off Space. */
 function tabOf(path: string): string {
   return TAB_ORDER.find((t) => t !== "/" && (path === t || path.startsWith(`${t}/`))) ?? "/";
 }

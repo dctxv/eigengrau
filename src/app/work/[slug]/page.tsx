@@ -10,7 +10,7 @@ export function generateStaticParams() {
   return PROJECTS.map((p) => ({ slug: p.slug }));
 }
 
-export async function generateMetadata({ params }: PageProps<"/projects/[slug]">): Promise<Metadata> {
+export async function generateMetadata({ params }: PageProps<"/work/[slug]">): Promise<Metadata> {
   const { slug } = await params;
   const project = PROJECTS.find((p) => p.slug === slug);
   return { title: project?.title ?? "Project" };
@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: PageProps<"/projects/[slug]">
  * its title and its three lines. A dead project keeps its cover here as the
  * record. Back returns to the project unspooled on the thread.
  */
-export default async function CasePage({ params }: PageProps<"/projects/[slug]">) {
+export default async function CasePage({ params }: PageProps<"/work/[slug]">) {
   const { slug } = await params;
   const project = PROJECTS.find((p) => p.slug === slug);
   if (!project) notFound();
@@ -62,7 +62,7 @@ export default async function CasePage({ params }: PageProps<"/projects/[slug]">
           ))}
         </section>
       )}
-      <Link href={`/projects#${project.slug}`} className="case-back">
+      <Link href={`/work#${project.slug}`} className="case-back">
         Back
       </Link>
       {/* The page runs to a few screens under the tab bar, so it wears the rims Notes and Music do. */}

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { sfx } from "@/audio/sfx";
@@ -10,7 +11,7 @@ import { getFlags, setFlag } from "@/lib/flags";
 import { prefersReducedMotion } from "@/lib/motion";
 import { onShown, onWhere } from "@/lib/where";
 
-const ROUTE = "/projects";
+const ROUTE = "/work";
 
 /** The slug in the URL's hash, if it names a project. */
 function hashSlug(): string | null {
@@ -24,14 +25,16 @@ function hashSlug(): string | null {
 }
 
 /**
- * Projects: the wound horizon. The whole page is one canvas; only the cursor
- * label is DOM. An opened project puts its slug in the URL's hash (replaced,
- * never a route change), so /projects#vector opens straight into it.
+ * Work: the wound horizon. The whole page is one canvas; only the cursor
+ * label and the link to Skills under the heading are DOM. An opened project
+ * puts its slug in the URL's hash (replaced, never a route change), so
+ * /work#vector opens straight into it.
  */
-export function ProjectsPanel() {
+export function WorkPanel() {
   const stage = useRef<HTMLElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const label = useRef<HTMLDivElement>(null);
+  const skills = useRef<HTMLAnchorElement>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -58,6 +61,16 @@ export function ProjectsPanel() {
         setHash(p);
       },
       isCurrent,
+      // Skills keeps to the heading's foot, and goes when the heading yields.
+      onHeading: (at, ink) => {
+        const el = skills.current;
+        if (!el) return;
+        el.dataset.placed = "";
+        el.style.transform = `translate(${at.x}px, ${at.y}px) translateX(-50%)`;
+        el.style.opacity = String(ink);
+        el.style.visibility = ink > 0 ? "" : "hidden";
+        el.toggleAttribute("inert", ink < 0.5);
+      },
     });
     Object.assign(stageEl, { __scene: scene }); // handy for debugging and headless QA
     const first = hashSlug();
@@ -72,7 +85,7 @@ export function ProjectsPanel() {
     // The sampled click is reserved for this.
     const goCase = (p: Project) => {
       sfx.play("click");
-      router.push(`/projects/${p.slug}`);
+      router.push(`/work/${p.slug}`);
     };
 
     // The wheel in px whatever its mode: lines at 16px, pages at the stage's height.
@@ -163,7 +176,7 @@ export function ProjectsPanel() {
       if (slug) scene.openSlug(slug);
       else if (scene.isOpen) scene.close();
     };
-    // This page's own pill, pressed while a project is out, pushes /projects without the hash, and
+    // This page's own pill, pressed while a project is out, pushes /work without the hash, and
     // a push fires no hashchange: the thread winds back in, so the page matches its URL again.
     const onClick = (e: MouseEvent) => {
       if (!isCurrent() || !scene.isOpen) return;
@@ -226,9 +239,14 @@ export function ProjectsPanel() {
   }, [router]);
 
   return (
-    <section ref={stage} className="stage stage-projects" aria-hidden="true">
-      <canvas ref={canvas} />
-      <div ref={label} className="cursor-label" />
-    </section>
+    <div className="work-panel">
+      <section ref={stage} className="stage stage-work" aria-hidden="true">
+        <canvas ref={canvas} />
+        <div ref={label} className="cursor-label" />
+      </section>
+      <Link ref={skills} href="/work/skills" className="work-skills">
+        Skills
+      </Link>
+    </div>
   );
 }

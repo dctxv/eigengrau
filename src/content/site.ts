@@ -28,7 +28,7 @@ export const STATUS = "Busy putting a hole in spacetime";
 
 export const TABS = [
   { href: "/", label: "Space", n: 1 },
-  { href: "/projects", label: "Projects", n: 2 },
+  { href: "/work", label: "Work", n: 2 },
   { href: "/notes", label: "Notes", n: 3 },
   { href: "/music", label: "Music", n: 4 },
   { href: "/about", label: "About", n: 5 },
@@ -77,7 +77,7 @@ export const URCHI_STATES = {
 
 /**
  * What Urchi's look at a tab's pill means, said once in the caption under
- * that tab's label ("Notes", "Projects"): what changed since the visitor's
+ * that tab's label ("Notes", "Work"): what changed since the visitor's
  * last visit. {count} is a number word, {date} that visit's day ("12 September").
  */
 export const URCHI_NEWS = {
@@ -92,11 +92,12 @@ export function fillLine(template: string, values: Record<string, string>): stri
 }
 
 /**
- * When Projects and About last changed, YYYY-MM-DD. Bump these whenever you
- * change those tabs: Urchi looks up at the pill of a tab that is newer than a
- * returning visitor's last visit. (Notes date themselves from the newest note.)
+ * When Work (its projects and its skills) and About last changed, YYYY-MM-DD.
+ * Bump these whenever you change those tabs: Urchi looks up at the pill of a
+ * tab that is newer than a returning visitor's last visit. (Notes date
+ * themselves from the newest note.)
  */
-export const UPDATED = { projects: "2026-09-29", about: "2026-09-25" };
+export const UPDATED = { work: "2026-09-30", about: "2026-09-25" };
 
 export type Media =
   | { kind: "image"; src: string }
@@ -105,7 +106,7 @@ export type Media =
 export type Status = "alive" | "paused" | "dead" | "shipped";
 
 export type Project = {
-  /** Its case page, /projects/<slug>, and its #slug on the thread. Its pieces in SPACE_ITEMS name it as `project`. */
+  /** Its case page, /work/<slug>, and its #slug on the thread. Never "skills": that is Skills' page. Its pieces in SPACE_ITEMS name it as `project`. */
   slug: string;
   title: string;
   status: Status;
@@ -165,6 +166,52 @@ export const PROJECTS: Project[] = [
   },
 ];
 
+/**
+ * Skills: Work's own page, /work/skills, linked under the thread's heading.
+ * What he has learned to do rather than where he learned it: each area with
+ * its one honest line (as a project's `why`) and what he did in it, a
+ * sentence each. `SKILLS_LINE` stands under the page's title.
+ */
+export type SkillArea = { name: string; why: string; did: string[] };
+
+export const SKILLS_LINE = "What I have learned to do in security, by doing it.";
+
+export const SKILLS: SkillArea[] = [
+  {
+    name: "Malware Analysis",
+    why: "Taking Windows malware apart, safely, to see what it really does.",
+    did: [
+      "Reverse-engineered Windows malware in an isolated lab, reading it at rest (PE structure, imports, strings, entropy) and watching it run in Process Monitor and Process Explorer.",
+      "Unpacked UPX-packed binaries by hand in Ghidra, x64dbg and Scylla: found the original entry point, rebuilt the import table, and proved the unpack by comparing entropy and import counts before and after.",
+      "Found a packed bind-shell backdoor's real main function by following the cross-references to its socket, bind and listen calls.",
+      "Traced a keylogger as it ran, mapping its keystroke-capture loop, what it does to its file on every write, and how it persists.",
+      "Handled every sample safely throughout: isolated VMs, password-protected samples and a controlled cleanup.",
+    ],
+  },
+  {
+    name: "IT Security",
+    why: "Attacking a system I built, defending it, then checking the defence sees the attack.",
+    did: [
+      "Built a self-contained lab (a Kali attacker, an Ubuntu OpenSSH target, a host-only network, no internet) to run a full SSH attack chain and then defend against it.",
+      "Chained online password guessing (Hydra, with a custom Python wordlist built from a threat model), valid-account access and systemd-timer persistence, mapping every stage to its MITRE ATT&CK sub-technique.",
+      "Configured and tuned Fail2Ban, weighing availability against security in its lockout thresholds.",
+      "Found the defence silently under-counting the attack through a log filter that was too narrow, traced it to the journal-match scope and corrected it. A control that reports \"active\" is no proof it sees the events its decisions depend on.",
+      "Mapped remediation to the ACSC Essential Eight (MFA, restricted admin privileges) and documented the residual risk and the evasion paths left.",
+    ],
+  },
+  {
+    name: "Cyber Security Ethics, Law and Policy",
+    why: "Advising on a breach under Australian law, keeping what is known apart from what is assumed.",
+    did: [
+      "Wrote an incident-response advisory on a health-data breach scenario under Australian privacy law, sorting all of the analysis into Known, Unknown and Assumed before giving any advice.",
+      "Applied the Privacy Act's APPs and its Part IIIC notifiable data breach scheme, the Criminal Code's computer offences and the Cyber Security Act at section level, including which obligations did not apply, and why.",
+      "Weighed sources for authority, currency, jurisdiction and relevance, and set aside a vendor's compliance guarantee and unverified breach claims as unreliable.",
+      "Ordered the response by dependency, irreversibility and cost: contain it read-only, preserve the evidence before the logs expire, then set the notification timeline.",
+      "Used AI to find sources and to argue against my reasoning while checking every claim against the primary law, and caught and rejected a false statement of the legislation it gave.",
+    ],
+  },
+];
+
 /** The status word with its one year: "alive since 2025", "dead 2023". */
 export function statusWord(p: Pick<Project, "status" | "year">): string {
   return p.status === "alive" || p.status === "paused" ? `${p.status} since ${p.year}` : `${p.status} ${p.year}`;
@@ -189,7 +236,7 @@ export function countWord(n: number): string {
   return String(n);
 }
 
-/** The bottom line on Projects, derived from the data so it is never stale: "Six projects since 2021. Two alive." */
+/** The heading's line on Work, derived from the data so it is never stale: "Six projects since 2021. Two alive." */
 export function projectsLine(projects: readonly Project[] = PROJECTS): string {
   const since = Math.min(...projects.map((p) => p.year));
   const alive = projects.filter((p) => p.status === "alive").length;

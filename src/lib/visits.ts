@@ -161,7 +161,7 @@ export type News = { href: TabHref; label: string; line: string };
 /**
  * What changed since the last visit, for Urchi to look at: the tab with the newest change since
  * `prev` (ties go to the earlier tab), and his line about it: "Two new notes since 12 September."
- * Notes date from the newest note, Projects and About from UPDATED. Null on a first visit or when
+ * Notes date from the newest note, Work and About from UPDATED. Null on a first visit or when
  * nothing is newer.
  */
 export function whatsNew(prev: number | null = lastVisit(), now = new Date()): News | null {
@@ -171,7 +171,7 @@ export function whatsNew(prev: number | null = lastVisit(), now = new Date()): N
   const fresh = NOTES.filter((n) => n.date > since);
   const newestNote = fresh.reduce((d, n) => (n.date > d ? n.date : d), "");
   const changes: { href: TabHref; date: string }[] = [];
-  if (UPDATED.projects > since) changes.push({ href: "/projects", date: UPDATED.projects });
+  if (UPDATED.work > since) changes.push({ href: "/work", date: UPDATED.work });
   if (newestNote) changes.push({ href: "/notes", date: newestNote });
   if (UPDATED.about > since) changes.push({ href: "/about", date: UPDATED.about });
   if (!changes.length) return null;

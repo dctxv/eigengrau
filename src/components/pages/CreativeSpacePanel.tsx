@@ -621,8 +621,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     const pose = (): Caught => {
       const r = reducedMotion ? 0 : Math.random();
       const side = Math.random() < 0.5 ? -1 : 1;
-      if (r < 0.4 || (r < 0.7 && !pillAt("/projects"))) return { kind: "corner", side, at: { x: (0.5 + side * 0.48) * window.innerWidth, y: 0.03 * window.innerHeight } };
-      if (r < 0.7) return { kind: "pill", at: () => pillAt("/projects") };
+      if (r < 0.4 || (r < 0.7 && !pillAt("/work"))) return { kind: "corner", side, at: { x: (0.5 + side * 0.48) * window.innerWidth, y: 0.03 * window.innerHeight } };
+      if (r < 0.7) return { kind: "pill", at: () => pillAt("/work") };
       return { kind: "stretch", side };
     };
     const onVisibility = () => {

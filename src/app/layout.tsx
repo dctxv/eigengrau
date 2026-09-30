@@ -25,7 +25,7 @@ const jsonLd = {
     ...PROJECTS.map((p) => ({
       "@type": "CreativeWork",
       name: p.title,
-      url: `${SITE_URL}/projects/${p.slug}`,
+      url: `${SITE_URL}/work/${p.slug}`,
       author: { "@type": "Person", name: NAME },
     })),
   ],
