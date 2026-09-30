@@ -397,6 +397,67 @@ export function glassEdges(geometry: THREE.BufferGeometry, reach: number, flareC
   };
 }
 
+const speckVertex = /* glsl */ `
+attribute float aSize;
+attribute float aAlpha;
+attribute vec3 aColour;
+uniform vec4 uViewport;
+varying float vAlpha;
+varying vec3 vColour;
+void main() {
+  vec4 p = modelViewMatrix * vec4(position, 1.0);
+  float px = aSize * projectionMatrix[1][1] * uViewport.w / (2.0 * -p.z);
+  gl_PointSize = max(1.0, px);
+  // (a speck smaller than a pixel is as bright as the share of the pixel it would cover)
+  vAlpha = aAlpha * min(1.0, px * px);
+  vColour = aColour;
+  gl_Position = projectionMatrix * p;
+}`;
+const speckFragment = /* glsl */ `
+uniform float uSoft;
+varying float vAlpha;
+varying vec3 vColour;
+void main() {
+  float d = length(gl_PointCoord - 0.5) * 2.0;
+  // a speck crisp, a puff soft all the way out
+  float a = uSoft > 0.5 ? exp(-d * d * 3.5) * (1.0 - smoothstep(0.8, 1.0, d)) : 1.0 - smoothstep(0.5, 1.0, d);
+  gl_FragColor = vec4(vColour, vAlpha * a);
+}`;
+
+/**
+ * `count` specks of light: dust, embers, far stars. Each a point `sizes` across (item units: a
+ * pixel or more however small it is drawn, as bright as the share of a pixel it would cover when
+ * smaller), `alphas` bright, in `colours`, where `positions` put it; light added (see ADD). Soft,
+ * each is a round puff rather than a crisp dot. Seen through what is in front of it only with
+ * `depthTest`. Fill the arrays, and call `changed` after moving or dimming them.
+ */
+export function specks(count: number, soft = false, depthTest = false) {
+  const positions = new Float32Array(count * 3), sizes = new Float32Array(count), alphas = new Float32Array(count), colours = new Float32Array(count * 3);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  g.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
+  g.setAttribute("aAlpha", new THREE.BufferAttribute(alphas, 1));
+  g.setAttribute("aColour", new THREE.BufferAttribute(colours, 3));
+  const uniforms = { uViewport: { value: new THREE.Vector4(0, 0, 1, 1) }, uSoft: { value: soft ? 1 : 0 } };
+  const points = new THREE.Points(g, new THREE.ShaderMaterial({ vertexShader: speckVertex, fragmentShader: speckFragment, uniforms, transparent: true, depthWrite: false, depthTest, ...ADD }));
+  points.frustumCulled = false;
+  // (how big a pixel is, in the view it is drawn in)
+  points.onBeforeRender = (renderer) => renderer.getCurrentViewport(uniforms.uViewport.value);
+  return {
+    points,
+    positions,
+    sizes,
+    alphas,
+    colours,
+    changed() {
+      g.attributes.position.needsUpdate = true;
+      g.attributes.aAlpha.needsUpdate = true;
+      g.attributes.aSize.needsUpdate = true;
+      g.attributes.aColour.needsUpdate = true;
+    },
+  };
+}
+
 /** A soft halo round what glows, in the host's view, `size` across: light added round it. Set its `strength` as it glows. */
 export function halo(colour: string, size = 2, strength = 0.2) {
   const uniforms = { uColour: { value: rawColor(colour) }, uStrength: { value: strength } };

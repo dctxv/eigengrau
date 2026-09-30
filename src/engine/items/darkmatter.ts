@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { rawColor } from "@/engine/common/color";
-import { ADD, release, type Item } from "./look";
+import { ADD, release, specks, type Item } from "./look";
 
 /**
  * The body and what streams past it. The body: its size (`size`, about its radius) and how lumpy
@@ -89,34 +89,6 @@ void main() {
   gl_FragColor = vec4(uColour * edge * flank * flank * uRim, 1.0);
 }`;
 
-/** The specks: each a point a pixel or two across (never less than one), as bright as it is there, light added. */
-const speckVertex = /* glsl */ `
-attribute float aSize;
-attribute float aAlpha;
-attribute vec3 aColour;
-uniform vec4 uViewport;
-varying float vAlpha;
-varying vec3 vColour;
-void main() {
-  vec4 p = modelViewMatrix * vec4(position, 1.0);
-  float px = aSize * projectionMatrix[1][1] * uViewport.w / (2.0 * -p.z);
-  gl_PointSize = max(1.0, px);
-  // (a speck smaller than a pixel is as bright as the share of the pixel it would cover)
-  vAlpha = aAlpha * min(1.0, px * px);
-  vColour = aColour;
-  gl_Position = projectionMatrix * p;
-}`;
-const speckFragment = /* glsl */ `
-uniform float uSoft;
-varying float vAlpha;
-varying vec3 vColour;
-void main() {
-  float d = length(gl_PointCoord - 0.5) * 2.0;
-  // a speck crisp, a haze's puff soft all the way out
-  float a = uSoft > 0.5 ? exp(-d * d * 3.5) * (1.0 - smoothstep(0.8, 1.0, d)) : 1.0 - smoothstep(0.5, 1.0, d);
-  gl_FragColor = vec4(vColour, vAlpha * a);
-}`;
-
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -132,8 +104,8 @@ const smooth = (a: number, b: number, x: number) => {
 export function makeDarkMatter(): Item {
   const rand = seeded(20261003), n = DARK.dust + DARK.stars;
   // each speck: where along the stream it starts (-1 .. 1), its place across it (a disc), and its look
-  const along = new Float32Array(n), across = new Float32Array(n * 2), phase = new Float32Array(n);
-  const positions = new Float32Array(n * 3), sizes = new Float32Array(n), alphas = new Float32Array(n), base = new Float32Array(n), colours = new Float32Array(n * 3);
+  const along = new Float32Array(n), across = new Float32Array(n * 2), phase = new Float32Array(n), base = new Float32Array(n);
+  const dots = specks(n), { positions, alphas } = dots;
   const dust = [rawColor("#a79bd0"), rawColor("#8f9ec8"), rawColor("#c2b3d8")], star = [rawColor("#eef3ff"), rawColor("#cfe0ff"), rawColor("#fff4dd")];
   for (let i = 0; i < n; i++) {
     const isStar = i >= DARK.dust, r = Math.sqrt(rand()) * DARK.reach, a = rand() * Math.PI * 2;
@@ -141,44 +113,27 @@ export function makeDarkMatter(): Item {
     across[i * 2] = Math.cos(a) * r;
     across[i * 2 + 1] = Math.sin(a) * r;
     phase[i] = rand() * Math.PI * 2;
-    sizes[i] = isStar ? 0.014 + 0.012 * rand() : 0.011 + 0.008 * rand();
+    dots.sizes[i] = isStar ? 0.014 + 0.012 * rand() : 0.011 + 0.008 * rand();
     base[i] = isStar ? 0.8 + 0.2 * rand() : 0.3 + 0.3 * rand();
     const c = (isStar ? star : dust)[Math.floor(rand() * 3)];
-    colours.set([c.r, c.g, c.b], i * 3);
+    dots.colours.set([c.r, c.g, c.b], i * 3);
   }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  g.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
-  g.setAttribute("aAlpha", new THREE.BufferAttribute(alphas, 1));
-  g.setAttribute("aColour", new THREE.BufferAttribute(colours, 3));
-  const speckU = { uViewport: { value: new THREE.Vector4(0, 0, 1, 1) }, uSoft: { value: 0 } };
-  const specks = new THREE.Points(g, new THREE.ShaderMaterial({ vertexShader: speckVertex, fragmentShader: speckFragment, uniforms: speckU, transparent: true, depthWrite: false, depthTest: false, ...ADD }));
-  specks.frustumCulled = false;
-  specks.onBeforeRender = (renderer) => renderer.getCurrentViewport(speckU.uViewport.value);
   // the haze: a soft puff about every other speck of dust, the same stream
-  const puffs = Math.floor(DARK.dust / 2), hazeSize = new Float32Array(puffs), hazeAlpha = new Float32Array(puffs), hazeColour = new Float32Array(puffs * 3), hazeAt = new Float32Array(puffs * 3);
-  const hazeTint = rawColor("#7f70b8");
+  const puffs = Math.floor(DARK.dust / 2), mist = specks(puffs, true), hazeTint = rawColor("#7f70b8");
   for (let k = 0; k < puffs; k++) {
-    hazeSize[k] = 0.07 + 0.05 * rand();
-    hazeColour.set([hazeTint.r, hazeTint.g, hazeTint.b], k * 3);
+    mist.sizes[k] = 0.07 + 0.05 * rand();
+    mist.colours.set([hazeTint.r, hazeTint.g, hazeTint.b], k * 3);
   }
-  const hg = new THREE.BufferGeometry();
-  hg.setAttribute("position", new THREE.BufferAttribute(hazeAt, 3));
-  hg.setAttribute("aSize", new THREE.BufferAttribute(hazeSize, 1));
-  hg.setAttribute("aAlpha", new THREE.BufferAttribute(hazeAlpha, 1));
-  hg.setAttribute("aColour", new THREE.BufferAttribute(hazeColour, 3));
-  const hazeU = { uViewport: speckU.uViewport, uSoft: { value: 1 } };
-  const haze = new THREE.Points(hg, new THREE.ShaderMaterial({ vertexShader: speckVertex, fragmentShader: speckFragment, uniforms: hazeU, transparent: true, depthWrite: false, depthTest: false, ...ADD }));
-  haze.frustumCulled = false;
-  haze.renderOrder = -1;
-  haze.onBeforeRender = (renderer) => renderer.getCurrentViewport(speckU.uViewport.value);
+  mist.points.renderOrder = -1;
+  dots.changed();
+  mist.changed();
 
   const body = new THREE.Group();
   const rimU = { uColour: { value: rawColor("#c9b8ff") }, uStream: { value: new THREE.Vector3(1, 0, 0) }, uRim: { value: DARK.rim } };
   const rim = new THREE.Mesh(bodyGeometry(), new THREE.ShaderMaterial({ vertexShader: rimVertex, fragmentShader: rimFragment, uniforms: rimU, transparent: true, depthWrite: false, depthTest: false, ...ADD }));
   body.add(rim);
   const root = new THREE.Group();
-  root.add(haze, body, specks);
+  root.add(mist.points, body, dots.points);
 
   const stream = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), p = new THREE.Vector3(), q = new THREE.Vector3(), dir = new THREE.Vector3();
   const turn = new THREE.Quaternion(), back = new THREE.Quaternion(), euler = new THREE.Euler(), m3 = new THREE.Matrix3();
@@ -242,14 +197,12 @@ export function makeDarkMatter(): Item {
       const fade = smooth(1.02, 0.7, p.length()) * smooth(1, 0.85, Math.abs(a));
       alphas[i] = base[i] * fade * (i >= DARK.dust ? 0.75 + 0.25 * Math.sin(t * 2.3 + phase[i]) : 1);
       if (i < DARK.dust && i % 2 === 0 && i / 2 < puffs) {
-        hazeAt.set([p.x, p.y, p.z], (i / 2) * 3);
-        hazeAlpha[i / 2] = DARK.haze * fade;
+        mist.positions.set([p.x, p.y, p.z], (i / 2) * 3);
+        mist.alphas[i / 2] = DARK.haze * fade;
       }
     }
-    g.attributes.position.needsUpdate = true;
-    g.attributes.aAlpha.needsUpdate = true;
-    hg.attributes.position.needsUpdate = true;
-    hg.attributes.aAlpha.needsUpdate = true;
+    dots.changed();
+    mist.changed();
   };
   place(0);
 
