@@ -29,6 +29,8 @@ const MARK_IN = { delay: 0.9, fade: 0.5, eyes: 1.25, open: 0.4 } as const;
  * A touch holds the look for `release` seconds, as the character's own does.
  */
 const GAZE = { reach: 4, release: 1.4 } as const;
+/** The statement keeps this far (px) from the page's sides: two of the site's gutters. */
+const SIDE = 16;
 
 /** The troika metrics this scene reads; the site's typings only name blockBounds. */
 type Metrics = TextRenderInfo & { visibleBounds?: [number, number, number, number]; topBaseline?: number };
@@ -57,7 +59,7 @@ export class AboutScene {
   private lines: Text[] = [];
   private current: Text | null = null;
   /**
-   * Urchi as the superscript mark after "things.", painted smooth at the screen's own resolution.
+   * Urchi as the superscript mark after "too.", painted smooth at the screen's own resolution.
    * It looks at the pointer from where it sits (see look) and blinks on its own.
    */
   mark: Urchi | null = null;
@@ -72,6 +74,8 @@ export class AboutScene {
   private release = 0;
   private width = 1;
   private height = 1;
+  /** The widest line's reach from the middle per px of type (see measureReach); 0 until measured. */
+  private reach = 0;
   private tick: (t: number, dt: number) => void;
   private disposed = false;
   private hidden = false;
@@ -155,8 +159,24 @@ export class AboutScene {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * The statement's size: 4.2% of the width, between 34 and 64px, and never so big that its widest
+   * line (the mark included, on its line) comes nearer the page's sides than SIDE, once measured.
+   */
   private get fontSize() {
-    return Math.max(34, Math.min(64, this.width * 0.042));
+    const size = Math.max(34, Math.min(64, this.width * 0.042));
+    return this.reach > 0 ? Math.min(size, (this.width / 2 - SIDE) / this.reach) : size;
+  }
+
+  /** How far the widest line reaches out from the middle per px of type, from the lines as synced at `size`: its ink, and on the mark's line the mark after it. */
+  private measureReach(size: number) {
+    const mark = this.opts.mark;
+    this.reach = Math.max(0, ...this.lines.map((l, i) => {
+      const info = l.textRenderInfo as Metrics | null | undefined, b = info?.visibleBounds ?? info?.blockBounds;
+      if (!b) return 0;
+      const right = b[2] + (mark?.line === i ? Math.max(5, size * MARK.gap) + markBox(size) : 0);
+      return Math.max(-b[0], right) / size;
+    }));
   }
 
   async load() {
@@ -175,6 +195,13 @@ export class AboutScene {
     });
     await Promise.all(texts.map((t) => syncText(t)));
     if (this.disposed) return;
+    // A line too wide for a narrow screen at this size: smaller, and synced again before anything is placed by it.
+    this.measureReach(size);
+    if (this.fontSize < size) {
+      this.lines.forEach((l) => (l.fontSize = this.fontSize));
+      await Promise.all(this.lines.map((l) => syncText(l)));
+      if (this.disposed) return;
+    }
     this.layout();
     this.ready = true;
     this.reveal();

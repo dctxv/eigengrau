@@ -17,12 +17,12 @@ export const TIME_ZONE: string | null = null; // TODO(darius): set your zone
 
 /** About page. Three lines, about twelve words. */
 export const STATEMENT = [
-  "Quiet interfaces for",
-  "people who notice",
-  "the small things.",
+  "Studying how systems break,",
+  "and how people",
+  "do too.",
 ];
 /** The word in STATEMENT that carries the little superscript mark (optional). */
-export const STATEMENT_MARK = { line: 2, after: "things." };
+export const STATEMENT_MARK = { line: 2, after: "too." };
 /** One line about now, under the statement. Change it whenever. */
 export const STATUS = "Busy putting a hole in spacetime";
 
