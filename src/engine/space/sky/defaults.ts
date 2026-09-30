@@ -1,7 +1,8 @@
 // The sky's defaults: Space's float background as it is drawn. Tune it in the ?debug=1 panel (in
 // development), then paste its "Copy config" over this whole file. What each value means is told
-// on the types (Sky.ts, layer.ts, Stars.ts); any number or colour may be a { range: [a, b] } the
+// on the types (Sky.ts, layer.ts, Stars.ts, Planets.ts); any number or colour may be a { range: [a, b] } the
 // visit's seed picks within, with a `lock` to hold it (tune.ts).
+import type { PlanetsConfig } from "./Planets";
 import type { SkyConfig } from "./Sky";
 import type { StarsConfig } from "./Stars";
 
@@ -81,5 +82,53 @@ export const STARS: StarsConfig = {
     width: 0.9,
     brightness: 0.85,
     colour: "#fff6e8",
+  },
+};
+
+export const PLANETS: PlanetsConfig = {
+  enabled: true,
+  opacity: 1,
+  renderOrder: 1,
+  zoomResponse: 1,
+  parallax: 0,
+  pool: { ocean: 1 },
+  count: { min: 2, max: 3 },
+  depth: {
+    far: { zoomResponse: 0.25, size: 0.75, pixelFrom: 0.3, pixelMost: 3.5 },
+    near: { zoomResponse: 0.5, size: 1.3, pixelFrom: 0.2, pixelMost: 2.5 },
+  },
+  minPx: 18,
+  light: { x: 0.55, y: 0.62, z: 0.56 },
+  spin: { min: 80, max: 150 },
+  tilt: 24,
+  tip: { min: 10, max: 26 },
+  place: { top: 70, bottom: 76, left: 16, right: 60, tries: 32, apart: 1.5, clear: 0.62, enough: 0.12, pull: 0.5 },
+  ocean: {
+    size: 0.2,
+    vary: 0.12,
+    bake: { width: 1024, cover: 0.46, puff: 1 },
+    islands: 0,
+    deep: "#0c97bd",
+    mid: "#19c6cc",
+    shallow: "#86f5e4",
+    night: "#0c2340",
+    sand: "#ffe8a8",
+    green: "#56d18a",
+    glint: 0.55,
+    glintPower: 70,
+    clouds: {
+      lit: "#ffffff",
+      shade: "#9db2d9",
+      night: "#26314f",
+      step: { from: 0.2, to: 0.4 },
+      bump: 1,
+      drift: 1.18,
+      shadow: 0.3,
+      reach: 0.035,
+    },
+    haze: { colour: "#e9fbff", amount: 0.85, power: 2.4 },
+    dusk: { colour: "#ffb3c1", amount: 0.28 },
+    rim: { colour: "#cdf8ff", width: 0.035 },
+    glow: { colour: "#a6ecff", width: 0.3, amount: 0.32 },
   },
 };

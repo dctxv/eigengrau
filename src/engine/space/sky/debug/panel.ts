@@ -1,8 +1,8 @@
 import type { Sky, SkyLayers } from "../Sky";
 import { isRange, type Range } from "../tune";
 import { configFile } from "./copy";
-import { starsGroups, type Group, type Path, type Row } from "./schema";
-import { SKY, STARS } from "../defaults";
+import { planetsGroups, starsGroups, type Group, type Path, type Row } from "./schema";
+import { PLANETS, SKY, STARS } from "../defaults";
 
 /**
  * The sky's tuning panel: Space with ?debug=1, in development only (CreativeSpacePanel imports it
@@ -387,7 +387,7 @@ export function mountSkyPanel(sky: Sky, host: HTMLElement): () => void {
     const reset = el("button", { type: "button", textContent: "Reset", title: "Back to defaults.ts (the seed stays)" });
     reset.onclick = () => {
       Object.assign(sky.config, structuredClone(SKY));
-      Object.assign(sky.layers, { stars: structuredClone(STARS) });
+      Object.assign(sky.layers, { stars: structuredClone(STARS), planets: structuredClone(PLANETS) });
       sky.apply();
       build();
       say("Back to the defaults");
@@ -440,7 +440,7 @@ export function mountSkyPanel(sky: Sky, host: HTMLElement): () => void {
     updates = [];
     shape = shapeNow();
     const stars = sky.resolved("stars");
-    body.replaceChildren(skyGroup(), ...(stars ? [layerGroup("stars", "Stars", starsGroups(stars))] : []));
+    body.replaceChildren(skyGroup(), ...(stars ? [layerGroup("stars", "Stars", starsGroups(stars))] : []), layerGroup("planets", "Planets", planetsGroups()));
     // (a nested group's summary reads as its own title, without the layer's)
     body.querySelectorAll("details details summary").forEach((s) => (s.textContent = (s.textContent ?? "").replace(/^[^:]+: /, "")));
     updates.forEach((u) => u());

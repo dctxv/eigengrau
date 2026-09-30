@@ -3,8 +3,9 @@ import type { SkyConfig, SkyLayers } from "../Sky";
 /** The defaults file's head, as defaults.ts has it. */
 const HEAD = `// The sky's defaults: Space's float background as it is drawn. Tune it in the ?debug=1 panel (in
 // development), then paste its "Copy config" over this whole file. What each value means is told
-// on the types (Sky.ts, layer.ts, Stars.ts); any number or colour may be a { range: [a, b] } the
+// on the types (Sky.ts, layer.ts, Stars.ts, Planets.ts); any number or colour may be a { range: [a, b] } the
 // visit's seed picks within, with a \`lock\` to hold it (tune.ts).
+import type { PlanetsConfig } from "./Planets";
 import type { SkyConfig } from "./Sky";
 import type { StarsConfig } from "./Stars";
 `;
@@ -41,5 +42,7 @@ export function configFile(sky: SkyConfig, layers: SkyLayers): string {
 export const SKY: SkyConfig = ${literal(sky, "", 30)};
 
 export const STARS: StarsConfig = ${literal(layers.stars, "", 34)};
+
+export const PLANETS: PlanetsConfig = ${literal(layers.planets, "", 38)};
 `;
 }

@@ -33,9 +33,10 @@ export const FLOAT_IN = TAKE.inFor;
 const HOME = { gone: 2, ditherFor: 1, hold: 0.7, open: 1.8, flightMost: 3 };
 /**
  * Where it likes to float at first, its middle as shares of the room (from the left, from the top),
- * or on a phone `phone`, nearer the middle; it swims off from there (see SWIM).
+ * or on a phone `phone`, nearer the middle; it swims off from there (see SWIM). The sky's planets
+ * keep clear of it.
  */
-const REST = { x: 0.3, y: 0.47, phone: { x: 0.42, y: 0.45 } };
+export const REST = { x: 0.3, y: 0.47, phone: { x: 0.42, y: 0.45 } } as const;
 /** The line's root: `out` px past the left edge, `down` of the way down. */
 const ROOT = { out: 6, down: 0.56 };
 /**

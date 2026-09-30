@@ -2,14 +2,15 @@ import * as THREE from "three";
 import { GL, rawColor } from "@/engine/common/color";
 import { FLOAT_IN, type FloatState } from "../Float";
 import { ZOOM, type RoomScene } from "../RoomScene";
-import { SKY, STARS } from "./defaults";
+import { PLANETS, SKY, STARS } from "./defaults";
 import type { LayerConfig, SkyFrame, SkyLayer, SkyState, SkyView } from "./layer";
+import { Planets, type PlanetsConfig } from "./Planets";
 import { keepSeed, rollSeed, urlSeed, visitSeed } from "./seed";
 import { Stars, type StarsConfig } from "./Stars";
 import { hashSeed, hasLock, merge, pickWeighted, resolve, subSeed, unitOf, type Patch, type Resolved } from "./tune";
 
 /** Every layer's config, by its name. */
-export type SkyLayers = { stars: StarsConfig };
+export type SkyLayers = { stars: StarsConfig; planets: PlanetsConfig };
 /** What a variant lays over each layer's config (see Patch), by the layer's name. */
 export type SkyPatches = { [K in keyof SkyLayers]?: Patch<SkyLayers[K]> };
 /** A sky a seed may draw: its odds (its weight against the others') and what it changes. */
@@ -85,9 +86,10 @@ export class Sky {
     this.room = room;
     this.reduced = o.reducedMotion;
     this.config = structuredClone(SKY);
-    this.layers = { stars: structuredClone(STARS) };
+    this.layers = { stars: structuredClone(STARS), planets: structuredClone(PLANETS) };
     this.seed = urlSeed() ?? this.config.seed ?? visitSeed();
     this.add(new Stars());
+    this.add(new Planets(room.renderer, room.camera));
     this.apply();
     this.stopFrame = room.onFrame((dt) => this.frame(dt));
   }
@@ -104,8 +106,9 @@ export class Sky {
 
   // ---------------------------------------------------------------- what the page tells it
 
-  /** Where the float is: the sky follows (see FADE). */
+  /** Where the float is: the sky follows (see FADE). Once it is on its way, the layers that load late start loading. */
   setFloat(s: FloatState) {
+    if (s !== "home" && s !== "returning") this.warm();
     const state: SkyState = s === "arriving" ? "arriving" : s === "floating" ? "afloat" : s === "flying" ? "leaving" : "off";
     if (state === this.state) return;
     this.state = state;
@@ -125,6 +128,7 @@ export class Sky {
   /** The panel's: the sky shown at home too, to tune it without taking Urchi out. */
   set preview(on: boolean) {
     this.previewing = on;
+    if (on) this.warm();
     if (this.wanted) this.fadeTo(1, FADE.back, "out");
     else this.fadeTo(0, FADE.gone, "in", true);
   }
@@ -180,6 +184,7 @@ export class Sky {
       ratio: this.room.ratio,
       zoom: { min: ZOOM.min, max: ZOOM.max },
       grid: { x: buffer.width / Math.max(1, this.room.width), y: buffer.height / Math.max(1, this.room.height) },
+      figure: this.room.figureTall,
     });
     for (const e of this.entries) {
       const name = e.layer.name as keyof SkyLayers, seed = subSeed(h, name);
@@ -193,7 +198,12 @@ export class Sky {
 
   // ---------------------------------------------------------------- frames
 
-  private add(layer: SkyLayer<StarsConfig>) {
+  /** Every layer that loads late starts loading (see SkyLayer.warm). */
+  private warm() {
+    for (const e of this.entries) e.layer.warm?.();
+  }
+
+  private add<C extends LayerConfig>(layer: SkyLayer<C>) {
     layer.object.visible = false;
     this.room.scene.add(layer.object);
     this.entries.push({ layer: layer as unknown as SkyLayer, resolved: null });

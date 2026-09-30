@@ -277,6 +277,11 @@ export class RoomScene {
     return pixelAt(1, this.ratio) * HEAD_ART;
   }
 
+  /** The floating figure's height, crown to soles, in CSS px as it floats (zoom 1): what the sky's planets are sized by. */
+  get figureTall() {
+    return (URCHI_FIGURE.bottom - URCHI_FIGURE.top) * (this.pixel / ART_CELL) * this.floatZoom;
+  }
+
   /** CSS px per mesh unit as the float draws the figure (leaning in aside), the visitor's zoom included. */
   get floatUnit() {
     return (this.pixel / ART_CELL) * this.floatZoom * this.lens.v;

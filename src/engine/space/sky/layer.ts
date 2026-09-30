@@ -31,9 +31,10 @@ export type SkyState = "off" | "arriving" | "afloat" | "leaving";
 /**
  * The room as the layers lay out in it: CSS px, device px per CSS px, and the zoom's bounds; and
  * `grid`, the drawing buffer's device px per CSS px across and up, the grid gl_FragCoord cuts it
- * into from its bottom left, on which what pixelates snaps (as Urchi does, see RoomScene's ZOOM).
+ * into from its bottom left, on which what pixelates snaps (as Urchi does, see RoomScene's ZOOM);
+ * and `figure`, the floating figure's height at zoom 1 (CSS px), for what is sized against Urchi.
  */
-export type SkyView = { width: number; height: number; ratio: number; zoom: { min: number; max: number }; grid: { x: number; y: number } };
+export type SkyView = { width: number; height: number; ratio: number; zoom: { min: number; max: number }; grid: { x: number; y: number }; figure: number };
 
 /** What the manager gives each layer every frame. */
 export type SkyFrame = {
@@ -62,5 +63,10 @@ export interface SkyLayer<C extends LayerConfig = LayerConfig> {
   update(frame: SkyFrame): void;
   /** The ground it paints behind everything, #rrggbb, or null: the lowest layer's is the room's while the sky is there. */
   backdrop(): string | null;
+  /**
+   * The float is on its way (Urchi is dissolving, or already out), or the panel previews the sky: a
+   * layer that loads what it draws only when it may be seen starts now. Asked again each time.
+   */
+  warm?(): void;
   dispose(): void;
 }
