@@ -150,7 +150,9 @@ and weights) to paste over it. A production build leaves the panel out.
 
 Space's items are small 3D models (`src/engine/items/`, a file each, loaded as their own chunks
 when first wanted) sharing one look (`items/look.ts`); `items/sprite.ts` draws one into the room
-among what is drawn there, on the room's pixel grid. In development `/dev/items?item=<id>` shows
+among what is drawn there, on the room's pixel grid. An item that is mostly empty space round
+something small can ask Space to draw it bigger (`Item.scale`: the comet minnows, 3 times, and at
+most 2 in the case, where their school must keep to its place). In development `/dev/items?item=<id>` shows
 one up close and at 96px, and on Space `/?glint` brings the first glint two seconds after Urchi
 floats in and the next soon after the last, with `&catch=<id>` deciding what it turns out to be.
 

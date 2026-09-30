@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { Item } from "./look";
 
 /** Where a sprite is drawn this frame: its middle (room CSS px from the middle, y up), how big across (CSS px), its cell (device px), how much of it is there and how wrong its signal is (0 .. 1, a forgery's). */
-export type SpritePose = { x: number; y: number; size: number; cell: number; fade: number; wrong?: number };
+export type SpritePose = { x: number; y: number; size: number; cell: number; fade: number; wrong?: number; most?: number };
 
 /** The room it is drawn in: its size in CSS px, and its drawing buffer's device px per CSS px across and up. */
 export type SpriteStage = { width: number; height: number; grid: { x: number; y: number } };
@@ -114,10 +114,15 @@ export class ItemSprite {
     this.at = at;
   }
 
+  /** How big it is drawn: the size it is placed at, times its item's own scale (Item.scale), never more than the pose's `most` of it. */
+  private get drawn() {
+    return this.pose.size * Math.min(this.item?.scale ?? 1, this.pose.most ?? Infinity);
+  }
+
   /** Whether a room point is on it: within its item's sphere as drawn. */
   hit(x: number, y: number, margin = 0) {
     const p = this.pose;
-    return p.fade > 0.2 && Math.hypot(x - p.x, y - p.y) <= (p.size / 2) * (1 / SPAN) + margin;
+    return p.fade > 0.2 && Math.hypot(x - p.x, y - p.y) <= (this.drawn / 2) * (1 / SPAN) + margin;
   }
 
   /** A frame of its item: `dt` seconds on its clock, or held (`still`, under reduced motion). */
@@ -127,7 +132,7 @@ export class ItemSprite {
     if (!still) this.t += dt;
     this.uniforms.uTime.value += dt;
     if (item.point) {
-      const p = this.pose, a = this.at, half = p.size / 2;
+      const p = this.pose, a = this.at, half = this.drawn / 2;
       item.point(a && half > 0 ? { x: ((a.x - p.x) / half) * SPAN, y: ((a.y - p.y) / half) * SPAN } : null);
     }
     item.update(still ? 0 : dt, this.t, still);
@@ -138,11 +143,11 @@ export class ItemSprite {
    * room renders. Nothing is drawn while none of it is there.
    */
   draw(renderer: THREE.WebGLRenderer, stage: SpriteStage) {
-    const p = this.pose, m = this.mesh;
-    m.visible = !!this.item && p.fade > 0.002 && p.size >= 1;
+    const p = this.pose, m = this.mesh, size = this.drawn;
+    m.visible = !!this.item && p.fade > 0.002 && size >= 1;
     if (!m.visible) return;
     const sx = stage.grid.x, sy = stage.grid.y, cell = Math.max(1, Math.round(p.cell));
-    const across = Math.max(1, Math.round((p.size * sx) / cell)), up = Math.max(1, Math.round((p.size * sy) / cell));
+    const across = Math.max(1, Math.round((size * sx) / cell)), up = Math.max(1, Math.round((size * sy) / cell));
     if (this.target.width !== across || this.target.height !== up) this.target.setSize(across, up);
     this.uniforms.uTexel.value.set(1 / across, 1 / up);
     this.uniforms.uFade.value = Math.min(1, p.fade);

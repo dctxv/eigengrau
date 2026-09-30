@@ -251,6 +251,8 @@ export function makeMinnows(): Item {
 
   return {
     object: root,
+    // a small school in a big ball: Space draws it three times as big, so the fish read
+    scale: 3,
     update(_dt, t) {
       place(t);
     },

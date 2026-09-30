@@ -33,6 +33,12 @@ export type Item = {
   point?(at: { x: number; y: number } | null): void;
   /** Its pixel level (common/pixel.ts): the host draws it pixelated in cells that big. None, level 1 (the new zero: never smoother). */
   pixel?: number;
+  /**
+   * How much bigger Space draws it than the size it is given (in the sky, in Urchi's hands, in the
+   * case): for an item that is mostly empty space round something small (the comet minnows' school
+   * in its ball). None, 1. The item sheet shows it as it is.
+   */
+  scale?: number;
   dispose(): void;
 };
 

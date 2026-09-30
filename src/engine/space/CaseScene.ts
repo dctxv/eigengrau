@@ -5,6 +5,11 @@ import { PIXEL_LEAST, levelCell } from "@/engine/common/pixel";
 import { ITEM_MAKERS } from "@/engine/items";
 import { ItemSprite } from "@/engine/items/sprite";
 
+/**
+ * An item that asks to be drawn bigger than it is placed (Item.scale) is, in the case, at most this
+ * much bigger: its place there is its whole room, and what swims in it keeps inside it.
+ */
+const MOST_SCALE = 2;
 /** A forgery in the case: as wrong as in the sky, this many cells across whatever its size. */
 const FORGED_CELLS = 12;
 
@@ -89,7 +94,7 @@ export class CaseScene {
       const r = s.el.getBoundingClientRect(), size = Math.min(r.width, r.height);
       const x = r.left + r.width / 2 - box.left - w / 2, y = h / 2 - (r.top + r.height / 2 - box.top);
       const cell = s.forged ? Math.max(least, Math.round((size * grid.x) / FORGED_CELLS)) : least;
-      s.sprite.place({ x, y, size, cell, fade: r.width > 0 ? 1 : 0, wrong: s.forged ? 1 : 0 });
+      s.sprite.place({ x, y, size, cell, fade: r.width > 0 ? 1 : 0, wrong: s.forged ? 1 : 0, most: MOST_SCALE });
       const p = this.pointer;
       s.sprite.point(p ? { x: p.x - box.left - w / 2, y: h / 2 - (p.y - box.top) } : null);
       s.sprite.frame(dt, this.reduced);
