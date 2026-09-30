@@ -32,8 +32,23 @@ export function ItemSheet() {
     // a long lens, so a chunky item is not distorted: a unit sphere just fills the view
     const camera = new THREE.PerspectiveCamera(22, 1, 0.1, 50);
     camera.position.set(0, 0, 1.15 / Math.tan((11 * Math.PI) / 180));
-    let item: Item | null = null, alive = true, raf = 0, last = performance.now(), t = Number(q.get("t")) || 0;
+    let item: Item | null = null, alive = true, raf = 0, last = performance.now(), t = Number(q.get("t")) || 0, lastHeld = -1;
     const still = q.has("still") || q.has("t");
+    // the cursor, in the item's own frame (see Item.point): over either view, or ?px= &py= fixed
+    // (item units); a view spans 1.15 of them either way from its middle
+    const fixed = q.has("px") ? { x: Number(q.get("px")), y: Number(q.get("py")) } : null;
+    let pointer: { x: number; y: number } | null = null;
+    const move = (e: PointerEvent) => {
+      const r = el.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top;
+      pointer = null;
+      for (const [x, size] of [[40, big], [80 + big, SMALL]] as const) {
+        const ux = ((cx - x) / size - 0.5) * 2.3, uy = -((cy - 60) / size - 0.5) * 2.3;
+        if (Math.abs(ux) <= 1.15 && Math.abs(uy) <= 1.15) pointer = { x: ux, y: uy };
+      }
+    };
+    const leave = () => (pointer = null);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerleave", leave);
     // (held: ?t= is the moment shown, ?still the first)
     make().then((maker) => {
       if (!alive) return;
@@ -56,10 +71,14 @@ export function ItemSheet() {
       renderer.clear();
       if (!item) return;
       if (!still) t += dt;
-      // (a script filming it sets window.__t, seconds, a frame at a time)
-      const held = (window as unknown as { __t?: number }).__t;
-      if (held !== undefined) item.update(1 / 30, held, false);
-      else item.update(still ? 0 : dt, t, still);
+      // (a script filming it sets window.__t, seconds, a frame at a time, and window.__point for the cursor)
+      const script = window as unknown as { __t?: number; __point?: { x: number; y: number } | null };
+      item.point?.(script.__point !== undefined ? script.__point : (fixed ?? pointer));
+      const held = script.__t;
+      if (held !== undefined) {
+        item.update(held > lastHeld && held - lastHeld < 0.1 ? held - lastHeld : 1 / 30, held, false);
+        lastHeld = held;
+      } else item.update(still ? 0 : dt, t, still);
       // the close view, and beside it the item as small as it must read
       for (const [x, size] of [[40, big], [80 + big, SMALL]] as const) {
         const y = h - 60 - size;
@@ -72,6 +91,8 @@ export function ItemSheet() {
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerleave", leave);
       item?.dispose();
       renderer.dispose();
     };

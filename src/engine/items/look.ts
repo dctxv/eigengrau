@@ -20,6 +20,12 @@ export type Item = {
    * is held, for what moves on its own (a flicker, a glint).
    */
   update(dt: number, t: number, still: boolean): void;
+  /**
+   * Where the cursor is, for an item that answers it: in the item's own frame (x right and y up from
+   * its middle, in the units it fits a sphere of radius 1 in, whatever size the host shows it at), or
+   * null when there is none over it. The host calls it before each update.
+   */
+  point?(at: { x: number; y: number } | null): void;
   dispose(): void;
 };
 
@@ -31,10 +37,12 @@ const RIM = "#c9e6ff";
 const vertexShader = /* glsl */ `
 varying vec3 vN;
 varying vec3 vP;
+varying vec3 vNO;
 void main() {
   vec4 p = modelViewMatrix * vec4(position, 1.0);
   vP = p.xyz;
   vN = normalMatrix * normal;
+  vNO = normal;
   gl_Position = projectionMatrix * p;
 }`;
 
@@ -44,8 +52,12 @@ uniform vec3 uShade;
 uniform vec3 uRim;
 uniform vec3 uKey;
 uniform float uRimAmount;
+uniform vec3 uGlowColour;
+uniform float uGlowFrom;
+uniform float uGlowAmount;
 varying vec3 vN;
 varying vec3 vP;
+varying vec3 vNO;
 void main() {
   vec3 n = normalize(vN), v = normalize(-vP);
   // a gentle gradient from shade to lit, soft round the terminator
@@ -54,11 +66,18 @@ void main() {
   // the rim: the faces turned edge-on to you, strongest on the side away from the key
   float rim = pow(1.0 - max(dot(n, v), 0.0), 2.6) * (0.55 + 0.45 * smoothstep(0.3, -0.6, dot(n, uKey)));
   c += uRim * rim * uRimAmount;
+  // where it glows: the faces turned along its own up and down (its poles), past uGlowFrom
+  float g = uGlowFrom > 0.0 ? smoothstep(uGlowFrom, uGlowFrom + 0.15, abs(normalize(vNO).y)) * uGlowAmount : 0.0;
+  c = mix(c, uGlowColour, min(g, 1.0)) + uGlowColour * g * 0.4;
   gl_FragColor = vec4(c, 1.0);
 }`;
 
-/** A faceted material: `lit` where the key falls, `shade` turned from it. */
-export function facets(lit: string, shade: string, rim = 0.55) {
+/**
+ * A faceted material: `lit` where the key falls, `shade` turned from it. With `glow`, the faces
+ * turned along its own up and down (its poles: past `from`, 0 to 1, of the way there) glow in
+ * `colour`, at `uniforms.uGlowAmount`.
+ */
+export function facets(lit: string, shade: string, rim = 0.55, glow?: { colour: string; from: number; amount?: number }) {
   return new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
@@ -68,6 +87,9 @@ export function facets(lit: string, shade: string, rim = 0.55) {
       uRim: { value: rawColor(RIM) },
       uKey: { value: KEY },
       uRimAmount: { value: rim },
+      uGlowColour: { value: rawColor(glow?.colour ?? "#ffffff") },
+      uGlowFrom: { value: glow?.from ?? 0 },
+      uGlowAmount: { value: glow?.amount ?? 1 },
     },
     // pushed back a hair, so the edge lines over it are never lost in it
     polygonOffset: true,
