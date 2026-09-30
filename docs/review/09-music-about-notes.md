@@ -1,13 +1,13 @@
 ## Addendum: The existing Music, About and Notes tabs get fixes but almost no feature improvements
 
-*The report gives Space and Projects deep work, but Music, About and Notes get mostly fixes and plumbing. This addendum proposes eight feature improvements to those three tabs themselves: three for Notes, three for About and two for Music. Each is aimed at one of two readers: the visitor who comes back, and the recruiter who wants to know who this is and how to work with him. Every claim was checked against the repository at `9b8c07c`. Tab numbers follow the report's renumbering: Desk 3, Notes 4, Music 5, About 6.*
+*The report gives Space and Projects deep work, but Music, About and Notes get mostly fixes and plumbing. This addendum proposes eight feature improvements to those three tabs themselves: three for Notes, three for About and two for Music. Each is aimed at one of two readers: the visitor who comes back, and the recruiter who wants to know who this is and how to work with him. Every claim was checked against the repository at `9b8c07c`. Tab numbers follow the summary's ruling: Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6. Everything the owner was once asked here is decided (see "Decisions" at the end, and `decisions.md`); his zone is `TIME_ZONE = "Australia/Melbourne"`.*
 
 **What this does not repeat.** A week, the year wound, the outage line, "Since Tuesday", the byline, the Plainly link, the feed, the log from git, notes from the phone, papers, Stet in Notes, and finds set down on About, Notes or Music are all specified elsewhere. Where a proposal here builds on one of them, it says so and adds only what is new.
 
 **The constraints.**
 - The chrome stays two colours. Colour appears only where a record brings it.
-- About shows Urchi only as its existing mark.
-- Nothing goes on the Desk.
+- About shows Urchi only as its existing mark. Its caption and accessible name become "It remembers you. Only in this browser." (decisions, item 6), and nothing here changes them.
+- Nothing goes on the Desk, and Urchi never comes to it.
 - No new WebGL context: About's additions draw in the context it already holds (`AboutScene.ts:95`), and everything else is DOM.
 
 ---
@@ -39,32 +39,35 @@ Impact runs from 1 to 5. Effort: S is up to a day, M is two to four days.
 
 | Rank | Name | Tab | Impact | Effort | Why this rank | Depends on |
 |---|---|---|---|---|---|---|
-| 1 | **Where the days meet** | About | 4 | S (1 day) | It answers a recruiter's first practical question ("when can we talk?") for anyone ten to nineteen hours away, and it is the cheapest item here. | `TIME_ZONE` set |
-| 2 | **The small hours** | Music | 3 | S-M (1.5 days) | Every Music visitor sees it. It needs no new upstream call, and it makes Urchi's clock and Last.fm's agree. | `TIME_ZONE` set; the outage line's `eigengrau:week` |
-| 3 | **Read closer** | About | 4 | M (3 days) | About becomes the site's index without losing its one sentence. The statement also becomes keyboard-reachable. | style-ux R2's `onLayout` callback |
-| 4 | **Holocene was on** | Notes, from Music | 4 | M (3 days) | It is the one change to how reading a note *feels*, and it is the site's "through the wall" put to a new use. **Its data can only be captured when the note is written**, so the capture should ship today (see the last section). | the preview signing (engineering §3.2) |
+| 1 | **Where the days meet** | About | 4 | S (1 day) | It answers a recruiter's first practical question ("when can we talk?") for anyone ten to nineteen hours away, and it is the cheapest item here. | `TIME_ZONE` (`"Australia/Melbourne"`, decided); `WORK_HOURS` (decided) |
+| 2 | **The small hours** | Music | 3 | S-M (1.5 days) | Every Music visitor sees it. It needs no new upstream call, and it makes Urchi's clock and Last.fm's agree. | `TIME_ZONE` (`"Australia/Melbourne"`, decided); the outage line's `eigengrau:week` |
+| 3 | **Read closer** | About | 4 | M (3 days) | About becomes the site's index without losing its one sentence. The statement also becomes keyboard-reachable. | style-ux R2's `onLayout` callback; Sky (week 4) and paper one (1 November) for two of its three links |
+| 4 | **Holocene was on** | Notes, from Music | 4 | M (3 days) | It is the one change to how reading a note *feels*, and it is the site's "through the wall" put to a new use. **Its data can only be captured when the note is written**, so the capture ships this week, today if it can (decided; see the last section). | the preview signing (engineering §3.2) |
 | 5 | **You stopped here** | Notes | 2 | S-M (1.5 days) | The returning visitor starts where they left off. A first-time recruiter gets three notes to start with. | `store.ts` |
-| 6 | **A year on** | Notes | 2 | S-M (2 days) | Old notes come back for a reason. Later lines work from day one; anniversaries only from 28 September 2027. | `day.ts`, `random.ts` |
-| 7 | **Listen in** | Music | 2 | M (2 days after #4's plumbing) | Magical, but it only happens when he is live *and* the visitor has sound on. | #4's plumbing; the one poller (engineering §3.2) |
-| 8 | **Second draft** | About | 2 | S-M (2 days) | Nothing shows until he rewrites the statement. Build it the week before he does. | `store.ts` |
+| 6 | **A year on** | Notes | 2 | S (half a day) in week 7; about a day and a half more by 1 September 2027 | Old notes come back for a reason. Later lines work from day one, so only they are built this year; anniversaries only from 28 September 2027. | `day.ts`, `random.ts` |
+| 7 | **Listen in** | Music | 2 | M (2 days after Holocene was on's plumbing) | Magical, but it only happens when he is live *and* the visitor has sound on. | Holocene was on's plumbing; the one poller (engineering §3.2) |
+| 8 | **Second draft** | About | 2 | S-M (2 days) | Nothing shows until he rewrites the statement. It is built in the branch that carries his first rewrite, so it can never be late. | `store.ts` |
 
 **Where these slot into the report's plan:**
 
 | When | What |
 |---|---|
-| Today | #4's capture in `npm run note` (an hour) |
-| Week 3 | #1 and #2, once `TIME_ZONE` and the outage line are in |
-| Week 4 | #3, after the byline's `onLayout` |
-| Week 5 | The rest of #4 |
-| Weeks 6-7 | #5 and #6 |
-| Week 8 | #7 |
-| Whenever he first rewrites the statement | #8 |
+| This week, today if it can | Holocene was on's capture in `npm run note` (an hour) |
+| Week 3 | Where the days meet and The small hours, once the outage line is in (`TIME_ZONE` is set this week) |
+| Week 4 | Read closer, after the byline's `onLayout`. "the small things" links once Sky ships that week; "notice" leads to Notes until paper one (1 November) |
+| Week 5 | The rest of Holocene was on |
+| Weeks 6-7 | You stopped here (week 6); A year on's later lines only (week 7, half a day) |
+| Week 8 | Listen in |
+| Whenever he first rewrites the statement | Second draft, in the same branch as the rewrite |
+| By Wednesday 1 September 2027 | A year on's anniversaries and "Answered since your last visit" (sooner if three later lines exist first) |
+
+*Cross-references in this addendum name the idea. The rank above is not the order of the headings below (1 The small hours, 2 Listen in, 3 Holocene was on, 4 You stopped here, 5 A year on, 6 Read closer, 7 Second draft, 8 Where the days meet), and a § number always means the heading.*
 
 ---
 
 ### Shared plumbing (build once)
 
-- **A song started outside Music's room** (used by #4 and #7). `listen(url, signal, opts?: { from?: "away" })` in `sfx.ts:721`.
+- **A song started outside Music's room** (used by Holocene was on and Listen in). `listen(url, signal, opts?: { from?: "away" })` in `sfx.ts:721`.
   - With `from: "away"`, it skips the two `atHome()` refusals (`:722`, `:740`).
   - It builds the voice at `AWAY[min(away, 3) - 1]` (`:322-326`), with the pan side computed as at `:703`, and with no door scheduled (`doorAt = end`).
   - It sets `tab` and `away` from `whereNow()` instead of `HOME` and 0 (`:787`).
@@ -73,13 +76,16 @@ Impact runs from 1 to 5. Effort: S is up to a day, M is two to four days.
 - **`src/lib/record.ts` (new).** `carried` moves out of `MusicPanel.tsx:49` into this module, so a song begun on Notes, or by Listen in, is Music's to pick up on arrival (`MusicPanel.tsx:922-932`).
   - It carries `{ preview, key, cover, from: "week" | "note" | "live", track, date? }`.
   - `Shown` (`:728`) gains a fifth mode, `visit`, for a carried song that is not in the week.
-- **The preview and cover routes take what the site lists.** Engineering §3.2 signs `now`, `last` and `week.tracks`. `preview/route.ts:27-30` and `/api/cover` should also accept any song or cover id listed in `NOTES`, imported on the server into a `Set`. Nothing outside the site's own content streams.
-- **`AboutScene` learns three verbs** (used by #3 and #8). `phrases()` gives phrase boxes from `caretPositions`. `say(text | null)` swaps the status `Text` (`:167, 201-204`) with a sync and the mask rise the reveal already uses (`:261-274`). `lookAt(x, y)` points the mark at a spot in client px, through `look()` (`:137-145`). All of it goes through style-ux R2's `onLayout` callback, which becomes `onLayout({ top, bottom, phrases })`.
+- **The preview and cover routes take what the site lists.** Engineering §3.2 signs `now`, `last` and `week.tracks`. `preview/route.ts:27-30` and `/api/cover` also accept any song or cover id listed in `NOTES`, imported on the server into a `Set`. Nothing outside the site's own content streams.
+  - *Ruled in the summary: `/api/preview` serves only what the site lists, by engineering's signed ids with one re-checked redirect hop. A note's song is listed in the site's own content, so the server checks it against `NOTES` instead of a day's signature, which would lapse a day after the note. The audio-only, `nosniff`, 5 MB and one-hop checks apply to it unchanged.*
+- **`AboutScene` learns three verbs** (used by Read closer and Second draft). `phrases()` gives phrase boxes from `caretPositions`. `say(text | null)` swaps the status `Text` (`:167, 201-204`) with a sync and the mask rise the reveal already uses (`:261-274`). `lookAt(x, y)` points the mark at a spot in client px, through `look()` (`:137-145`). All of it goes through style-ux R2's `onLayout` callback, which becomes `onLayout({ top, bottom, phrases })`.
 - **Two new storage keys,** both through `store.ts`, in the README's list and on `/kept`:
-  - `eigengrau:read`, for #5;
-  - `eigengrau:about`, for #8.
+  - `eigengrau:read`, for You stopped here;
+  - `eigengrau:about`, for Second draft.
 
   Nothing else here stores anything.
+
+  *Ruled in the summary: every new key goes into the README's list and onto `/kept`, and `/kept`'s "Forget me" clears every `eigengrau:` key (decisions, item 6). These two join the summary's list of new keys on those terms.*
 - **Tests (Vitest), all golden and pure:**
   - `byHour` and `weekFactOf` on the existing fixture list, including a zone boundary;
   - `overlap` on fixed dates across 4 October, 25 October and 1 November 2026;
@@ -135,7 +141,7 @@ Impact runs from 1 to 5. Effort: S is up to a day, M is two to four days.
 - `route.ts:221-230`: add `hours` to `week`.
 - `now.ts:28-34`: add `Week.hours?`.
   - `fetchNow` rebuilds the week (`now.ts:64-70`), so it must copy `hours` through: 24 finite, non-negative numbers, or none. It is the same trap engineering names for `sig`.
-- `src/components/music/Hours.tsx` (new, in the folder A week creates): a `<div role="img" tabIndex={0}>` of 24 `<i style="--h">`.
+- `src/components/music/Hours.tsx` (new; it creates `src/components/music/`, the folder A week's extraction from `MusicPanel.tsx` will reuse. A week is a Tools-drawer tool that comes later and only on demand, so this ruler cannot wait for it): a `<div role="img" tabIndex={0}>` of 24 `<i style="--h">`.
   - The pointer's x picks the column.
   - While the ruler has focus, ← and → step the hour. The ruler claims those keys through `keys.ts`.
   - A polite live region reads the line.
@@ -146,7 +152,8 @@ Impact runs from 1 to 5. Effort: S is up to a day, M is two to four days.
 - **Reduced motion:** the columns appear at once, and the band lights as a cut. It is watched live (`matchMedia` change), as the rules require.
 - **Sound off:** no ticks.
 - **His night:** the "now" column sits over the night line. If he is playing, it is lit in his record's hue, the same thing Urchi's listening face says on Space.
-- **`TIME_ZONE` null:** `fact.ts` reads UTC but `hours.ts` reads the visitor's zone (engineering issue 3). Until it is set, the lines end in ", UTC", and the night line and every Urchi clause are left out.
+- **`TIME_ZONE`:** it is set to `"Australia/Melbourne"` (decisions, item 1), so `fact.ts` and `hours.ts` read the same zone and engineering issue 3 is closed. The content lint fails a production build while it is null. The guard stays only for a development build without it: there `fact.ts` reads UTC but `hours.ts` reads the visitor's zone (`hours.ts:35`), so the lines end in ", UTC", and the night line and every Urchi clause are left out.
+- **Daylight saving:** Melbourne moves to UTC+11 on Sunday 4 October 2026. `reader(zone)` reads each scrobble's hour on its own date, so a week that spans the change is still counted in his hours.
 - **A thin week:** below twenty plays the ruler is not drawn. Noise is not a shape.
 - **A returning visitor:** nothing is remembered. It is always this week.
 
@@ -166,7 +173,7 @@ Impact runs from 1 to 5. Effort: S is up to a day, M is two to four days.
 
 **Pitch.** While he is playing something, you can follow his record round the flat. You hear thirty seconds of each song he plays, from Music's room, wherever you are.
 
-This is what "through the wall" becomes when it is taken all the way. #4 is the other half: a note's song heard from next door.
+This is what "through the wall" becomes when it is taken all the way. Holocene was on (§3) is the other half: a note's song heard from next door.
 
 **How it works:**
 1. **The sleeve becomes a button.** When he is live, Music turns to the room (`go(true)`, `MusicPanel.tsx:1020`) and his sleeve stands alone. With sound on, a transparent `<button aria-pressed>` sits over `.music-cover`. It sits over it rather than wrapping it, so the glide's `coverBox` measure (`:802-809`) is untouched.
@@ -195,13 +202,15 @@ This is what "through the wall" becomes when it is taken all the way. #4 is the 
 
 **Data and persistence:**
 - Nothing is stored.
+- It reads only his own now-playing, through the route Music already polls, so his Last.fm key still serves only his data (decided: the key never serves strangers).
 - One `/api/now` poll every 20s. With engineering's `s-maxage=10`, that is at most one function call every ten seconds, however many people listen.
 - One preview per song, about 0.5 to 1 MB, cached a day at the edge.
 
 **Implementation:**
 - The shared `from: "away"` and `record.ts`.
 - `MusicPanel.tsx:1324-1343`: the button in room mode, with a `CursorLabel` word.
-- `listenIn.ts` checks `pillOf(whereNow().path)` (the report's `routes.ts`) and holds while the visitor is on the Desk.
+- `listenIn.ts` checks `pillOf(whereNow().path)` (the report's `routes.ts`) and holds while the visitor is on the Desk (pill 3).
+- `LISTEN_IN` (new, exported from `listenIn.ts`) is the one switch that turns it off everywhere.
 
 **Edge cases:**
 - **Phone:** tap the sleeve. It needs style-ux R4 first: the chip in the nav, and `navigator.audioSession.type = "playback"` for the silent switch. Until then, no phone can turn sound on.
@@ -211,7 +220,7 @@ This is what "through the wall" becomes when it is taken all the way. #4 is the 
 - **A returning visitor:** never remembered. It is always a fresh press, so nothing ever plays on arrival.
 - **The Desk:** no new song starts there. A game that owns the sound ends the one playing (Plate's `sfx.hushSong`, as the games section plans).
 
-**Effort:** M. Two days after #4's plumbing, three alone.
+**Effort:** M. Two days after Holocene was on's plumbing, three alone. It is built in week 8 (decided).
 
 **What it shows:** one audio graph, built with no streaming service, no account and no autoplay, is enough for the flat to have a record on in the next room.
 
@@ -219,6 +228,7 @@ This is what "through the wall" becomes when it is taken all the way. #4 is the 
 - **Store terms.** Previews are for promotion. The attribution link under the sleeve stays (`MusicPanel.tsx:1355-1367`).
 - **Surprise.** Songs start on other tabs, but only after a press on this page load, and only after the first door opened in front of the visitor.
 - **Rarity.** Few people will ever meet it. It is for the few who stay.
+- **Rate limits.** If previews start failing under the stores' rate limits, `LISTEN_IN` is turned off before anything else is touched (decisions, Music, About and Notes, 2).
 
 **Log line:** "Music: listen in, and hear thirty seconds of whatever he puts on next."
 
@@ -237,13 +247,14 @@ This is what "through the wall" becomes when it is taken all the way. #4 is the 
    ```
 2. **What is kept.** The entry's single line (`add-note.mjs:31` requires one) gains `heard: { title, artist, cover }` and `at: "23:41"`.
    - `cover` is the 32-hex hash, taken as the route's `coverId()` takes it (`route.ts:54-60`).
-   - `at` is *his* time, from `TIME_ZONE`. The script's `localDay` uses the machine's zone (`add-note.mjs:203-206`), and that should change for the date too.
+   - `at` is *his* time, from `TIME_ZONE` (`"Australia/Melbourne"`). The script's `localDay` uses the machine's zone (`add-note.mjs:203-206`), so the same change writes the date in his zone too (decided: a laptop left on another zone no longer dates a note by that zone's day).
 3. **Notes from the phone.** The notes Action (Strategy §7.2) does the same with a repository secret passed through `env:`. The issue is filed while the song plays, and the Action runs within a minute.
+   - *Ruled in the summary: the Action runs only when `author_association == 'OWNER'`, and the issue body reaches the script only through `env:`. The repository is public, so its Actions logs are too (decisions, fact 4): the step prints the song it kept and nothing else, and the key stays a masked secret.*
 4. **The line.** Under a note's body sits one grotesk line at 11px and 60%, the site's voice:
    - "Holocene was on."
    - With `at`: "Holocene was on, at 23:41."
    - In his night: "Holocene was on, at 2:14."
-5. **Heard from next door.** Rest on the line for 600ms (Music's `DWELL_MS`, `MusicPanel.tsx:25`) with sound on, and the song's preview comes through the wall from Music's side: muffled at `WALL_HZ`, and panned right, because Music is the next room to the right in either numbering.
+5. **Heard from next door.** Rest on the line for 600ms (Music's `DWELL_MS`, `MusicPanel.tsx:25`) with sound on, and the song's preview comes through the wall from Music's side: muffled at `WALL_HZ`, and panned right, because Music is the next room to the right (Notes 4, Music 5).
 6. **The colour comes too,** the way Music's room takes it behind the wall: 35% of the record's colour (`WALL_SHARE`, `MusicPanel.tsx:134`). It is a soft light at the column's right edge, level with the note, painted with `bend(t, false)` (`tone.ts:392`).
 7. **Leave the line** and the song fades into the bed over 1.2s, as a title's does. **Click it** and it stays on to its end. The line then reads "Holocene is on." until it ends.
 8. **Walk into Music** while it plays and the door opens. The sleeve shows it in the new `visit` mode, with the state line "From a note, 28 September."
@@ -291,7 +302,7 @@ Log lines (`kind: "log"`) never carry a song.
 **What it shows:** a note is a moment, and the site keeps its sound. It also shows an audio graph clean enough to take a new source without special cases.
 
 **Risks:**
-- **Privacy.** His listening is already public on Last.fm, but pinning a song to a moment of writing is new. The prompt asks every time.
+- **Privacy.** His listening is already public on Last.fm, but pinning a song to a moment of writing is new. The prompt asks every time, with yes as the default (decided), and `/kept` lists that a note may name what was playing. If over a month he answers no more often than yes, the default becomes no.
 - **No preview.** A song the stores lack still reads, and a rest brings only the colour.
 
 **Log line:** "Notes: each note keeps what was playing, heard through the wall."
@@ -313,7 +324,7 @@ Log lines (`kind: "log"`) never carry a song.
    - It is not a `.note`, so `Folds` never sees it (`:137-146`).
    - It is placed once per arrival (`onArrive`, `:1077-1082`) and never moves while you read.
 5. **All seen.** The head sentence ends "You have been through them all.", as one more `word` piece in `indexSentence` (`notes.ts:113-132`).
-6. **The first visit.** When `lastVisit()` is null and there are at least twelve notes, up to three of which he has marked `start: true`, the head sentence gains "Three to start with." as a button.
+6. **The first visit.** When `lastVisit()` is null and there are at least twelve notes, the head sentence gains "Three to start with." as a button. The three are chosen automatically: the approved papers (`kind: "paper"`, `approved: true`), once three exist, which is expected in launch week, and the newest three once there are more. Any note he marks `start: true` overrides the rule (decisions, Music, About and Notes, 6).
    - It filters exactly as a tag word does (`filter`, `NotesPanel.tsx:863-869`): the rest fold into hairlines drawn to their length, and "All notes." brings them back.
    - `?tag=start` links to it.
 
@@ -331,8 +342,8 @@ Nothing ever says "read": the page cannot know.
 
 **Implementation:**
 - The layout effect that makes `Folds` (`NotesPanel.tsx:759-791`) adds the observer after `f.init`, and disconnects it in the cleanup.
-- `readTag` (`:99-102`) accepts `start` when any note has it.
-- `hasTag` (`notes.ts:185`) treats `start` as a tag on those notes.
+- `readTag` (`:99-102`) accepts `start` when the start set is not empty.
+- `hasTag` (`notes.ts:185`) treats `start` as a tag on the start set: the `start: true` notes if there are any, otherwise the three newest approved papers.
 - `tagSentence` (`notes.ts:135`) writes "Three to start with. All notes."
 
 **Edge cases:**
@@ -349,7 +360,7 @@ Nothing ever says "read": the page cannot know.
 
 **Risks:**
 - "Seen" is not "read", which is why the copy never claims it.
-- `start` notes go stale. The content lint can warn when a start note is more than a year old.
+- `start` notes go stale. The content lint warns when a `start: true` note is more than a year old. The papers chosen by the rule refresh themselves as newer ones are approved.
 
 **Log line:** "Notes: it remembers where you stopped."
 
@@ -365,12 +376,12 @@ Nothing ever says "read": the page cannot know.
    ```
    A year ago today: "i got a free burrito heh". Add a later line to it? [y/N]
    ```
-   The anniversary nudges the writer as well as the reader.
+   The anniversary nudges the writer as well as the reader. Its default is no, and nothing else asks him to write later lines (decided). `--later` is built in week 7; the anniversary prompt comes with the anniversaries, by 1 September 2027, since it cannot fire before 28 September 2027.
 3. **At the top, for the day.** When one of his notes (never a log line) was written on this date in an earlier year, it surfaces above the newest note under a grotesk line: "A year ago today." or "Two years ago today."
    - With none on the day, it takes the nearest within three days: "A year ago this week."
    - One note a day, the same for everyone, chosen by the day's seed (`random.ts`, `day.ts`). The day turns at *his* midnight.
-4. **Answered since your last visit.** For a returning visitor, a note answered since their last visit surfaces there instead, headed "Answered on 3 March.", with the new dot on its later line (`NewDot`, `NotesPanel.tsx:579-584`). It outranks the anniversary.
-5. **Urchi tells it on Space,** as it tells new notes. `whatsNew` (`visits.ts:167-187`) counts fresh later lines, and `URCHI_NEWS` (`site.ts:83-87`) gains `answered: "{count} old note answered since {date}."` (42 characters with "One" and "12 September", under the cap of 48).
+4. **Answered since your last visit** (built with the anniversaries by 1 September 2027, or as soon as he has written three later lines). For a returning visitor, a note answered since their last visit surfaces there instead, headed "Answered on 3 March.", with the new dot on its later line (`NewDot`, `NotesPanel.tsx:579-584`). It outranks the anniversary.
+5. **Urchi tells it on Space,** as it tells new notes. `whatsNew` (`visits.ts:167-187`) counts fresh later lines, and `URCHI_NEWS` (`site.ts:83-87`) gains `answered: "{count} old note answered since {date}."` (41 characters with "One" and "12 September", under the cap of 48), and its plural, `answeredMany: "{count} old notes answered since {date}."` (45 with "Twelve"), as `note` and `notes` already pair (`site.ts:84-85`).
 6. **Only in the quiet column.** The surfaced copy steps aside while a tag or a find is on. The note itself is always in its own place, in the column or the sediment.
 
 **How it reads:**
@@ -402,11 +413,15 @@ Nothing ever says "read": the page cannot know.
 - **A note he would rather not see again:** `quiet: true` keeps it out of the anniversaries.
 - **The honest limit:** the first anniversary is 28 September 2027. It comes sooner only if he backdates notes he wrote elsewhere, which `npm run note` allows (`add-note.mjs:98`). Later lines work from the first day.
 
-**Effort:** S-M, two days.
+**Effort:** S-M, two days in all, in two parts:
+- **Week 7, half a day:** the `later` field, its rendering, `ruleWidth` and `npm run note -- --later <id>`.
+- **By Wednesday 1 September 2027, about a day and a half:** the anniversary prompt, `surfaced()`, the `.notes-then` block, "Answered since your last visit", `visits.ts:171` and `URCHI_NEWS.answered`. "Answered since" moves up to whenever three later lines exist.
+
+*Decided (decisions, Music, About and Notes, 5): the anniversary half cannot fire for a year, so it costs no code this year.*
 
 **What it shows:** writing that is revisited, not only posted, and a column that knows what day it is.
 
-**Risks:** it needs him to write later lines. If he never does, it shrinks to anniversaries, and those start in a year.
+**Risks:** nothing asks him to write later lines. If he never does, it shrinks to anniversaries, which start on 28 September 2027 and are built by 1 September 2027.
 
 **Log line:** "Notes: a year on, the old ones come back."
 
@@ -424,26 +439,28 @@ Nothing ever says "read": the page cannot know.
    | Phrase | Goes to | Gloss |
    |---|---|---|
    | "Quiet interfaces" | Projects | `projectsLine()` (`site.ts:209-213`), "Six projects since 2021. Two alive." |
-   | "notice" | the Security drawer | "Noticing is most of security. Three papers so far." |
-   | "the small things" | the Tools drawer | "Small tools, free. They keep nothing of yours." |
+   | "notice" | the Security drawer, from paper one (Sunday 1 November) | "Noticing is most of security. One paper so far." (counted with `countWord`, so "Three papers so far." by launch) |
+   | "the small things" | the Tools drawer, from Sky (week 4) | "Small tools, free. They keep nothing of yours." |
 
-   Until those drawers exist, "notice" goes to Notes instead: "What he noticed, in notes. Two so far." The full stop after "things" is left alone, because it belongs to the finds.
+   Until paper one is out, "notice" goes to Notes instead: "What he noticed, in notes. Two so far." (counted the same way). Until Sky ships, "the small things" is not linked and has no gloss. The full stop after "things" is left alone, because it belongs to the finds (decisions, Music, About and Notes, 4).
+
+   *At `9b8c07c`, `projectsLine()` prints the placeholder projects' "Six projects since 2021. Two alive." with `numberWord`. Once the week-1 months branch puts `countWord` in it (decisions, item 5), the gloss counts every mark on the thread, closed ones included, and reads from 2026; it never names a private repository. The sample copy below keeps the placeholder sentence.*
 2. **The scene publishes the phrases' boxes.** `AboutScene` builds each phrase's box from troika's `caretPositions`, mapped to the screen as `placeMark` maps the line (`AboutScene.ts:212-231`). It publishes them through the `onLayout` callback, and again after a resize's sync (`:296-298`).
 3. **Real links over the words.** `AboutPanel` lays a real `<a>` over each box, outside the `aria-hidden` stage (`AboutPanel.tsx:67`). At rest they have no look of their own.
 4. **Resting on a phrase** (300ms), or focusing it:
    - that phrase stays at full ink, and the rest of the statement drops to 60% (`colorRanges`, one re-layout, a cut);
-   - the status line drops through its mask and the gloss rises in its place (`say`);
+   - the status line drops through its mask and the gloss rises in its place (`say`). *Ruled in the summary (reconciliation 8): the status line has its full stop and `WORK_LINE` sits under it. Only the status line gives way to a gloss; `WORK_LINE` stays where it is, so the true line is never hidden;*
    - the mark turns to look at the phrase (`lookAt`, its centre in place of the pointer).
 5. **Leaving,** after 250ms (Music's `GRACE_MS`), reverses it: the gloss drops, the status rises and the ink comes back.
 6. **A click** slides to that tab.
-7. **A `CursorLabel`**, as Music and Notes have, names the destination: "Projects", "Security" or "Tools".
+7. **A `CursorLabel`**, as Music and Notes have, names the destination: "Projects", "Security" (or "Notes" before paper one) or "Tools".
 
 **How it reads:**
 - At rest, nothing is new.
 - Resting on "Quiet interfaces", the statement dims except those two words, and under it rises "Six projects since 2021. Two alive."
 - The accessible name: "Quiet interfaces: six projects since 2021, two alive. Projects."
 
-**Where it lives.** About. The phrases lead to Projects, the Security drawer and Tools.
+**Where it lives.** About (pill 6). The phrases lead to Projects (pill 2); to Notes (pill 4), then from 1 November the Security drawer; and, from week 4, the Tools drawer. Both drawers are the Desk's (pill 3).
 
 **Data and persistence:** `GLOSSES` in `site.ts` as `{ phrase, href, say }[]`, where `say` may count content with `countWord`. No backend, and nothing stored.
 
@@ -460,9 +477,9 @@ Nothing ever says "read": the page cannot know.
 - **Phone:** the first tap glosses, the second tap goes, and a tap elsewhere closes. It is Music's two-tap (`MusicPanel.tsx:1237-1256`). At 34px type a phrase's box is about 47px tall, well over the 24px floor.
 - **Reduced motion:** the gloss swaps without a rise, and the dim is a cut anyway. The mark does not turn, as it already never follows the pointer under reduced motion (`AboutScene.ts:104-110`).
 - **Sound off:** nothing. With sound on, a click plays the ordinary tab cue, and the gloss is silent.
-- **His night:** the mark is asleep (#8) and does not look.
+- **His night:** the mark is asleep (§8, Where the days meet) and does not look.
 - **A returning visitor:** nothing is stored.
-- **A draft (#7) without one of the phrases:** that gloss is left out.
+- **A draft (§7, Second draft) without one of the phrases:** that gloss is left out, and the content lint names the phrase.
 - **The finds' full stop:** the box for "the small things" ends at the "s", so the full stop stays the finds'.
 
 **Effort:** M, three days.
@@ -491,9 +508,9 @@ Nothing ever says "read": the page cannot know.
 3. **Struck.** After 1.2s, each removed word is struck: a 1.5px ink rule drawn across it left to right in 0.25s, 0.08s apart. The rule is a plane in About's own scene, sized from `caretPositions`. It holds 0.6s.
 4. **Rewritten.** The changed lines drop through their masks and the new lines rise, through the existing reveal (`AboutScene.ts:261-286`). Unchanged lines stay put. The mark follows its word through that draft's own `mark` (`placeMark`).
 5. **Said once.** The status slot says "Rewritten on 2 November." for eight seconds, then the status returns.
-6. **Earlier drafts, for people who notice.** Over the statement, away from #6's phrases, the cursor says "Second draft".
+6. **Earlier drafts, for people who notice.** Over the statement, away from Read closer's (§6) phrases, the cursor says "Second draft".
    - A click steps back a draft: the lines swap through their masks at 60% ink, and the status slot reads "The first draft, 25 September to 2 November."
-   - Past the first draft, "As it stands, since 2 November." brings the current one back. Esc brings it back at once.
+   - Past the first draft, "As it stands, since 2 November." brings the current one back. Esc brings it back at once (claimed through `keys.ts`'s one listener, only while an earlier draft shows).
 
 **How it reads:**
 - "Rewritten on 2 November."
@@ -521,12 +538,12 @@ Nothing ever says "read": the page cannot know.
 - **One draft** (today): nothing shows, not even the cursor word.
 - **`?still`:** no strike, and the current draft.
 
-**Effort:** S-M, two days. Build it the week before his first rewrite.
+**Effort:** S-M, two days. It is built in the branch that carries his first rewrite, which turns `STATEMENT` into `STATEMENTS` with the current lines as the first entry (`from: "2026-09-25"`, as `UPDATED.about` has it at `site.ts:99`). *Decided here: nobody can know the week before a rewrite, and a first draft that is overwritten can never be shown. If he sets a date for a rewrite, it is built the week before instead.*
 
 **What it shows:** he revises in public and is not embarrassed by an earlier self. The site's words have a history, as its code does.
 
 **Risks:**
-- A statement rewritten often reads as indecision. Put a rule in `CLAUDE.md`: at most one draft a quarter.
+- A statement rewritten often reads as indecision. A rule goes into `CLAUDE.md`: at most one draft a quarter.
 - The strike must sit exactly on the glyphs. Test it at 34px and at 64px.
 
 **Log line:** "About: the statement keeps its drafts."
@@ -538,7 +555,7 @@ Nothing ever says "read": the page cannot know.
 **Pitch.** Next to Email: how his working day and yours line up this week, from both clocks.
 
 **How it works:**
-1. **His hours.** A new `WORK_HOURS` in `site.ts`, for him to set: `{ from: 9, to: 18, days: [1, 2, 3, 4, 5] }`.
+1. **His hours.** A new `WORK_HOURS` in `site.ts`, decided and public: `{ from: 9, to: 18, days: [1, 2, 3, 4, 5] }`, and listed on `/kept` under what the site gives away about him (decisions, Music, About and Notes, 3). If his timetable differs, the one constant changes.
 2. **Two clocks compared.** A new pure `src/lib/overlap.ts` takes the visitor's next five weekdays, 9:00 to 17:00, in their zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`), and sets them against his hours in `TIME_ZONE`. Each day is converted through `Intl` on its own date, so daylight saving lands on the right day on both sides.
 3. **On hover or focus of Email,** the address rises in (style-ux F-L7), and this line rises under the Elsewhere row. It takes the place of the quieter row of site pages, which drops through its mask. Leaving swaps them back.
 4. **On a phone,** the first tap on Email shows the address and the line, and the second opens the mail app. Today a touch goes straight to `mailto:` (`AboutPanel.tsx:50`).
@@ -549,7 +566,7 @@ Nothing ever says "read": the page cannot know.
 
 | Visitor | Dates | Hours apart | The line |
 |---|---|---|---|
-| Singapore | all autumn | 3 | "It is 21:14 for him. Your working days share six hours, 9:00 to 15:00 yours." |
+| Singapore | from 4 October | 3 | "It is 21:14 for him. Your working days share six hours, 9:00 to 15:00 yours." |
 | San Francisco | to 31 October | 18 | "It is 21:14 for him. Your Monday to Thursday afternoons meet his mornings, 15:00 to 17:00 yours." |
 | San Francisco | from 1 November | 19 | The same, "14:00 to 17:00 yours." |
 | London | 4 to 24 October | 10 | "It is 21:14 for him. Your days miss by an hour: his ends at 8:00 yours." |
@@ -576,7 +593,7 @@ Nothing ever says "read": the page cannot know.
 - **Sound off:** nothing changes. Email still copies with the `tab` cue when sound is on (`AboutPanel.tsx:53`).
 - **His night:** as above, in words and in the mark.
 - **A returning visitor:** nothing is stored.
-- **`TIME_ZONE` null, or no zone in the visitor's browser:** the line is left out.
+- **No zone in the visitor's browser:** the line is left out. `TIME_ZONE` is `"Australia/Melbourne"`, and the content lint fails a production build while it is null, so a null zone happens only in a development build, where the line is left out too.
 - **Different working hours:** the line says "yours" and the times plainly, so its 9-to-5 assumption shows.
 
 **Effort:** S, a day.
@@ -585,20 +602,26 @@ Nothing ever says "read": the page cannot know.
 
 **Risks:**
 - "Your days miss" can read as a disclaimer. It is honest, and it names the hour when a call is easy.
-- It publishes his working hours. `/kept`'s "what it gives away about me" should list them.
+- It publishes his working hours. `/kept`'s "what it gives away about me" lists them (decided).
 
 **Log line:** "About: when his working day meets yours."
 
 ---
 
-### Open questions for the owner
+### Decisions
 
-1. May a note name what you were playing when you wrote it? The script asks every time, with yes as the default.
-2. May visitors follow your live listening with sound on (Listen in)?
-3. Your working hours and days for **Where the days meet**, and may they be public?
-4. Which three phrases in the statement, and where should each lead?
-5. Will you write later lines under old notes? If not, **A year on** waits for its first anniversary in 2027.
-6. Once there are twelve notes, which three should a stranger start with?
+*The owner is asked nothing. The six questions this addendum once put to him are decided in `decisions.md` under "By section", Music, About and Notes, items 1-6, which also give what would change each one; the last four lines apply decisions made for the whole report.*
+
+1. **A note names what was playing: yes, with yes as the default.** The capture goes into `scripts/add-note.mjs` this week (about an hour); `at` and the date are written in his zone, replacing the machine-zone `localDay` (`add-note.mjs:203-206`); the notes Action does the same; log lines never carry a song; `/kept` lists it. Why: his listening is already public on Last.fm and on Music, only the moment is new, and it can be captured only at the moment of writing.
+2. **Listen in: yes, in week 8.** Only with sound on, only thirty seconds of each song through the signed preview route, never on its own, and it reads only his own now-playing. Why: his key still serves only his data, and nothing plays that a visitor did not ask for.
+3. **His hours: `WORK_HOURS = { from: 9, to: 18, days: [1, 2, 3, 4, 5] }`, public, and listed on `/kept`.** Why: a recruiter ten to nineteen hours away needs a time, and the line prints the hours, so its assumption shows.
+4. **The three phrases: "Quiet interfaces" to Projects; "notice" to Notes until paper one (Sunday 1 November), then the Security drawer; "the small things" to the Tools drawer once Sky ships in week 4, unlinked before.** The full stop stays the finds', and the content lint checks that each phrase occurs exactly once. Why: they are the three phrases with proof behind them.
+5. **Later lines: nothing asks him to write them.** Week 7 builds only `later`, its rendering and `--later` (half a day); the anniversary prompt defaults to no; the anniversaries and "Answered since your last visit" are built by Wednesday 1 September 2027. Why: the anniversary half cannot fire for a year, so it costs no code this year.
+6. **Which three notes a stranger starts with: the approved papers, chosen automatically** once there are twelve notes and three approved papers (expected in launch week); `start: true` on any note overrides the rule. Why: the stranger who gets "Three to start with." is usually the recruiter, the papers are the proof, and it costs him nothing.
+7. **Where he is: `TIME_ZONE = "Australia/Melbourne"`, `HEMISPHERE = "south"`** (decisions, item 1). The ruler, the notes' `at` and date, A year on's day and Where the days meet all use his day, falling back to UTC and never to the visitor's. Why: his commits carry +10:00 and his public coursework is a Swinburne unit.
+8. **Urchi's memory, said on About** (decisions, item 6). The mark's caption and accessible name are "It remembers you. Only in this browser.", and About's foot stays at two lines, which Where the days meet swaps rather than adds to. Why: the site says plainly what it keeps.
+9. **Private repositories are never named** (decisions, item 5). Read closer's Projects gloss counts closed marks through `projectsLine()` and names none. Why: nothing of theirs reaches the site but an untitled closed mark and a monthly total.
+10. **Counts** (decisions, item 7). Nothing in this addendum sends an event; Umami's three named events stay the only ones, so `/kept`'s disclosure does not change. Why: three events keep the disclosure to one honest sentence.
 
 ### If you only do one thing here
 

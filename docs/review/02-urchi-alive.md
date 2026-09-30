@@ -2,6 +2,8 @@
 
 *Reviewed against the repo at `9b8c07c` (29 Sep 2026). Nothing in the repo was changed. Under review: "Urchi, alive: an audit and an upgrade plan".*
 
+*Final version: made consistent with the lead's summary (`00-summary.md`), whose rulings override this section, and with `decisions.md`. The owner is asked nothing; where the first draft asked, the choice is made below and listed under "Decisions" at the end.*
+
 ### Review verdicts
 
 **What I checked**
@@ -35,6 +37,7 @@
     - In the sky, `tune.ts` means "resolve seeded ranges" and the numbers live in `defaults.ts`. Urchi's numbers file needs another name.
 13. `sfx.air` opens the ambient bed's filter (`sfx.ts:43`). It does not say whether the bed is playing.
 14. **The time zone is unset.** `TIME_ZONE` is `null` (`site.ts:16`, a TODO), so for now Urchi keeps the *visitor's* hours and only night owls see it asleep. Once a zone is set, many visitors in other zones will find it asleep. Sleep life (6.3, M10) then matters much more than the proposal's ranking allows.
+    - *Decided: `TIME_ZONE = "Australia/Melbourne"`, with a new `HEMISPHERE = "south"` on the line after it (his commits carry +10:00, and his public coursework is a Swinburne unit). Melbourne moves to +11:00 on Sunday 4 October, so from then his 01:00-06:59 is New York's 10:00-15:59 (09:00-14:59 after 1 November) and London's afternoon and early evening, and a US-morning launch in the week of 23 November arrives at 01:00, the minute it falls asleep (decisions.md, item 1 and fact 5).*
 15. **The dream's "cracks" are too wide.** At 0.66-0.74 shut the eye is 26-34% open. The squash (`ownEye`, `character.ts:1022-1025`) at 0.3 open is a clearly visible eye about 30 px tall. A sliver is 0.74-0.77.
 16. **The ears and spikes fold in under the helmet** as the suit goes on (`headFor`, `character.ts:2045`). S1 and S2 offsets must be zero whenever `suit > 0`, or the tuck blends from vertices that have already moved.
 17. **The blink hooks share state.** `setBlinkHold` changes the shared `BLINK` object (`character.ts:2357`), and `holdBlinks` works by calling `openEyes(0)` every frame (`attention.ts:419`, `:596`). Every new blink source (B4 draws, B5 bursts, B6 microsleeps) has to respect `blinksHeld`, or it will add a beat to the rhythm answer.
@@ -55,23 +58,23 @@
 | E1 Saccades on the main sequence | KEEP WITH CHANGES | Worth doing, but the pupils travel only ±5 px at home: the timing matters and the glissade and undershoot do not. It has to ship with pursuit. |
 | E2 Fixation-duration distributions | KEEP (folded into N1) | Right idea. It belongs in the single table of intervals. |
 | E3 Microsaccades and drift | KEEP WITH CHANGES | The drift and 0.8-unit microsaccades are below a pixel and would make the eyes stiller than today. Keep today's amplitude and change the timing and direction instead. |
-| E4 Smooth pursuit with catch-up | KEEP WITH CHANGES | Moved into week 1 as E1's partner and reduced to a simple tracking law. On a phone it mostly serves motes. |
+| E4 Smooth pursuit with catch-up | KEEP WITH CHANGES | Scheduled with E1 as its partner (week 4 in the order of work, 17) and reduced to a simple tracking law. On a phone it mostly serves motes. |
 | E5 Perceptual latency | KEEP | The cheapest change a visitor sees in the first five seconds, and it keeps the site's own promise of attention rather than tracking. |
-| E6 Eyes first, head, eyes home (VOR, dead zone) | KEEP WITH CHANGES | As written it keeps the pinned rest offset it claims to fix and does not touch the bob. Add a rest share, apply the dead zone only to discrete shifts, and A/B it. |
+| E6 Eyes first, head, eyes home (VOR, dead zone) | KEEP WITH CHANGES | As written it keeps the pinned rest offset it claims to fix and does not touch the bob. Add a rest share (0.85, decided), apply the dead zone only to discrete shifts, and A/B it. |
 | E7 Vergence scaled by distance | KEEP | Visible (about 3 px per pupil at 0.4), funny, and costs little. |
 | E8 Lids follow the eyes | KEEP | The cheapest visible realism on the list. Add it to the repaint check. |
 | E9 A pair, not twins | KEEP WITH CHANGES | Keep the lazy lid and add expressive asymmetry. Cut the sub-frame blink offsets, the anisocoria and the 0.5-unit bias. |
-| E10 Catchlight | KEEP WITH CHANGES | Only as an experiment behind a flag, on dark-pupil colourways. It changes the mascot's face, so the owner decides. |
+| E10 Catchlight | KEEP WITH CHANGES | Only as an experiment behind a flag, on dark-pupil colourways. It changes the mascot's face, so it stays an experiment: decided off in production and on only in `/dev/urchi`. |
 | B1 Log-normal blink intervals | KEEP | Removes the metronome. |
 | B2 Probabilistic gaze-evoked blink | KEEP | Stops the blink that fires on every sweep of the mouse. |
 | B3 Incomplete blinks | KEEP WITH CHANGES | Must never cut short a cued blink or one hiding a face swap (`SHUT` 0.97). |
-| B4 Blink kinematics | KEEP WITH CHANGES | Changes a blink the owner chose to make "calm, deliberate" (`:1034`). Offer middle values and let him decide. |
+| B4 Blink kinematics | KEEP WITH CHANGES | Changes a blink the owner chose to make "calm, deliberate" (`:1034`). Decided: the middle values in 4.5 go in, and the slow blink keeps its curve. |
 | B5 Stare, then a flurry | KEEP | Cheap. Has to respect `holdBlinks`. |
 | B6 Microsleeps | KEEP | Fits the existing 45-90 s "heavy" band exactly and is very relatable. |
 | P1 A pupil size of its own | KEEP WITH CHANGES | The pupil is clipped to the eye, so at 1.29× a dark pupil blacks the eye out. Cap it at 0.88-1.12, drop the slits, and drive it by interest and arousal. |
 | P2 Light sources on Space | CUT (one line folded into P1) | Invisible afloat (the eyes are about 30 px). The shooting star comes one visit in fifty, and the Milky Way's +0.03 does nothing. |
 | P3 Hippus | CUT | About 0.4 px, and the proposal agrees. |
-| P4 The glare narrows (slits) | CUT (open question) | The current glare reads well, and slits change the face's identity. The "big round pupils in a fright" half lives on inside A2. |
+| P4 The glare narrows (slits) | CUT (decided: the glare keeps its grown pupil) | The current glare reads well, and slits change the face's identity. The "big round pupils in a fright" half lives on inside A2. |
 | H1 Head speed by amplitude | KEEP | Fixes the tell that every turn takes the same time. |
 | H2 Wind-up before a big turn | KEEP WITH CHANGES | Only when the target changes and the turn is over 35°. Never on the pointer, where it would feel like lag. |
 | H3 Tilts that mean something | KEEP | Turns a loop into a response. |
@@ -90,7 +93,7 @@
 | A3 It gets used to you | KEEP | Stops it being wound up like a toy, which the attention header already aims for. |
 | A4 Cannot hold your gaze forever | KEEP WITH CHANGES | The boredom cycle already looks away. The fix is small, near aversions before the far ones. Merged with N2. |
 | Mem It remembers you | KEEP WITH CHANGES | `pointerSeen` only lasts the session. Drop the "ignored, so cool" behaviour, shorten the long caption, and reuse `eigengrau:visits`. |
-| Per Every visitor's Urchi differs | KEEP WITH CHANGES | Narrower ranges, a shared rng, and a question about the colourway. |
+| Per Every visitor's Urchi differs | KEEP WITH CHANGES | Narrower ranges and a shared rng. Decided: the persona fixes temperament only, and the colourway stays per page load. |
 | N1 Waiting the way animals wait | KEEP | The principle of the whole section. |
 | N2 Nowhere in particular | KEEP (merged into A4) | Same change as A4. |
 | N3 Body drift differs each time | KEEP | Ten minutes of work. |
@@ -112,8 +115,8 @@
 | M7 Stares at nothing | KEEP | The best "for people who notice" moment in the list. |
 | M8 Hiccups | CUT | A jolt with no cause, no mouth and no body at home reads as a dropped frame. |
 | M9 Shakes its head | KEEP | The natural full stop after a sneeze or a fling. |
-| M10 Settles on its pillow | KEEP (promoted) | Sleep will be common once the time zone is set. |
-| Part 5 `?debug=urchi` panel | KEEP WITH CHANGES | Build it in two phases: sliders, rasters and time scale in week 1, the recorder's histograms and scatter later. |
+| M10 Settles on its pillow | KEEP (promoted) | Sleep will be common: the zone is Melbourne's, so an American working day falls in its night. |
+| Part 5 `?debug=urchi` panel | KEEP WITH CHANGES | Build it in two phases: sliders, rasters and time scale in week 3, once `Space.ts` is extracted (summary ruling), the recorder's histograms and scatter later. |
 | 6.1 It saw it too | KEEP WITH CHANGES | Needs a sky-to-client transform and habituation, since the star repeats every 16-32 s. Afloat the eyes are too small, so the head, arm and body carry it. |
 | 6.2 It knows your rhythm | KEEP WITH CHANGES | Shares an arrival budget with the news look. At night it murmurs the rhythm instead. |
 | 6.3 It dreams | KEEP WITH CHANGES | Not while he is playing music. The cracks should be 0.74-0.77. Promoted because of the time zone. |
@@ -123,7 +126,7 @@
 | NEW It hears you click | ADD (inside S1) | The one sound every visitor makes with the site's sound off. |
 | NEW The favicon waits the same way | ADD | Fifteen minutes. The favicon should not blink like a metronome while the page does not. |
 | NEW M11 The walls moved | ADD | A startle at a window being resized: desktop only, cheap, for people who notice. |
-| NEW An arrival budget | ADD | Keeps the news, recognition and rhythm greetings from stacking. |
+| NEW An arrival budget | ADD | Keeps a gift parcel, the news, recognition and rhythm greetings from stacking. |
 | NEW Say it in Notes | ADD | Each release gets a one-line site log in Notes, as the site already does. |
 
 ---
@@ -160,9 +163,11 @@ The rules that follow:
 
 About's mark can opt in later, once it has been seen on Space.
 
+*Ruled in the summary: Urchi also appears in the lights-off view, the 404 (later) and the GitHub profile image (`/api/urchi.png`), and never on the Desk, in its games, tools or papers. `src/engine/space/Space.ts` is extracted from `CreativeSpacePanel.tsx`'s effect in week 3, before finds, so every hook below cited in `CreativeSpacePanel.tsx` moves into `Space.ts` with it. The line numbers are from `9b8c07c`.*
+
 **0.3 Where time runs.** Visited tabs stay mounted and paused while hidden (`RoomScene.ts:183`, `if (!this.paused) this.frame(...)`).
 - Everything *within* a visit runs on the room's clock (`Attention.t`, the character's `S.t`): drives, habituation, dream bouts, trust per minute. It therefore stops while the tab is hidden.
-- Only memory *across* visits (section 11) uses `Date.now()`.
+- Only memory *across* visits (section 12) uses `Date.now()`.
 
 **0.4 Reduced motion, `?still`, sound off.**
 - Reduced motion keeps what the site already allows under it: lids and face shapes (`SOFT.lidReduced`, `attention.ts:107`), and pupils that jump without easing (`gaze.instant`, `character.ts:934`).
@@ -190,7 +195,7 @@ A small file of distributions and noise that everything below uses.
   - Ornstein-Uhlenbeck, updated exactly at any dt: `x ← μ + (x−μ)e^{−θΔt} + σ·√((1−e^{−2θΔt})/2θ)·N(0,1)`. Its stationary SD is σ/√(2θ).
   - `noise1(t)`: 1D gradient noise with 2-3 octaves (about 25 lines), for slow wanders where OU is too jittery.
   - `minJerk(u) = 10u³−15u⁴+6u⁵`, moved here from `limbs.ts:195` (`mj`).
-- *New* `src/lib/seed.ts`: move `hashSeed`, `subSeed`, `unitOf` and `rng` there from `src/engine/space/sky/tune.ts:58-100`, and have the sky import them back. Urchi must not import from `engine/space`, because Space imports Urchi. Moment-to-moment randomness can stay `Math.random`: the tell is the *shape* of the distributions, not the generator.
+- *New* `src/lib/random.ts`: move `hashSeed`, `subSeed`, `unitOf` and `rng` there from `src/engine/space/sky/tune.ts:58-100`, and have the sky import them back. Urchi must not import from `engine/space`, because Space imports Urchi. Moment-to-moment randomness can stay `Math.random`: the tell is the *shape* of the distributions, not the generator. *Ruled in the summary: `random.ts`, not `src/lib/seed.ts`, because `sky/seed.ts` already means visit and URL seeds. It is the one shared PRNG and hash, and its first outputs are frozen by a Vitest golden test.*
 - *New* `src/engine/urchi/lifelike.ts` (not `tune.ts`, which in the sky means seeded ranges): every number in this plan in one object, the way `sky/defaults.ts` holds the sky's, so the debug panel can edit it live and "Copy config" can write it out.
 - *New* option `lifelike` (0.2). Without it the character behaves exactly as today.
 - Payoff 0 on its own. Effort S. Risk: none.
@@ -207,9 +212,9 @@ While there, update README's list of site hooks (`:90-92`), which omits `attend`
 
 **D1 "Space: `?debug=urchi`, first cut"** (phase 1 of Part 5; the rest is in 16.4)
 
-- *Where:* *new* `src/engine/urchi/debug/panel.ts` and `schema.ts`, mounted from `CreativeSpacePanel.tsx:203-210` beside the sky's panel. It uses the same development-only dynamic import behind `params.get("debug") === "urchi"`, so production never follows it.
+- *Where:* *new* `src/engine/urchi/debug/panel.ts` and `schema.ts`, mounted from `CreativeSpacePanel.tsx:203-210` beside the sky's panel. It uses the same development-only dynamic import behind `params.get("debug") === "urchi"`, so production never follows it. *Ruled in the summary: the panel waits for `Space.ts`, so it lands in week 3 and mounts from there, where the sky's panel mount moves too.*
   - Factor the sky panel's element helpers and row renderer (`sky/debug/panel.ts`, `mountSkyPanel` at `:139`; `schema.ts`'s rows and groups) into *new* `src/engine/common/debugPanel.ts`, so both panels share them.
-- *Phase 1 contents* (enough to tune weeks 1-2):
+- *Phase 1 contents* (enough to tune the lids and blinks in week 3 and the saccades in week 4):
   - **Sliders** for every number in `lifelike.ts`, grouped as Eyes, Blinks, Head, Breath and Pupils.
   - A **switch** for `lifelike` itself (A/B in place).
   - **Rasters** over the last 20 s: a blink raster (tick height = closure; colour for spontaneous, gaze-evoked, burst or cued), a saccade raster (amplitude), and traces for the breath, head yaw and eye-in-head.
@@ -239,7 +244,7 @@ This is what every visitor meets in the first five seconds: the head following t
   - ×1.8 while dozing;
   - ×0.7 for startle-worthy events (`spike(..., startle = true)`);
   - an express 90-110 ms when the new point is within 5° of the current look.
-- Steady pursuit of a moving target is not delayed; it is predicted (2.5).
+- Steady pursuit of a moving target is not delayed; it is predicted (3.1).
 - *Hook.* `Attention.update` (`attention.ts:593-616`).
   - When the chosen target's identity changes, or the pointer resumes, set `pending = { at: t + L }` and keep calling `aim` with the *previous* point until `t ≥ pending.at`.
   - This is simpler than a ring buffer and does the same thing.
@@ -259,7 +264,7 @@ This is what every visitor meets in the first five seconds: the head following t
 
 - *Model.* Keep the springs, which already handle retargeting mid-move smoothly, but choose ω per move: **ω = clamp(9·(20/A)^0.35, 5.5, 16)**, with A the head's amplitude in degrees.
   - That gives about 0.35 s at 5°, 0.55 s at 20° and 0.75 s at 45°.
-  - Multiply by the persona's speed (0.85-1.15, section 11), ×1.2 when aroused and ×0.8 when drowsy.
+  - Multiply by the persona's speed (0.85-1.15, section 12), ×1.2 when aroused and ×0.8 when drowsy.
   - ζ comes from the persona, 0.6-0.8, for 1-5% overshoot and settle (follow-through). The eyes cancel it (2.3).
 - *Hook.* `lookAt` (`character.ts:2231-2246`) stores `look.omega` when it sets `headAt`. `frame` (`:2099-2100`) uses it instead of `HEAD.omega`. `HEAD.quick` (ω 16) still wins during a quick turn.
 - *Reads as:* a glance is a glance and a turn is a turn.
@@ -272,7 +277,7 @@ This is what every visitor meets in the first five seconds: the head following t
   - `g(t)` is the gaze direction: `look.nx, look.ny`, delayed by 2.1.
   - `h(t)` is the head's actual direction now: `(S.yaw.v + tilt.yaw.v + pose.yaw.v + away.turn.v) / LOOK.yaw`. Pitch is the same, including the breath's `nod`, over `LOOK.pitchUp` or `LOOK.pitchDown`.
   - The pupil target is **P = clamp(R·GAZE.x·g + K·(g − h), ±EYES_REACH.x)**, with:
-    - **R, the rest share**, *new*, default 0.7 (tunable 0.5-1; 1 is today's look). This is what fixes the pinned-eccentric pupils after a big turn: at rest and at full turn the pupils sit at 7 units (3.5 px) instead of 10, still pointing the way it looks.
+    - **R, the rest share**, *new*, default 0.85 (tunable 0.5-1; 1 is today's look). This is what fixes the pinned-eccentric pupils after a big turn: at rest and at full turn the pupils sit at 8.5 units (about 4 px) instead of 10, still pointing the way it looks. *Decided: 0.85 moves the pupils most of the way off the rim while the face he drew stays recognisable. If the before-and-after against the probe still shows pinned pupils at 0.85, it becomes 0.75 (decisions.md, item 6).*
     - **K ≈ 12 units per look unit** (vertically `GAZE.y` and about 10, clamped ±16). That is a stylised VOR gain of about 0.45. A physical gain of 1 would pin the pupils at the eye's limit in every big turn.
   - During a turn the eyes lead by up to 12 more units (6 px, clearly visible) and **roll back as the head arrives**.
   - Head overshoot (H1's ζ), H5's sway and the breath's nod are cancelled too.
@@ -281,7 +286,7 @@ This is what every visitor meets in the first five seconds: the head following t
 - *Head dead zone*, for discrete shifts only:
   - A new target, or the pointer's re-aim after it has stopped, under 0.15 look units (about 6°) moves the eyes only.
   - The head follows lazily, after `logNormal(0.5 s, 0.4)`, only if the eye-in-head offset stays over 60% of `EYES_REACH` for that long.
-  - While the target is *moving* (pursuit, 2.5, or the pointer in motion for more than 0.2 s), the head follows as today.
+  - While the target is *moving* (pursuit, 3.1, or the pointer in motion for more than 0.2 s), the head follows as today.
   - Without that distinction the head would move in steps behind a slowly moving cursor.
 - *Hook.*
   - The P formula goes in `stepGaze` (`character.ts:927-929`).
@@ -292,14 +297,14 @@ This is what every visitor meets in the first five seconds: the head following t
 - *Edges:*
   - Reduced motion keeps the head front, so `h = 0`, and the pupils sit at `R·GAZE.x·g + K·g` clamped. Set K = 0 under reduced motion so the look stays the same as today.
   - Phone: works.
-- Payoff 5. Effort S. **Risk:** the dead zone changes the "it follows my cursor" feel that visitors may already love. Ship it behind the panel switch and record a before and after.
+- Payoff 5. Effort S. **Risk:** the dead zone changes the "it follows my cursor" feel that visitors may already love. Ship it behind `lifelike` and record a before and after against the probe. *Ruled in the summary: package one ships in week 2, before the panel exists (week 3), so the A/B is the `lifelike` flag and the probe's recording; the panel's switch takes over once it lands.*
 
 **2.4 A4 + N2 "Space: it looks away a little, not across the room"**: aversion before boredom.
 
 - *What exists:* with the pointer resting, salience decays under 0.45 and, 1.5 s later, `wander` looks at one of four corners (`(16%,14%) (84%,14%) (18%,86%) (82%,86%)`, or the bottom centre on a phone) and checks back on you for 0.9 s with 80% probability every 3-6 s (`attention.ts:721-746`). The probe saw 51.5° three times in a minute.
 - *Model.*
   - **Mutual-gaze clock.** While it is looking at "you" (the pointer at rest, or straight out on a phone, `you()` at `:326`) and nothing else pulls:
-    - hold for `logNormal(m, 0.5)`, with m = 2.2 + 2.6·boldness seconds (2.6-4.2 s over the persona's range, section 11);
+    - hold for `logNormal(m, 0.5)`, with m = 2.2 + 2.6·boldness seconds (2.6-4.2 s over the persona's range, section 12);
     - then **avert** by 8-18° of gaze (0.2-0.44 look units horizontally at 41.25° per unit), 60% down and to the side, 40% to the side;
     - hold the aversion `logNormal(0.7 s, 0.4)`;
     - come back, with a blink 30% of the time.
@@ -307,6 +312,7 @@ This is what every visitor meets in the first five seconds: the head following t
   - **Escalation.** After 2-4 of these cycles, boredom takes over as today, but its destinations become a small field instead of four corners:
     - the tab pills (weight 0.3), the sound chip (0.1), the caption band (0.15);
     - 2-3 "nothing" points drawn per boredom episode inside the room, at least 20% of the width from the last look (0.45 together).
+    - *Ruled in the summary: the Desk pill is never in this field, because a look at it is kept for a new game, tool or paper and Urchi never points at the Desk for the daily. The sound chip moves into the nav (Style R4), so its point moves with it; the finds' pocket takes the top-right corner the chip leaves.*
     - Check-backs keep today's 80% but last `logNormal(0.8 s, 0.4)`, and the gaps become `logNormal(0.9 s × 3.5, 0.5)` instead of `rand(3, 6)` (`:743`).
   - Late at night aversions become lid-lowerings (rest lid +0.1 for the hold), not looks.
   - Everything is suppressed during acts, `heed`, reading (`steady`) and pointer motion.
@@ -422,16 +428,16 @@ This is what every visitor meets in the first five seconds: the head following t
 - *Hook:* `stepBlink` returns `amount × amp`, with `amp` drawn per blink.
 - Payoff 3. Effort S. Risk: none, with the guard.
 
-**4.5 B4 "Space: a quick blink, and a slow opening"** (the owner's call)
+**4.5 B4 "Space: a quick blink, and a slow opening"** (decided: it goes in)
 
 - *Now:* a "calm, deliberate blink" (`:1034`): 90 ms close, 150 ms shut, 140 ms open. That is about twice a human blink.
-- *Proposed middle:* close `75 ± 10` ms with an ease-in (a blink is ballistic); shut `logNormal(60 ms, 0.4)`, clamped 35-120; open `170 ± 30` ms with a long ease-out (the last 20% takes 40% of the time).
-  - The owner can go further (a 40 ms shut) or stay put.
+- *The middle, decided:* close `75 ± 10` ms with an ease-in (a blink is ballistic); shut `logNormal(60 ms, 0.4)`, clamped 35-120; open `170 ± 30` ms with a long ease-out (the last 20% takes 40% of the time).
+  - Decided: these middle values go in, not the further 40 ms shut, so the blink quickens without losing the calm he drew. If the new blink reads as a twitch at a phone's 30 fps, the close stays at 90 ms (decisions.md, item 6).
 - *Drowsy:* close 150-250 ms, shut 200-600 ms, open 300-500 ms. The opening **stops at 0.25-0.35** and drifts up over about 1 s: the heavy lid.
 - The slow blink (`SLOW_BLINK`) keeps its deliberate curve. The contrast between a quick reflex and a slow blink is what makes the slow blink mean something.
 - *Hook:* `BLINK` (`:1037`) becomes per-blink timing drawn in `stepBlink`. `setBlinkHold` (`:2357`) scales the drawn hold instead of changing the shared object. Call's own `BLINK` (`Call.ts:49`) is separate and unaffected.
 - *Edges:* on a 30 fps phone floor the shut at one frame.
-- Payoff 3. Effort S. Risk: a style change to a deliberate choice.
+- Payoff 3. Effort S. Risk: a style change to a deliberate choice, decided in favour and bounded by the 30 fps check above.
 
 **4.6 B5 "Space: a stare, then a flurry"**
 
@@ -471,6 +477,7 @@ This is what every visitor meets in the first five seconds: the head following t
      - Band-passed noise (about 150 Hz, Q 1), amplitude-modulated at 26 Hz.
      - Its level follows the breath, both in and out, with a 0.15 s gap at the turn.
      - Very quiet (about −30 dB under the pats), in over 1.5 s, out over 0.8 s once the strokes stop.
+     - *Decided: the purr joins `src/audio/sfx.ts` and ships with stroking (week 5). With sound off it never plays, and its visible counterpart is the half-closed lids and the head leaning into the hand. It joins Urchi's own four sounds under the rule that Urchi's sounds stay Urchi's. If it cannot be heard on phone speakers (a purr lives around 25-150 Hz, and they roll off far above that), it gains a soft upper harmonic rather than more volume (decisions.md, By section, Urchi 5).*
   4. **Enough.** After N strokes in one bout (N = `logNormal(12, 0.3) × (0.8 + 0.4·(1 − boldness))`, clamped 6-24):
      - the ears flatten 15° (the warning);
      - the head pulls away 8° in yaw over 0.3 s;
@@ -480,10 +487,10 @@ This is what every visitor meets in the first five seconds: the head following t
 - *Asleep for the night:* a stroke is not a click, so it does not wake it.
   - The sleep deepens: breath depth 1.6, and a pillow settle toward the hand's side (M10).
   - The `peek` (`acts.ts:208`) is held back while it is being stroked.
-  - If it was woken last night (section 11) it turns its face away instead.
+  - If it was woken last night (section 12) it turns its face away instead.
 - *Where:* Space at home. Not afloat, where pressing holds it.
 - *Copy:* no caption. Cursor label unchanged ("Take with you"). Notes site line: *"Urchi can be stroked now. It will say when."*
-- *Data:* none beyond trust (section 11).
+- *Data:* none beyond trust (section 12), which lives once, in `eigengrau:urchi`.
 - *Edges:*
   - **Phone:** a finger drag over the head. `.space-urchi` has `touch-action: manipulation` at home (`globals.css:422`), which lets the browser claim a drag, so set `touch-action: none` at home as well as afloat (`:427`). A stroke is longer than `CLICK.slop` (6 px), so it never counts as the tap that takes it with you.
   - **Reduced motion:** lids, ear poses and the purr; no head bunt.
@@ -632,7 +639,7 @@ The mesh makes this cheap. The ear tips are single vertices, 0 at `(395.5, −43
 - **"It hears you click"** *(new)*: the visitor's own clicks and keys are real sounds in their room, whatever the site's sound setting.
   - Any pointerdown on the page away from Urchi (a pill, the room, the sound chip): the ear nearer the click swivels 12° toward it within 60 ms (the twitch spring) and comes back over 1.5 s. The eyes follow only if attention finds it salient; a tap in the room already releases a mote and startles.
   - Any key (not modifiers): both ears flick once toward the bottom of the screen, where the keyboard is. After three in 2 s it is habituated (A3) and nothing happens.
-  - With the site's sound on, the synthesised cues add to this through a *new* `sfx.onCue((name, pan) => …)` event on the `sfx` object (`sfx.ts:1243`). A preview sounding "through the wall" (`Preview.sounding`, `sfx.ts:375`) turns the ear on the Music side, pill 4, toward it for the song's length. The ears reach the sound chip before the eyes do when sound comes on (the one line kept from S3, added to `soundOn`, `acts.ts:181`).
+  - With the site's sound on, the synthesised cues add to this through a *new* `sfx.onCue((name, pan) => …)` event on the `sfx` object (`sfx.ts:1243`). A preview sounding "through the wall" (`Preview.sounding`, `sfx.ts:375`) turns the ear on the Music side, pill 5, toward it for the song's length (*ruled in the summary: Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6*). The ears reach the sound chip before the eyes do when sound comes on (the one line kept from S3, added to `soundOn`, `acts.ts:181`).
 - *Hook:*
   - In `render` (`character.ts:1182-1191`), project from a copy of `V` with those 8 entries replaced: a `Float64Array(8·3)` filled in `frame`.
   - **Only while `suit === 0`**. `headFor` (`:2045`) blends to the tucked positions from `V`, so the offsets must be zero before the suit starts.
@@ -668,7 +675,7 @@ The mesh makes this cheap. The ear tips are single vertices, 0 at `(395.5, −43
   - **curiosity**: the existing novelty (the top target's `novelty`);
   - **boredom**: the existing `boredFor`;
   - **fatigue** f in 0..1: *new*, mostly afloat;
-  - **trust** T in 0..1: *new*, persisted (section 11).
+  - **trust** T in 0..1: *new*, persisted (section 12), the one trust value on the site (*ruled in the summary: it lives once, in `eigengrau:urchi`, and the finds' events feed it*).
 - *Dynamics*, per frame on the room's clock (0.3):
   - `v += (v₀ − v)·dt/25`, with v₀ = 0.1 + 0.3·T (a trusting Urchi rests happier);
   - arousal decays as today (`ALERT.tau` 10 s, `:97`);
@@ -737,7 +744,9 @@ The mesh makes this cheap. The ear tips are single vertices, 0 at `(395.5, −43
 
 #### 10. Sleep life (promoted)
 
-Once `TIME_ZONE` is set, everyone whose evening falls in his 01:00-06:59 meets Urchi asleep on arrival (`attention.ts:208-223`). For them sleep is the whole visit, so it should be as alive as waking.
+`TIME_ZONE` is decided as `"Australia/Melbourne"` (decisions.md, item 1), so everyone who arrives in his 01:00-06:59 meets Urchi asleep on arrival (`attention.ts:208-223`). From Sunday 4 October that is New York's 10:00-15:59 (09:00-14:59 after 1 November) and London's afternoon and early evening, and a US-morning launch in the week of 23 November lands at his 01:00. For them sleep is the whole visit, so it should be as alive as waking.
+
+**The softer first wake** (*decided, and moved into package one, week 2*). Today a click that wakes it at night brings the glare (`CreativeSpacePanel.tsx:195`, `if (woke && night) faces.react("angry", { hold: 2.8 })`). The night's first wake in a browser becomes a groggy one instead: heavy lids and a slow blink. The glare stays for a second wake the same night, and the yawn (M1) joins the first wake once it exists. A stranger's first touch at 01:00 should not be told off. "First" is read from `wokeAt` in `eigengrau:urchi` (12.1), written through `store.ts`: that one field lands in week 2, ahead of the rest of the record in week 9. It is one line of `CreativeSpacePanel.tsx`, a hot-spot file, so the branch names it in its first commit (decisions.md, item 6, and fact 5: the launch audience arrives at his night).
 
 **10.1 6.3 "Space: it dreams"**
 
@@ -762,7 +771,7 @@ Once `TIME_ZONE` is set, everyone whose evening falls in his 01:00-06:59 meets U
   - Phone: identical.
   - Afloat at night it dozes where it floats (README): the head twitches and the limbs' idle life twitch, and the eyes are too small to flutter visibly.
 - *Implementation:* a `dream` act (M) using Br1, S1, S2 and 10.2.
-- Payoff 5 once the zone is set. Effort M. **Shows:** that the owner cares what happens when nobody is watching, which the caught-in-the-act mechanic already says; this completes it. **Risk:** a flutter that looks like a rendering glitch. Keep the cracks thin, short and irregular.
+- Payoff 5, now that the zone is Melbourne's. Effort M. **Shows:** that the owner cares what happens when nobody is watching, which the caught-in-the-act mechanic already says; this completes it. **Risk:** a flutter that looks like a rendering glitch. Keep the cracks thin, short and irregular.
 
 **10.2 M10 "Space: it settles on its pillow"**
 
@@ -801,11 +810,12 @@ Once `TIME_ZONE` is set, everyone whose evening falls in his 01:00-06:59 meets U
 
 **12.1 Mem "Space: it remembers you"**
 
-- *Data* (*new* `src/engine/urchi/memory.ts`): `localStorage["eigengrau:urchi"]`, about 200 bytes, every access guarded as the site does (`sky/seed.ts:39-58`). Private mode keeps it for the page only.
+- *Data* (*new* `src/engine/urchi/memory.ts`): `localStorage["eigengrau:urchi"]`, about 200 bytes, every access guarded as the site does (`sky/seed.ts:39-58`). Private mode keeps it for the page only. *Ruled in the summary: storage goes through `src/lib/store.ts`'s `keep()` (versioned, guarded, and kept in step across browser tabs), so `memory.ts` reads and writes through it rather than touching `localStorage` itself.*
 
   ```
   { "v": 1,
-    "seed": "k3x9q2",                 // persona (12.2), set on the first visit that reaches Space
+    "seed": "k3x9q2",                 // persona (12.2), set on the first visit that reaches Space;
+                                      // the browser's one seed, and the finds' code salt comes from it
     "visits": 7,                      // visits that reached Space
     "visit": "1790500000000",         // the visit last counted, named as sky/seed.ts names one:
                                       // String(lastVisit() ?? "first"), the eigengrau:told pattern
@@ -817,10 +827,11 @@ Once `TIME_ZONE` is set, everyone whose evening falls in his 01:00-06:59 meets U
 
   - When the last visit ended comes from the existing `eigengrau:visits` (`lastVisit()`, `visits.ts`). Do not store it twice.
   - Write it on `pagehide` or when the page goes hidden, as `visits.ts:87-88` does.
-  - Add the key to README's list of what the site keeps (`README.md:106-113`).
+  - Add the key to README's list of what the site keeps (`README.md:106-113`) and to `/kept`, which lists it with what it holds and a "Forget me" button that clears every `eigengrau:` key (decided, decisions.md, item 6).
 - *Trust dynamics:*
   - up: +0.15 for its own beat tapped back (the `trust` act, `Call.ts:268`); +0.02 per stroke (at most +0.1 a visit); +0.03 per minute of calm company (pointer near, no shaking; at most +0.1 a visit); +0.05 when a slow blink is met with stillness (M3);
   - down: −0.1 per line snapped, −0.15 per night waking;
+  - from the finds (*ruled in the summary: trust lives once, here, on this model, and the finds keep no second store*): the keeps trade's match plays the same `trust` act, so it counts as its own beat tapped back (+0.15); giving a find back afloat +0.05; taking a reverent find +0.05; a line snapped by a throw is the −0.1 above. The finds' thresholds (once types at 0.5, `giveKept` at 0.6, the eye-coloured gem at 0.8) read this value;
   - between visits it decays toward 0.2: `T ← 0.2 + (T − 0.2)·e^{−days/30}`.
 - *Behaviours.* The default is silence, so people who notice find it.
   - **First visit:** cautious. The mutual-gaze hold is ×0.6, the first quirk and swim come 10 s later afloat, and the first look at the pointer when it moves has latency ×1.2, as for a new thing.
@@ -829,20 +840,21 @@ Once `TIME_ZONE` is set, everyone whose evening falls in his 01:00-06:59 meets U
   - **A rhythm kept:** see 12.3.
   - *Cut:* "ignored last time, so cool for 20-40 s". Most first visits end without touching Urchi (people come to read Projects), so this would give a cold shoulder to exactly the visitors the site is for.
 - *Arrival budget* (*new*): at most one arrival act a visit, in this order:
-  1. the news look (`URCHI_NEWS`, once per visit, `visits.ts:140-155`);
-  2. the rhythm greeting (12.3);
-  3. recognition.
+  1. a gift parcel (a find arriving by `/?find=<code>`, Space finds) (*ruled in the summary: it comes first*);
+  2. the news look (`URCHI_NEWS`, once per visit, `visits.ts:140-155`). It looks at the Desk pill only when `UPDATED.desk` moves for a new game, tool or paper, never for the daily puzzle (*ruled in the summary*);
+  3. the rhythm greeting (12.3);
+  4. recognition.
 
-  A later one waits at least 8 s after the one before and is dropped if the visitor has started doing something.
+  Only the first in this order that applies plays; the others wait for another visit. It is dropped if the visitor has started doing something. *Ruled in the summary: at most one arrival act a visit, so the first draft's rule that a later one waits at least 8 s after the one before goes.*
 - *Edges:*
   - Reduced motion: expressed through lids and pupils only.
   - Phone: identical.
-- Payoff 4. Effort M. **Risk:** privacy perception. It is local-only, holds nothing personal, and the key is documented. If the owner wants it said, the About status line could read *"Urchi remembers you. Only in your browser."*
-- Note the stance in `Call.ts`'s header: *"The only thing it counts is answers in this visit, in memory."* This changes that on purpose; see the open questions.
+- Payoff 4. Effort M. **Risk:** privacy perception. It is local-only, holds nothing personal, and the key is documented. *Decided:* About says so as the caption and accessible name of its mark, *"It remembers you. Only in this browser."*, not in the status line, so About's foot stays at two lines; `/kept` explains the key and offers "Forget me" (decisions.md, item 6).
+- Note the stance in `Call.ts`'s header: *"The only thing it counts is answers in this visit, in memory."* This changes that on purpose, and *decided:* `Call.ts:14` is rewritten to match in the same commit (decisions.md, item 6).
 
 **12.2 Per "Space: every visitor's Urchi is a little different"**
 
-- *Model.* The seed is stored in `eigengrau:urchi.seed` on the first visit, so it is the same Urchi for that visitor every time, unlike the sky, which is drawn per visit. Traits come from `rng(subSeed(hashSeed(seed), "persona"))` (moved to `src/lib/seed.ts`, 1), each drawn from Beta(2, 2) (mostly moderate, rarely extreme) and mapped inside **narrow** ranges:
+- *Model.* The seed is stored in `eigengrau:urchi.seed` on the first visit, so it is the same Urchi for that visitor every time, unlike the sky, which is drawn per visit. Traits come from `rng(subSeed(hashSeed(seed), "persona"))` (moved to `src/lib/random.ts`, 1), each drawn from Beta(2, 2) (mostly moderate, rarely extreme) and mapped inside **narrow** ranges:
 
   | Trait | Scales |
   |---|---|
@@ -854,6 +866,7 @@ Once `TIME_ZONE` is set, everyone whose evening falls in his 01:00-06:59 meets U
   | asymmetry | lazy-lid side and amount (16.1) |
 
 - `?urchi=<seed>` forces a persona, as `?sky=` does (`sky/seed.ts:30-36`), to share or debug one.
+- *Decided: the persona fixes temperament only. The eyes' colourway stays drawn per page load, because the eye accent (Style R15), the colophon's hundred eyes and the finds' labels ("Its eyes were denim.") all draw from it. It would change only if those three were dropped (decisions.md, item 6; summary reconciliation 6).*
 - *Reads as:* two friends comparing notes find that one Urchi stares and the other looks away. That is a conversation about the site, which is the point of a portfolio.
 - Payoff 3 (4 with memory). Effort S. **Risk:** an extreme draw that feels wrong. Beta(2, 2) and the narrowed ranges keep every draw recognisably Urchi, and the panel's persona sliders check the corners.
 
@@ -861,7 +874,7 @@ Once `TIME_ZONE` is set, everyone whose evening falls in his 01:00-06:59 meets U
 
 - *Pitch.* Tap Urchi's own version of a rhythm back once, and next time it greets you with it.
 1. When the `trust` act fires (`Call.ts:268`), memory stores the version's gaps (Call's `version.gaps`, which include its own beat) and the date.
-2. On the next visit within 30 days, by day, as the second item of the arrival budget: after its eyes open and a 1.5-2.5 s look at you (pupils dilating), it leans in (`leanUrchi`, `RoomScene.ts:423`) and **blinks your rhythm once**, slowly. With sound on, each beat has the soft low pat (`sfx`'s `pat`, `sfx.ts:896`). This is `answer` (`acts.ts:414`) with `plan(gaps, start, reduced, true)` (`Call.ts:69`).
+2. On the next visit within 30 days, by day, as the third item of the arrival budget (after a gift parcel and the news look, 12.1): after its eyes open and a 1.5-2.5 s look at you (pupils dilating), it leans in (`leanUrchi`, `RoomScene.ts:423`) and **blinks your rhythm once**, slowly. With sound on, each beat has the soft low pat (`sfx`'s `pat`, `sfx.ts:896`). This is `answer` (`acts.ts:414`) with `plan(gaps, start, reduced, true)` (`Call.ts:69`).
 3. It waits 4 s with soft eyes (`SOFT`) and its ears perked.
 4. If you tap it back within 15 s (`MATCH.within`, `Call.ts:34`), it plays the trust act at once: trust +0.1, 60 s of soft eyes instead of 20, and a sigh. If you do not, it looks at you a moment, tilts, and carries on. No sulk, since you may not remember.
 - *Copy:* optional caption after a match: *"It kept your rhythm."*
@@ -943,7 +956,7 @@ Afloat, the `stretch` quirk's arms join in. At home in the day, `wake`'s stretch
 2. *Choo:* a pitch kick of +140°/s (the face snaps down), the "><" face for 0.3 s (`setFace("embarrassed")`, which exists), a bristle of 1.0, and the mote blown off at 60 px/s away from the face (a *new* `Motes.blow(m, vx, vy)`).
 3. A head shake (M9), a blink, then a glance at you, a little embarrassed (A2).
 
-With sound on, a *new* tiny `sfx` cue: a 60 ms noise burst, band-passed at 3 kHz, soft. *Edges:* reduced motion: the "><" face and the mote vanishing only. Payoff 5. Effort M.
+With sound on, a *new* tiny `sfx` cue: a 60 ms noise burst, band-passed at 3 kHz, soft. *Decided: the sneeze joins `src/audio/sfx.ts` and ships with the micro-acts in December; with sound off it is silent, and the jolt of the head is its visible counterpart (decisions.md, By section, Urchi 5).* *Edges:* reduced motion: the "><" face and the mote vanishing only. Payoff 5. Effort M.
 
 **M3 "Space: Urchi slow-blinks at you"** (the cat's trust signal, now unprompted)
 
@@ -994,6 +1007,7 @@ A roll oscillation of ±5°, decaying at 4.5 Hz over 0.5 s. The ears flop with i
 1. The star appears (`Stars.shoot`, `Stars.ts:430-455`). This only happens in the "very rare" sky (one visit in fifty, or any `?sky=` seed that draws it), where stars come every 16-32 s for 1.8-2.6 s each.
    - A *new* `Stars.onShot(cb)` passes the start, heading and duration.
    - A *new* `Sky.clientOf(x, y, layer)` maps the star's sky coordinates to client px, using the view, zoom and parallax the sky already applies per layer.
+   - *Ruled in the summary: this is the site's one shooting-star event. The same crossing from `Stars`, through `onShot`, also serves the finds' "star that fell" (Space finds §4) and the sky calendar's meteor showers (Strategy §10), with this one `witness` act. On shower nights stars cross every 5-11 s, so the repeats rule below is essential, not optional.*
 2. After a 120-160 ms latency (E5), with arousal +0.3: **the head turns** to the star's head, tilts 0.3 toward it, the body drifts a little toward it (`DRIFT`), and the arm on that side reaches after it (`REACH_FOR`, `Float.ts:740-758`, with the star passed as a "thing").
 3. Pursuit along its path (3.1): head and body at this size, the eyes too when zoomed in.
 4. As it fades, the look **coasts** 300 ms past its end (M6), then holds the spot for 1 s.
@@ -1003,16 +1017,16 @@ A roll oscillation of ±5°, decaying at 4.5 Hz over 0.5 s. The ears flop with i
   - the first star in a visit gets the whole scene;
   - the second and third get steps 2 and 5 only;
   - after that, a look only if it is already facing that way (A3, kind "shot").
-- *Sound:* nothing new. With sound on, perhaps the faintest high shimmer as the star passes (a *new*, optional cue).
+- *Sound:* nothing new. *Decided: no shimmer cue, because the house rule is to use the existing cues first, and on a shower night a new cue would sound every 5-11 s.*
 - *Copy:* no caption. For screen readers, add to the panel's live region (`SAID`, `CreativeSpacePanel.tsx:32`) once a visit: *"A shooting star crossed. Urchi watched it go."*
 - *Where:* Space, afloat only (the sky is only there afloat).
-- *Data:* none. The sky's seed decides.
+- *Data:* none. The sky's seed decides, or on shower nights the sky calendar.
 - *Edges:*
   - Reduced motion: the sky draws no shooting star (`Stars.ts:432`), so it never happens.
   - Phone: works; the head turn and reach read at 40% size.
   - Night: afloat it dozes, so it does not see it, which is right.
 - *Implementation:* `onShot` plus `clientOf` (S), a `witness` act (S), and 2.1, 3.1 and 2.3 underneath.
-- Effort S on top of sections 2-3. **Shows:** shared attention, the thing developmental psychologists look for in infants, done by a portfolio's mascot. **Risk:** rarity. The debug panel injects it for the owner's demo reel through a *new* `sky.shootNow()`.
+- Effort S on top of sections 2-3. **Shows:** shared attention, the thing developmental psychologists look for in infants, done by a portfolio's mascot. **Risk:** rarity, except on shower nights (the Orionids around 21 October, the Leonids around 17 November, the Geminids around 14 December). The debug panel injects it for the owner's demo reel through a *new* `sky.shootNow()`.
 
 ---
 
@@ -1027,13 +1041,13 @@ A roll oscillation of ±5°, decaying at 4.5 Hz over 0.5 s. The ears flop with i
 - *Hook:* `lidOf(i)` (`character.ts:2065-2067`) takes a per-eye offset. The angry face (`:996-999`) takes a per-side slope.
 - Payoff 2. Effort S. **Risk:** over about 5% it reads as an injury.
 
-**16.2 E10 "Space: a glint that stays with the light"** (an experiment, behind `?glint`)
+**16.2 E10 "Space: a glint that stays with the light"** (an experiment, behind the `catchlight` flag)
 
 - One small ink-coloured facet (#e9e9e2, a low-poly quad about 14×10 units, about 7×5 px at home) per eye, placed where `LIGHT` (`character.ts:754`) would reflect off a sphere under the eye plane.
 - It stays fixed relative to the light while the pupil moves beneath it, and it is hidden under the lid. The visor already has a glint (`VISOR.glint`, `:1459`), so there is precedent.
 - **Dark-pupil colourways only.** On pale ones the inner oval already reads as a gleam.
 - *Reads as:* wet, living eyes. A pupil that moves under a glint that does not is one of the strongest "alive" cues in character design.
-- Payoff 4 if the owner likes it. Effort S. **Risk:** it changes a face the owner designed and adds a third tone to the eye. Show him side-by-side screenshots before anything ships.
+- Payoff 4 if it survives the side-by-side. Effort S. **Risk:** it changes a face the owner designed and adds a third tone to the eye. *Decided: it stays a flagged experiment, `catchlight: false` in `lifelike.ts`, off in production and switchable only in `/dev/urchi` (a development route, never shipped), where the side-by-side screenshots live. It would change only if that side-by-side reads as wet eyes and not a third tone on every dark-pupil colourway (decisions.md, item 6).*
 
 **16.3 H2, H4, H5 and the favicon**
 
@@ -1082,7 +1096,7 @@ A roll oscillation of ±5°, decaying at 4.5 Hz over 0.5 s. The ears flop with i
 
 **16.5 "Urchi: a project of its own"** (the proposal's last note, kept)
 
-- Urchi is already the best thing on the site, and it would make a better entry on the Projects ball than any placeholder. The owner is adding real projects now, so add it as one: *"Urchi. A mascot that notices. Alive since 2026."*
+- Urchi is already the best thing on the site, and it belongs on the Projects ball beside the real projects. The GitHub-projects branch has merged (`0d9641d` on `origin/main`, decisions.md, fact 1), and the summary puts Urchi and eigengrau on the thread as projects of their own, so add it as one: *"Urchi. A mascot that notices. Alive since 2026."* Its best piece row is **"Five visors"** (summary, bet two), and its case page lands in week 4.
 - The case page (`/projects/[slug]`) carries:
   - the main-sequence scatter and the blink histogram exported from the recorder;
   - the probe's before and after;
@@ -1108,33 +1122,47 @@ A roll oscillation of ±5°, decaying at 4.5 Hz over 0.5 s. The ears flop with i
 | 6 | No two breaths alike, and sighs | 7.1-7.4 | 4 | S | none | the breath is always on screen |
 | 7 | Ears with opinions, and a bristle | 8.1, 8.2 | 4 | M | winding flips | a second emotional channel, on the silhouette, visible on a phone |
 | 8 | Moods that colour everything, and wear off | 9.1-9.3 | 4 | M | tuning | makes the rest cohere and stops identical reactions |
-| 9 | It dreams | 10.1, 10.2 | 5* | M | looks like a glitch | *once `TIME_ZONE` is set, sleep is the whole visit for many |
+| 9 | It dreams | 10.1, 10.2 | 5* | M | looks like a glitch | *with `TIME_ZONE` set to Melbourne, sleep is the whole visit for anyone arriving in an American working day, the launch audience included |
 | 10 | It remembers you, and is someone in particular | 12.1-12.3 | 4 | M | privacy perception | turns a visit into a relationship |
 
 Close behind: M7 (stares at nothing), M2 (sneeze), F5 (dizzy), F1 (level head), 6.1 (it saw it too), P1 (pupils).
 
-**Order of work** (at the pace this repo has kept, with parallel branches):
-- **Week 1:** F0.1, F0.2, D1 (the panel's first cut), 2.1-2.4, 4.1-4.4 with the SHUT guard, and 5.2. Ship behind `lifelike`, record the before and after against the probe, and write the first Notes log line.
-- **Week 2:** 3.1-3.3, 4.5-4.7, 6.1-6.5, 7.1-7.4, 16.3's favicon.
-- **Week 3:** 8.1-8.2, 9.1-9.3, 5.1 (stroking and the purr), 11.1.
-- **Week 4:** 12.1-12.3, 10.1-10.2, the micro-acts (M2, M3, M4, M5, M6, M7, M9, M1, M11), 13.1-13.5, 15, 16.1-16.2, H2/H4/H5, D2, and the case page.
+**Order of work** (at the pace this repo has kept, with parallel branches). *Ruled in the summary: package one ships in week 2, on its own branch; the rest follows the summary's Roadmap weeks, and the `?debug=urchi` panel waits for `Space.ts`. Items the Roadmap does not name sit beside what they depend on. The first draft's four weeks (week 1: F0.1, F0.2, D1, 2.1-2.4, 4.1-4.4 and 5.2; week 2: 3.1-3.3, 4.5-4.7, 6.1-6.5, 7.1-7.4 and the favicon; week 3: 8.1-8.2, 9.1-9.3, 5.1 and 11.1; week 4: everything else) are spread over the Roadmap's weeks below, and nothing is dropped.*
+- **Week 2, 5-11 October (package one, its own branch):** F0.1 (`life.ts`, `lifelike.ts`, with `random.ts` from the week's foundations), F0.2, 2.1-2.4, the softer first wake (10, decided), and 16.3's favicon. It touches `attention.ts`, `character.ts` and `Urchi.ts`, one line of `RoomScene.ts` for the flag, and one line of `CreativeSpacePanel.tsx` (`:195`) for the wake, which its first commit names. Ship behind `lifelike`, record the before and after against the probe, and write the first Notes log line.
+- **Week 3, 12-18 October:** `Space.ts` is extracted, then D1 (the panel's first cut) mounts from it. Then 4.1-4.6 with the SHUT guard (lids that follow the eyes; log-normal, gaze-evoked and incomplete blinks; the decided blink timing; the stare and flurry) and 5.2, the blink reflex.
+- **Week 4, 19-25 October:** 3.1-3.3 first, because the witness act rides on their pursuit; then the shared shooting-star event and 15, "It saw it too". The Urchi case page with "Five visors" lands in the same week (16.5).
+- **Week 5, 26 October-1 November:** 5.1 (stroking and the purr) and 8.1-8.2 (ears and the bristle).
+- **Week 6, 2-8 November:** 7.1-7.4 (breath and sighs); 6.1-6.5 (it rests more than it performs afloat, the waits, the drift, the tilts, the waves) with 13.2 and 13.3; and D2, the recorder, once saccades exist to measure, so its scatter and blink histogram join the case page before the launch.
+- **Week 7, 9-15 November:** 9.1-9.3 (moods, the glare that lingers, habituation), 4.7 (microsleeps) and 13.5 (swimming tires it, which needs 9.1's fatigue).
+- **Week 8, 16-22 November, the week before launch:** 10.1-10.2 (dreams and the pillow), so they are in place when the launch audience arrives at his 01:00.
+- **Week 9, 23-29 November:** 12.1-12.3 (memory, recognition with its double-take, "it knows your rhythm") and the arrival budget.
+- **December onwards:** the micro-acts (M2 with the sneeze's cue, M7, M4's other triggers, M1, M3, M5, M6, M9, M11), 13.4 (dizzy after a spin), 13.1 (a level head while tumbling), 11.1 (pupils with a size of their own), 16.1 (the lazy lid, once the persona exists), H2/H4/H5, and 16.2 as the catchlight experiment in `/dev/urchi` only.
 
 ---
 
-### Open questions for the owner
+### Decisions
 
-1. **How much of today's face may change?** The rest offset of the pupils (2.3's rest share: 1.0 keeps today's look, 0.7 fixes the pinned pupils), the "calm, deliberate" blink (4.5), a catchlight (16.2), and whether the glare keeps its grown pupil. Each is a small edit to a face you designed; which are open?
-2. **Should Urchi remember visitors across visits** (trust, their rhythm, a persona, a grudge about last night)? `Call.ts`'s header currently says it counts nothing beyond the visit. If yes, should About say so ("Urchi remembers you. Only in your browser.")?
-3. **Persona and colourway:** the eyes' colourway is drawn afresh on every page load. Should a visitor's Urchi keep its eyes (the persona seed picks the colourway), or keep changing colour while its temperament stays?
-4. **Which time zone goes in `TIME_ZONE`?** It decides how many visitors meet Urchi asleep, and so whether dreams and pillow life belong at the top of the list.
-5. **New voices:** is a synthesised purr for stroking, and a tiny sneeze, welcome in `sfx.ts`, given that sound is off by default and only adds?
+*The owner is asked nothing. Each line gives the decision, its reason, and what would change it; the merged ones point to `decisions.md` (the eight, and "By section: Urchi"), which wins where this section disagrees.*
+
+1. **The face: pupils.** The rest share is 0.85, so at rest after a big turn the pupils sit at 8.5 units instead of 10 (2.3). *Why:* it moves them most of the way off the rim while the face he drew stays recognisable. *Changes if:* the before-and-after against the probe still shows pinned pupils, then 0.75. (decisions.md, item 6; By section, Urchi 1.)
+2. **The face: the blink.** 4.5's middle values go in: a close of about 75 ms, a shut of about 60 ms, a 170 ms opening; `SLOW_BLINK` (`character.ts:1039`) keeps its curve. *Why:* a quick reflex beside a slow deliberate blink is what makes the slow blink mean something. *Changes if:* it reads as a twitch at a phone's 30 fps, then the close stays at 90 ms. (decisions.md, item 6.)
+3. **The face: the catchlight.** A flagged experiment only: `catchlight: false` in `lifelike.ts`, off in production, switchable in `/dev/urchi` (16.2). *Why:* it adds a third tone to a face he designed. *Changes if:* the side-by-side reads as wet eyes on every dark-pupil colourway. (decisions.md, item 6.)
+4. **The face: the glare.** It keeps its grown pupil (`angry: { pupil: 1.35 }`, `character.ts:961`), and P4's slits stay cut. *Why:* the current glare reads well, and slits change the face's identity. *Changes if:* P1's scale, which multiplies the glare's `big` (11.1), pushes a dark pupil past the eye it is clipped to; then P1 is held at 1 during a glare, and the glare keeps its 1.35. (decisions.md, item 6.)
+5. **Memory across visits.** Yes, in `eigengrau:urchi`, in the visitor's browser only, as 12.1 specifies, including the grudge about last night. `Call.ts:14` is rewritten to match, About says so as the caption and accessible name of its mark ("It remembers you. Only in this browser."), About's foot stays at two lines, and `/kept` lists the key with a "Forget me" button that clears every `eigengrau:` key. *Why:* it turns a visit into a relationship, holds nothing personal, and is said where a visitor can read it. *Changes if:* anyone writes that it feels like being watched; then the grudge about last night, the one memory that acts against a visitor, goes first. (decisions.md, item 6; By section, Urchi 2.)
+6. **Persona and colourway.** The persona fixes temperament only; the colourway stays drawn per page load (12.2). *Why:* the eye accent (Style R15), the colophon's hundred eyes and the finds' labels ("Its eyes were denim.") all draw from the per-load colourway. *Changes if:* those three are dropped. (decisions.md, item 6; By section, Urchi 3; summary reconciliation 6.)
+7. **The time zone, and where sleep life goes.** `TIME_ZONE = "Australia/Melbourne"` and a new `HEMISPHERE = "south"` (`site.ts:16` and the line after). The order stays the summary's, with one move: the softer first wake joins package one in week 2, and dreams and the pillow stay in week 8, the week before launch. *Why:* his commits carry +10:00 and his public coursework is a Swinburne unit; every visitor sees the look by day, and only night visitors see sleep, but the launch audience arrives at his 01:00. *Changes if:* he moves city (the zone), or the launch moves (sleep life stays in the week before it). (decisions.md, item 1 and item 6; By section, Urchi 4.)
+8. **The softer first wake.** The night's first wake in a browser is groggy, heavy lids and a slow blink, and the glare stays for a second wake the same night (`CreativeSpacePanel.tsx:195`, 10). *Why:* a stranger's first touch at 01:00 should not be told off. *Changes if:* nothing expected, since it is one line; the yawn (M1) joins it in December. (decisions.md, item 6.)
+9. **A purr and a sneeze.** Both join `src/audio/sfx.ts`: the purr with stroking in week 5, the sneeze with the micro-acts in December. Neither sounds with sound off, and each has a visible counterpart (half-closed lids and the head leaning into the hand; a jolt of the head). *Why:* stroking is the first thing anyone does to a cat, and nothing answers it today. *Changes if:* the purr cannot be heard on phone speakers, then it gains a soft upper harmonic rather than more volume. (decisions.md, By section, Urchi 5.)
+10. **One trust, one seed.** Trust lives once, in `eigengrau:urchi`, on 12.1's model; the finds' events feed it, and the finds' code salt comes from this record's seed. *Why:* two trust values would disagree about the same visitor. *Changes if:* nothing; it is a summary ruling (reconciliation 5).
+11. **The order of work.** Package one in week 2 on its own branch; the rest on the summary's Roadmap weeks (17). *Why:* it is the first five seconds of every visit and touches files no other early work touches. *Changes if:* another branch is already in `CreativeSpacePanel.tsx` in week 2, in which case the one-line wake waits for it and the rest of package one goes ahead. (Summary, "Where the specialists disagreed".)
+12. **Urchi and the Desk.** Urchi is never on the Desk, never announces the daily puzzle, and looks at the Desk pill only when `UPDATED.desk` moves for a new game, tool or paper (2.4, 12.1). *Why:* a daily look would mean nothing, and the games stay Urchi-free. *Changes if:* nothing; it is a summary ruling (reconciliation 4).
 
 ### If you only do one thing here
 
 Make it look instead of follow. Put `lifelike` on Space's Urchi and ship four small changes together.
 - **A latency:** a new thing is acted on 90-350 ms later, about 160 ms on average. Only the deliberate interactions are exempt: the drag, the rhythm, and acts that ask for a quick turn.
 - **Head speed by amplitude:** a 5° glance settles in 0.35 s and a 45° turn in 0.75 s.
-- **Eyes first, then the head:** eyes-only for shifts under 6°, pupils that swing out ahead of a turn and come home as the head arrives, with a rest share of 0.7.
+- **Eyes first, then the head:** eyes-only for shifts under 6°, pupils that swing out ahead of a turn and come home as the head arrives, with a rest share of 0.85 (decided).
 - **Small aversions near you:** it holds your look for three or four seconds and glances aside before it ever looks off to a corner.
 
-All four hook into code that already exists: `Attention.update` and `choose`, `lookAt`, `frame`, `stepGaze`. None needs the saccade model. Together they are two or three days' work, with a before-and-after recording against the probe. This is what every visitor meets in the first five seconds: it turns the site's own claim, "attention, not tracking", from a line in the README into something people feel before they can name it.
+All four hook into code that already exists: `Attention.update` and `choose`, `lookAt`, `frame`, `stepGaze`. None needs the saccade model. Together they are two or three days' work, with a before-and-after recording against the probe. *Decided since: the same week-2 branch also carries the softer first wake (10) and the favicon's log-normal blinks (16.3), each a line or two.* This is what every visitor meets in the first five seconds: it turns the site's own claim, "attention, not tracking", from a line in the README into something people feel before they can name it.

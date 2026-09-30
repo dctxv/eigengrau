@@ -13,8 +13,10 @@ Most citations are accurate to the line: `Float` :199, `swimStep` :764, `pickSwi
 3. **Making the outing "busy" breaks two things** (A). `zoomTo` returns early unless `fl.afloat` (`CreativeSpacePanel.tsx` about :247), so the visitor could not zoom while it is out. `urchiWord` returns `null` when `fl.busy` (:219), so "Call it back" could never show. The fix is a separate `Float.out` flag, with the state staying `"floating"`.
 4. **"A near band of stars draws in front of it"** (A). `Stars` is one instanced mesh for all three bands, drawn at a single `renderOrder` (`Sky.ts:43`, `ORDER = -100`, behind everything). Doing this means splitting `Stars` into two draws. Deferred.
 5. **The pocket's phone placement** (A). A puts it "where the chrome's chips live on a phone", but `.sound-chip` is `display: none` at 1024 px and below (`globals.css` about :237), so on a phone no chip lives anywhere. It needs a new place.
+   *Ruled in the summary: the sound chip moves into the nav on every screen (Style R4, `Shell.tsx:199` to `Nav.tsx`), and the pocket takes the top-right corner it gives up, on every screen size (section 2.6).*
 6. **Porting the hull code** (A). `polygons()` merges only exactly coplanar faces (tolerance 1e-9, `build-suit.mjs:210`), and `hull3()` calls `fail()` on flat input (:175). The runtime port needs an angle tolerance (A's 4°) and a fallback that does not throw (for example, re-jitter and retry).
 7. **`/drawer` and a D key** (B). A sixth route in a five-panel app (`routes.ts` `TAB_ORDER`, `sfx.ts:497` `tabOf`) buys nothing that a dialog does not. D is also risky: Notes takes type-anywhere letters (`NotesPanel.tsx:1028`).
+   *Ruled in the summary: the app gains a sixth pill, the Desk, third (Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6), and sfx's `tabOf` becomes `pillOf` in `src/lib/routes.ts`. The drawer still stays a dialog, with no route and no D key.*
 8. **Paused versus wall time** (B). B says "Space pauses when hidden, so an outing pauses." That is true (`room.paused`, :772), but it throws away A's better moment: coming back to find it already home, turning the find over (the `caught` pattern, :550). Outings run in wall time and are rebuilt on return.
 9. **New sky layers are not plug-in yet** (B). `Sky.add` is typed `SkyLayer<StarsConfig>`, and `SkyLayers = { stars }` (`Sky.ts:12`, :189). Both must widen before a `Wreck`, `Landing` or `Drift` layer exists. The README also says the sky is "never pixelated". Finds and wrecks are signal and may pixelate; stars still never do.
 10. **About's statement is WebGL, not DOM** (B's "it becomes the full stop"). It is troika-three-text in `AboutScene.ts`. The stop has to be split out of the last line's `Text` and a textured plane placed at its caret box, next to the code that places the mark (`MARK`, :23). It is feasible, but it is not a CSS swap.
@@ -22,14 +24,15 @@ Most citations are accurate to the line: `Float` :199, `swimStep` :764, `pickSwi
 12. **`happy` is eyes shut and arched** (`character.ts:694-698`). A's "happy face while it turns it" means it cannot see the gem. Happy (as B's "pleased") comes after the looking and lasts at most 1.2 s.
 13. **Hands never go in front of the helmet** (`limbs.ts:217-226`: "never in front of its helmet, so two hands never meet in front of it"). A's frozen drop brought "close to the visor", and its eye-gem held "beside its visor", must be at chest height or at the cheek (the `cheeks` quirk's place, `reach(rig, 525, 420, 175)`), never in front of the visor.
 14. **The shooting-star sky versus a star that actually fell.** Under reduced motion no shooting star is drawn (`Stars.ts` `shoot()`: `B.z = 0` when `f.reducedMotion`), but `sky.variant` is still `"very rare"`. "A piece of a shooting star" must require a crossing that happened, via a new event from `Stars`, not the variant alone.
+   *Ruled in the summary: there is one crossing event, Urchi §15's `Stars.onShot`, shared by Urchi's "It saw it too", this section's star that fell (section 4) and the sky calendar's meteor showers.*
 15. **The live-region wording collides.** `SAID.out` is "Urchi is out on its line." (`CreativeSpacePanel.tsx:32`) and already means *afloat*. A's "has gone out along its line" and B's "went out along its line" would read as the same event. New wording is below.
 16. **`sfx.air` is shared.** The supernova shuts the bed to 700 Hz while its covers are out (README), and a Music preview ducks the bed. A's "the room goes quiet, then `AIR_OPEN`" must save and restore the previous air, never force it open.
 17. **Call already works afloat.** A tap on the empty sky afloat reaches `call.tap` (the `onUp` branch, about :690), so A's rhythm trade needs only a new `Call.expect(gaps, onMatch)` that reuses the third-answer `version` mechanism. It does not need new input code. A is right here.
 18. **`NOVA_EVENT` has no listener** (grep: dispatched at `ThreadScene.ts:3422`, heard nowhere). B's "charm flung into the contact sheet" needs `ThreadScene` internals, which means surgery on a 5.3k-line file. That goes to v3.
 19. **Voice.** Captions are his first-person lines ("It keeps the place while I am out.", `site.ts:59`). Labels and states are the site's third-person log ("He is playing {title}."). B's owner-left caption "He left it here" mixes the two. The fix: "A ticket stub. I left it out here."
-20. **`TIME_ZONE` is `null`** (`site.ts:16`), so "his night" is currently the visitor's night. This is a prerequisite, not a question.
+20. **`TIME_ZONE` is `null`** (`site.ts:16`), so "his night" is currently the visitor's night. This is a prerequisite, not a question. *Decided: `TIME_ZONE = "Australia/Melbourne"`, with a new `HEMISPHERE = "south"` on the line after it (decisions, item 1). Melbourne moves to +11:00 on Sunday 4 October 2026.*
 21. **`sfx.pluck` damps whatever pluck is ringing** (the shared `ringing`) and builds its buffer lazily. Call `sfx.primePluck` when a find is decided, not when it is presented.
-22. **Sanity checks.** Typecheck passes on the current tree. There is no test runner (`package.json` scripts). A's "unit script" should run inside `/dev/finds?check=1`, not in a new toolchain.
+22. **Sanity checks.** Typecheck passes on the current tree. There is no test runner (`package.json` scripts). A's "unit script" becomes Vitest golden tests (the tier odds over 100k draws, code round-trips), with scripts under `tsx`; `/dev/finds` stays as the visual grid. *Ruled in the summary: one runner, Vitest, replaces the `?check=1` page check this note first proposed.*
 
 #### Verdicts
 
@@ -49,10 +52,10 @@ Most citations are accurate to the line: `Float` :199, `swimStep` :764, `pickSwi
 | (B) **Nine handovers** (proud, sincere, hidden, keeps, wary, reverent, puzzled, empty, asleep) | **KEEP WITH CHANGES** | Animation direction from existing hooks. Staged: six in phase 1, three in phase 2. |
 | (A) "It wants to keep it": a rhythm trade using `Call` | **KEEP WITH CHANGES** | Merged into B's *keeps*: "Ask" makes it blink its own short rhythm, and tapping it back gets the thing. It reuses the call and response the site already teaches. |
 | (A) "Take anyway" (hold 1.2 s, it glares, trust drops) | **CUT** | A third gesture on a small target, and it makes the relationship adversarial. The later gift covers "never locked out". |
-| (A) Trust, hidden, persistent | **KEEP WITH CHANGES** | Also raised by the *existing* trust act (Call's own beat tapped back), so two systems become one. |
+| (A) Trust, hidden, persistent | **KEEP WITH CHANGES** | Also raised by the *existing* trust act (Call's own beat tapped back), so two systems become one. *Ruled in the summary: that one value lives in `eigengrau:urchi` with Urchi §12.1's model; the finds' events feed it and keep no second store (2.11).* |
 | (B) Rule: most outings bring nothing (two in three) | **KEEP WITH CHANGES** | Too stingy on top of three a day. The day's first always brings something; after that it is one in three, never twice running. |
 | (B) Rule: no outing in the first two minutes | **CUT** | Most portfolio visits are shorter than that. A's shortened first outing (20 s afloat, 8 s still) wins. |
-| (A) Carrying: a pointer layer across tabs; a pocket chip that exists only after your first take | **KEEP WITH CHANGES** | B's short ink thread instead of a spring, because it rhymes with the tether. The phone pocket is placed where it can actually go. |
+| (A) Carrying: a pointer layer across tabs; a pocket chip that exists only after your first take | **KEEP WITH CHANGES** | B's short ink thread instead of a spring, because it rhymes with the tether. The phone pocket is placed where it can actually go. *Ruled in the summary: the pocket takes the top-right corner on every screen, once the sound chip moves into the nav; on the Desk a carried find goes into the pocket at once.* |
 | (B) Hanging from the active pill on a phone | **KEEP** | Solves carrying on a phone with a gesture the site already has. |
 | (A) Cabinet (one row of twelve) versus (B) the drawer (4 x 3, museum labels, a heading sentence) | **KEEP WITH CHANGES** | B's drawer layout and label grammar, with A's actions (Carry, Give, Let go). Opened from the pocket, with no route and no D key. |
 | (A) Pending finds on its spikes while you are away | **KEEP** | The return hook, visible at home and physical (hedgehogs and apples). Needs new spike-tip anchors. |
@@ -60,13 +63,13 @@ Most citations are accurate to the line: `Float` :199, `swimStep` :764, `pickSwi
 | (A) `/f/<code>` share links with metadata; (B) "Another Urchi" gifting | **KEEP WITH CHANGES** | A's route, B's gift framing ("It is a copy. Most gifts are."). The gift arrives as a parcel drifting in like a mote, with no second Urchi. |
 | (B) Another Urchi, a second figure meeting glove to glove | **CUT** | Two suited painters at once for a moment a parcel delivers just as well. |
 | (A) Share image (`opengraph-image.tsx`) | **KEEP** | Moved up to v1.5. It is the part of this feature that travels. |
-| (A) Salvage: the day's wreck, the same for everyone | **KEEP WITH CHANGES** | Becomes v2 "wreck days", merged with B's *his finished projects drift out here*. The pieces are relics. |
+| (A) Salvage: the day's wreck, the same for everyone | **KEEP WITH CHANGES** | Becomes v2 "wreck days", merged with B's *his finished projects drift out here*. The pieces are relics. *Decided: wreck days wait until one of his public repositories is archived or finished, with no fictional derelicts meanwhile (section 5; decisions, Space finds 4).* |
 | (A) Survey: a weekly world, cores, triangulation | **CUT** | The most game-like, L+ in effort, and it needs a new UI surface. Only the geode is grafted. |
 | (A) Geodes and crusts that open tomorrow | **KEEP WITH CHANGES** | One idea, not two: a geode takes one knock a day and opens on the third. |
 | (A) Dream finds | **CUT** | Replaced by B's asleep handover, which is better: you can take it without waking it. |
 | (A) / (B) Relics of his real projects | **KEEP** | The toy sends people to the work. Redesigned around the GitHub data he is importing now. |
 | (B) Past the line: drift, wrecks, moon, landing, revealed by stage | **KEEP WITH CHANGES** | The landing in v1.5; wrecks via wreck days in v2; the drift and the moon in v3. The sky types must widen first. |
-| (B) Urchi follows a shooting star with its whole head | **KEEP** | S effort, independent of finds, and pure aliveness. |
+| (B) Urchi follows a shooting star with its whole head | **KEEP** | S effort, independent of finds, and pure aliveness. *Ruled in the summary: built once, as Urchi §15's crossing event and `witness` act with its habituation; the finds add only where it came down (section 4).* |
 | (B) The lines you snapped, and knots | **KEEP** | Consequence and memory, answered with care, in two days. v1.5. |
 | (B) A letter in seven pieces | **KEEP** | Cheap writing that talks to returning visitors. v2. |
 | (B) The probe that blinks the monogram's rhythm | **KEEP WITH CHANGES** | v3, with a hint planted in Notes. Otherwise only its author will ever solve it. |
@@ -83,7 +86,7 @@ Most citations are accurate to the line: `Float` :199, `swimStep` :764, `pickSwi
 | (B) Constellations drawn with its eyes (11A) | **KEEP WITH CHANGES** | Strong, but it is about Urchi being alive, not about finds. Handed to that area with its spec intact (section 10). |
 | (B) Postcards after three days away (11B) | **KEEP WITH CHANGES** | Folded into pending finds as text ("Brought back on Tuesday, while you were out."). No offscreen render. |
 | (B) It names the planets | **CUT** | B cut it too, and rightly: naming is his job, not Urchi's. |
-| (A) "A tag, shifted" (a cipher find) | **KEEP WITH CHANGES** | Handed to the cybersecurity area, together with a code checksum ("A forgery. It can tell."). |
+| (A) "A tag, shifted" (a cipher find) | **KEEP WITH CHANGES** | Handed to the cybersecurity area, together with a code checksum ("A forgery. It can tell."). *Ruled in the summary: it stays a find, and its label links to Plaintext's Thursday strips once Plaintext exists; no cipher tool appears in Tools. The checksum stays a quiet check that nothing invites anyone to test (section 10).* |
 
 ---
 
@@ -102,11 +105,11 @@ Most citations are accurate to the line: `Float` :199, `swimStep` :764, `pickSwi
 | Making finds | Codes, tiers, context, the shape generators, the painter, sizes and weights | The content file, the materials table, the colour rules, dither from the hand | Hand-written types with seeded variation; colourway and checksum in the code |
 | The catalogue | Thirty specimen types and their business | Forty-eight captions, repeats, the label grammar | One table (2.5); duplicates removed; first-person fixes |
 | Presenting | The beat table, the rhythm trade, trust | Nine handovers, `wink`, `pleased` | "Take anyway" cut; trust also fed by the existing trust act |
-| Keeping and carrying | The pocket chip, spikes, the actions, sets, codes | The drawer, the thread, the phone pill, the per-tab table | No `/drawer` route; the phone pocket placed properly |
+| Keeping and carrying | The pocket chip, spikes, the actions, sets, codes | The drawer, the thread, the phone pill, the per-tab table | No `/drawer` route; the pocket placed properly (top right on every screen, as the summary rules) |
 | Sharing | `/f/<code>`, metadata, the share image | The gift framing | A parcel drifts in like a mote; checksum |
 | Later | Salvage, geodes, relics, let go as stars | Snapped lines, the letter, the probe, the landing, things that change, `npm run leave` | Staged into v1.5, v2 and v3 |
 
-**Prerequisite, before any of it:** set `TIME_ZONE` in `src/content/site.ts:16`. Otherwise Urchi's night is the visitor's night, and "Found by Urchi at 02:13, asleep afloat" is a lie about his time.
+**Prerequisite, before any of it:** set `TIME_ZONE = "Australia/Melbourne"` in `src/content/site.ts:16`, with a new `HEMISPHERE = "south"` on the line after it (decisions, item 1: his commits carry +10:00, and his public coursework is a Swinburne unit). Otherwise Urchi's night is the visitor's night, and "Found by Urchi at 02:13, asleep afloat" is a lie about his time. Every day in this section is his day, from new `src/lib/day.ts` (`today()`, falling back to UTC, never to the visitor's day).
 
 ### 1. The rules
 
@@ -119,7 +122,7 @@ If a later feature breaks one of these, the feature is wrong.
 5. **He narrates; it never speaks.** Captions are his first-person lines, at most 48 characters, with no exclamation marks. Labels are the site's third-person log. Urchi answers only with its face and hands.
 6. **Colour only where light is.** Eigengrau and ink stay the ground. Saturation lives in the eyes, the suit's two amber lights and a gem's lit facets.
 7. **Scarce by day, not by effort.** Three outings a day, ten minutes apart. Missing a week makes things better: up to three finds wait on its spikes. Nothing counts down.
-8. **One thing in your hand, twelve in the drawer** (the intro's ring of twelve). Choosing what to let go is the long game.
+8. **One thing in your hand, twelve in the drawer** (the intro's ring of twelve). Choosing what to let go is the long game. *The ring may change size with real images (the summary's first point); the drawer keeps twelve either way, because twelve is the drawer's own number and the rhyme is a bonus.*
 9. **Every find can be rebuilt from its code.** The same code always makes the same object, so a link *is* the find.
 10. **Reduced motion, sound off, a phone and his night all get the whole loop**, sometimes in another form, never less of it.
 
@@ -134,6 +137,7 @@ If a later feature breaks one of these, the feature is wrong.
 - It is not swimming (`limbs.swimming` is false).
 - `att.mood === "awake"`, `!att.listening`, and `clock().hours !== "night"`.
 - The document is visible, `!getFlags().transitioning`, and the page has begun (`begun >= 0`).
+- The page is not under `?still` (the house rule: every new random process is off there, so screenshots stay stable). `?outing=now` still sends it in development.
 - `today.n < 3` (two on a Sunday), and `Date.now() >= today.next`.
 - At least 40 s since the float-in settled (20 s for this browser's first outing ever).
 - No `setOff` has been postponed in the last two minutes.
@@ -195,13 +199,14 @@ If a later feature breaks one of these, the feature is wrong.
 
 **Pacing.**
 - Three outings a day (two on Sundays), at least ten minutes apart.
-- "A day" is the visitor's local day. "Night" is his, from `hours.ts`.
+- "A day" is his day, `today()` from new `src/lib/day.ts` (Australia/Melbourne, falling back to UTC), so the count turns over at his midnight for everyone, and a label's date agrees with its time. "Night" is his too, from `hours.ts`. *Ruled in the summary and decided (decisions, item 1): everything that has a day uses his day; `visitorDay()` answers only "new since your last visit".*
 - The day's first outing always brings something, and so do a browser's first two.
 - After that, one in three comes back empty, never twice running.
 - **Late** (his 23:00-00:59): empty returns are one in two.
 - **Pity:** after seven finds in a row below rare, rare's weight triples until a rare lands.
 - **Full use** gives about 2.3 finds a day, and a once-a-week visitor gets three waiting on the spikes.
 - **Resting.** On a day with no outings left, zooming out past 40% raises the caption once: **"Three times today. It is resting."**
+- **Decided: this pacing ships as designed**, and is revisited once, on Monday 23 November, after four weeks of `find_taken` counts (decisions, Space finds 5). If the counts show almost nothing taken after each browser's first find, people are not waiting long enough: the second outing then comes sooner, and the rates do not go up.
 
 **While he plays something.** It does not set out: it is listening, and listening comes first (B). If a song starts while it is out, it cuts the rummage short and swims back, with the find if the twitch has come and empty-handed if not. The status line is **"It came back for the song."** A find whose departure came within ten minutes of a song he played carries that song: its hue (below) and a label clause "just after he played Holocene." That uses `lastNow` and `hear()` (`CreativeSpacePanel.tsx:98`, :469).
 
@@ -249,7 +254,7 @@ Each rule is a weight on which find an outing returns and sets how Urchi hands i
 - **1.0** `att.look("you", "quick")`, `widen(0.06, 1.2)`, `holdBlinks(1.5)`.
 - **1.8** Back to the glove for 0.5 s, then to you. This is the `tug` rhythm (`acts.ts:29`): a child tugging a sleeve.
 - **2.6** The caption. It reads it and reacts.
-- **Taken:** the new reaction `pleased` (the `happy` face, held 1.2 s, not again for 10 s), then the `pat` quirk, three pats on its sides.
+- **Taken:** the new reaction `pleased` (the `happy` face, held 1.2 s, not again for 10 s), then the `pat` quirk, three pats on its sides. *Ruled in the summary: `pleased` is allowed only as a brief event, at most 1.2 s, with no notes rising and never from a hidden mood, so the rising notes keep meaning "he is playing music".*
 - **Not taken:** it runs `inspect` with the find, turning it over and looking at it, then `stow`s it (new quirk: the hand goes back to the pack by the line's clip, `PACK`, `Float.ts:53`). The find goes into the drawer anyway, with the label clause "It put it in its pack." On the next hover the caption reads **"It will show you again later."**
 
 **2. Sincere** *(phase 1)* (nothing, gold, a pebble, a battery, a spoon, basalt, comet ice)
@@ -274,9 +279,9 @@ Each rule is a weight on which find an outing returns and sets how Urchi hands i
 - **Asked** (a click, or Enter). It looks at you and blinks **a short rhythm of its own**:
   - Three or four beats, gaps 250-700 ms seeded by the code, built with `plan(gaps, start, reduced, true)` (`Call.ts:69`), with soft pats if sound is on.
   - Tap it back on the empty sky within 15 s. Afloat, those taps already reach `call.tap`. A new `Call.expect(gaps, onMatch)` sets the version to compare, the way the third answer's own beat does, and `matches()` (`Call.ts:93`) judges it: each gap within 25% or 90 ms.
-  - **A match** plays the `trust` act (`acts.ts:455`). It takes the thing out again and offers it the sincere way, and trust rises by 0.1.
+  - **A match** plays the `trust` act (`acts.ts:455`). It takes the thing out again and offers it the sincere way, and trust rises by the trust act's own +0.15 (Urchi §12.1), written once to `eigengrau:urchi`, not a second +0.1 of the finds' own.
   - **No match, or no try:** nothing happens. It stays in its pack (`store.urchi`).
-- **Later** (new act `giveKept`). Once persistent trust is at least 0.6, at most once a week, on the day's first float-in, it reaches back to its pack, takes the thing out and offers it the sincere way. Caption: **"It has decided you can have it."** Label opinion: *"It kept it for itself, and then it did not."*
+- **Later** (new act `giveKept`). Once persistent trust (the one value in `eigengrau:urchi`) is at least 0.6, at most once a week, on the day's first float-in, it reaches back to its pack, takes the thing out and offers it the sincere way. Caption: **"It has decided you can have it."** Label opinion: *"It kept it for itself, and then it did not."*
 - You are never locked out, only delayed. There is no "Take anyway".
 
 **5. Wary** *(phase 1)* (a spring, something spikier than itself)
@@ -304,7 +309,7 @@ Each rule is a weight on which find an outing returns and sets how Urchi hands i
 - There are no outings at night; it dozes afloat (`Float.ts:853`).
 - **Once a night per browser**, after 90 s of watching it doze afloat with the tab visible, a small thing drifts in from the edge of the room at mote speed (4-12 px/s, `Motes.ts`).
 - Its sleeping glove closes round it over 3 s. This is `reachFor` with a slow ramp, and `limbs.setAsleep` already slows everything.
-- **You can take it without waking Urchi.** A click on the glove (hit-tested before the head) takes the find. A click on the head wakes it, and it glares as it does now (`wake`, `CreativeSpacePanel.tsx:192`).
+- **You can take it without waking Urchi.** A click on the glove (hit-tested before the head) takes the find. A click on the head wakes it (`wake`, `CreativeSpacePanel.tsx:192`). The night's first wake in a browser is the softer one decided for package one: heavy lids and a slow blink, not the glare at `CreativeSpacePanel.tsx:195`. It glares only at a second wake the same night. *Ruled in the summary (bet one) and decided (decisions, item 6).*
 - **Captions.** Over the head, it is still "It is 2:13 here. It is asleep." (`URCHI_STATES.asleep`). Over the glove: **"It found this in its sleep."** If you take it after it wakes: **"A dream, probably. It woke up holding it."**
 - **Label:** "Found by Urchi at 02:13, asleep afloat."
 - **Reduced motion:** no reach; the thing appears in the glove through the dither.
@@ -314,7 +319,7 @@ Each rule is a weight on which find an outing returns and sets how Urchi hands i
 - **Ice:** handed over fast, as you would something cold, with the `wiggle` feet; one mote-sized drop falls off it.
 - **Gems:** the visor's sheen tints toward the gem's hue for the beat (`sheen`, `character.ts:1815`, which takes a tint).
 - **Messages:** the `read` act with word points along the tag.
-- **The key:** it looks at each tab pill in turn for a lock (`glanceAt(pillAt(href))` × 5).
+- **The key:** it looks at each tab pill in turn for a lock (`glanceAt(pillAt(href))` × 5), every pill but the Desk's. *Decided: a look at the Desk pill keeps its one meaning, that a new game, tool or paper has landed there (summary, reconciliation 4). This changes if that look is ever dropped.*
 - **The glove:** it holds the glove against its own (new quirk `compare`).
 - **The small diamond:** it squints (`setRestLid(0.4)` for 2 s).
 - **The watch:** a `tap` on it, then held by the side of the helmet at the `cheeks` quirk's place, as if to listen.
@@ -355,7 +360,7 @@ export type FindType = {
 
   | Field | Bits | What |
   |---|---|---|
-  | day | 13 | the day index since 2026-01-01 |
+  | day | 13 | the day index since 2026-01-01, in his day (`day.ts`) |
   | hour | 5 | his hour |
   | sky | 2 | the sky variant |
   | song | 5 | the song's hue bin: 0 for none, 1-24 the 24 hue bins `tone.ts` reads covers into (`BINS`, :102) |
@@ -363,7 +368,8 @@ export type FindType = {
   | variant | 2 | reserved |
   | colourway | 7 | the index into `COLOURWAYS`, 100 of them (`character.ts:379`) |
 
-- **The seed** is `subSeed(hashSeed(salt), "${day}:${n}")` (`sky/tune.ts:58`, :78): unique to this browser, this day and this outing. Pending finds use `"${day}:away:${k}"`.
+- **The seed** is `subSeed(hashSeed(salt), "${day}:${n}")` (today in `sky/tune.ts:58`, :78; both move to new `src/lib/random.ts`, the one PRNG and hash frozen by a golden test, and `tune.ts` re-exports them): unique to this browser, this day and this outing. Pending finds use `"${day}:away:${k}"`.
+- **The salt** is derived from the browser's one seed in `eigengrau:urchi` (`subSeed(hashSeed(seed), "finds")`), not rolled and stored a second time. *Ruled in the summary: one trust, one seed, both in `eigengrau:urchi`; `random.ts`, not `src/lib/seed.ts`, because `sky/seed.ts` already means visit seeds.*
 - **The check** is `hashSeed(rest) % 1296`. It detects a typo'd or hand-made code. It is honest integrity, not authenticity: anyone can compute it, and the copy never pretends otherwise (2.9).
 - **The song's title is not in the code.** The owner's drawer keeps it in `Kept.song`. A shared find's label falls back to "just after he played something."
 
@@ -378,10 +384,10 @@ export type FindType = {
 |---|---|---|---|
 | Warm sky (1 in 12) | `sky.variant === "rare"` (`Sky.ts:64`) | gold ×2.5 | "under a warm sky." |
 | Milky Way (1 in 5) | `"uncommon"` | ice ×1.5, the rare ×2 | "under the Milky Way." |
-| A star fell (1 in 50 skies, and it actually crossed) | new `Stars` crossing event | makes *a piece of a shooting star* possible; very rare ×2 | "where a star came down." |
+| A star fell (1 in 50 skies, and it actually crossed) | the one shared crossing event, new `Stars.onShot` (Urchi §15) | makes *a piece of a shooting star* possible; very rare ×2 | "where a star came down." |
 | He played something in the last ten minutes | `lastNow`, `playing` | gems ×1.3; a gem's hue is the record's (`toneNow(coverId)`, `tone.ts:293`) | "just after he played Holocene." (a title over 24 characters becomes "just after he played something.") |
 | Late (his 23:00-00:59) | `clock().hours === "late"` | ice ×1.4, messages ×1.5, living ×1.5; empty returns one in two | "late, for him." |
-| Monday (visitor's) | | rubbish ×1.6 | "Monday. Mostly rubbish." |
+| Monday (his, from `day.ts`) | | rubbish ×1.6 | "Monday. Mostly rubbish." |
 | Friday | | gold ×1.3 | none |
 | Sunday | | rare ×1.2; two outings | none |
 | Days known | `store.days.length` | very rare ×(1 + 0.05 × days), at most ×2 | none |
@@ -413,7 +419,7 @@ export type FindType = {
 - **It repaints only on a pose change of more than half a degree**, which is the character's own rule ("A frame that would draw what is already there is not painted again").
 
 **Colour** (B):
-- **Gems are saturated only on lit facets.** Facets turned from the light are near eigengrau, tinted by the hue at chroma ≤ 0.03. Facets square to the light reach the gem's chroma, capped at 0.12 in OKLab so they sit with the eyes, not above them. The single most-lit facet is nearly white.
+- **Gems are saturated only on lit facets.** Facets turned from the light are near eigengrau, tinted by the hue at chroma ≤ 0.03. Facets square to the light reach the gem's chroma, capped at 0.12 in OKLab so they sit with the eyes, not above them. The single most-lit facet is nearly white. *Decided: the cap is new `GEM_CHROMA = 0.12` in `src/engine/finds/`, and gold keeps to it too. It drops to 0.09 if, at 10% zoom, dithered and pixelated, a gem reads as an interface accent (decisions, Space finds 1).*
 - **Gold is the sky's gold.** Its ramp runs `[96,74,40]` to `[242,214,150]` (the sky's `#f2d596`, sparkle tint `#f6d48f`, `sky/defaults.ts`). In shade it turns toward amber, never olive, via `amberTurn` (`tone.ts:377`, exported). Never `#FFD700`.
 - **Rubbish may have one faded colour** at chroma ≤ 0.03 (`CAPS.preview.C`, `tone.ts:341`): the colour of a crisp packet left in the sun for a year.
 - **The eye gem's hue is `hue(labOf(iris))`** (`tone.ts:79`, :48): the one saturated find matches the one saturated thing always on screen.
@@ -488,7 +494,7 @@ The name is set in serif and the caption in his voice. Every caption has been ch
 | 35 | A frozen drop. | A frozen drop. Nobody made it that round. | slowBlink | proud | cross-eyed at chest height (`converge(1)`) | near-sphere, 20 pts | uncommon | | 2 |
 | 36 | A feather. | A feather. There are no birds. It checked. | lookAround | puzzled | | line-drawn | uncommon | | 2 |
 | 37 | A mission patch. | A patch from a mission nobody remembers. | lookAround | puzzled | looks at you as if you might | disc, decal ring | uncommon | | 2 |
-| 38 | A capsule, sealed. | A capsule. There is a line inside. | longBlink | reverent | reads the line inside (`read` over the text), then shows you; lines are his to write | parts capsule | uncommon | messages | 2 |
+| 38 | A capsule, sealed. | A capsule. There is a line inside. | longBlink | reverent | reads the line inside (`read` over the text), then shows you; the line is one of his five `URCHI_LINES` (`site.ts:58-64`) not shown this visit, until new `CAPSULE_LINES` holds lines he writes (decided) | parts capsule | uncommon | messages | 2 |
 | 39 | A meteorite. | A meteorite. It came a long way to be held. | longBlink | reverent | medium "Chondrite, fusion-crusted."; opinion "Older than the Earth, give or take." | rock, crust, cut face | rare | | 2 |
 | 40 | Iron, etched. | Iron, etched. It is tracing the lines. | slowBlink | reverent | small pupil flicks along the crosshatch; opinion "The lines took a million years to cool." | rock, crosshatch | rare | | 2 |
 | 41 | Pallasite, sliced. | Pallasite. From the middle of something. | longBlink | reverent | | tabular, olivine in metal | rare | | 2 |
@@ -498,14 +504,14 @@ The name is set in serif and the caption in his voice. Every caption has been ch
 | 45 | A watch, stopped. | A watch. Stopped at 4:17. It is listening. | puzzled | puzzled | `tap`, then by the side of the helmet; the time is seeded | parts watch | rare | | 2 |
 | 46 | A seed. | A seed. Nothing grows out here. It is trying. | slowBlink | keeps | | line-drawn | rare | grows (2.12) | 2 |
 | 47 | A moth, asleep. | A moth, asleep. It is being very quiet. | slowBlink | reverent | breath held long (`holdBlinks(4)`) | line-drawn | rare | late or night | 2 |
-| 48 | A key. | A key. There is no door out here. | lookAround | puzzled | looks at each pill in turn for a lock | parts key | very rare | | 2 |
+| 48 | A key. | A key. There is no door out here. | lookAround | puzzled | looks at each pill in turn for a lock, all but the Desk's | parts key | very rare | | 2 |
 | 49 | Sapphire, star. | A sapphire. It has a star in it, like yours. | wink | keeps | | cab, blue, a six-point glint in the sky's style | very rare | | 2 |
 | 50 | A diamond, very small. | A diamond, very small. It is squinting. | puzzled | puzzled | lids to 0.4 | octa, 2 mm | very rare | | 2 |
 | 51 | A tag, shifted. | A tag, the letters shifted. I would know. | puzzled | puzzled | reads it; handed to the cybersecurity area (section 10) | flat tag, glyph decals | very rare | | L |
 | 52 | Gems, when a bolt is kept | A gem. It would rather have had the bolt. | glanceAway | sincere | | as the gem | uncommon | drawer has a bolt | 2 |
 | 53 | A piece of eigengrau. | A piece of eigengrau. It is very still. | longBlink | keeps | opinion "The grey you see with your eyes shut."; with sound on, the room goes quiet (2.10) | hull in `#16161d`, only its rim | once | | 2 |
 | 54 | The other glove. | The other glove. Now it has a pair. | slowBlink | proud | joins #30 as one entry | its mitten, other hand | once | after #30 | 2 |
-| 55 | A USB stick. | A USB stick. My first project is on it. | puzzled | reverent | the label links to that project's case page | parts | once | | L |
+| 55 | A USB stick. | A USB stick. My first project is on it. | puzzled | reverent | the label links to that project's case page; "my first project" is computed, the public project with the earliest `start` (decided), never a private one | parts | once | | L |
 | 56 | A pencil. | A pencil. It writes upside down. | puzzled | puzzled | | parts | once | | 2 |
 | 57 | Chrome. | Chrome, from whatever lived here before it. | slowBlink | reverent | label "It lived here until 24 September. Urchi never met it." | faceted drop, banded sky/floor ramp | once | | 2 |
 | 58 | A burrito. | A burrito. It was free. | slowBlink | proud | label medium "Tortilla, mostly." | line-drawn | (fixed) | 28 September, once a year | 2 |
@@ -534,6 +540,7 @@ The packet's second line changes its handover from `hidden` to `sincere`: *it ha
 - It leaves the glove: the hand opens (`wrBend` −20) and the find keeps the hand's velocity for a frame.
 - With sound on, `sfx.pat` plays at 0.6, its own blink-beat, like a handshake.
 - `store.held` is set. The live region says "You are carrying the bolt."
+- One named event is counted, `find_taken { tier }`, through new `src/lib/count.ts` (Umami, cookieless, proxied same-origin under `/u/`, nothing sent under Do Not Track or Global Privacy Control), and `/kept` prints it exactly as sent. The tier travels only in that event; it never reaches the screen, so rule 3 holds. *Decided (decisions, item 7): it is what the pacing review on 23 November reads.*
 - Urchi watches it go. A new target kind `"carried"` (weight 1.1, or 1.4 for round things) holds for a minute, with its novelty spiking whenever you move it. It checks that you still have it, the way a cat checks a toy it dropped at your feet.
 
 **On a desktop: a short thread** (B).
@@ -541,20 +548,21 @@ The packet's second line changes its handover from `hidden` to `sincere`: *it ha
 - Over a link or button, it lifts 12 px so it never covers the thing you are about to click.
 - **It never pesters** (A). After 6 s of stillness, or when the pointer leaves the window, it goes to the pocket over 0.6 s.
 - New `src/components/chrome/Carried.tsx`: one fixed 2D canvas of at most 64 CSS px, above the page row and under the chrome (`z-index` 9000; the chrome is at 9999). It listens to `pointermove` on the window, is painted by `paint.ts`, and repaints only when the find's turn changes.
-- **It stays under the pointer while the pages slide beneath it.** Press "5" while carrying and it travels with you.
+- **It stays under the pointer while the pages slide beneath it.** Press "6" while carrying and it travels with you to About. *Ruled in the summary: with the Desk third, About's key is 6, not 5; the digits come from `src/lib/keys.ts`.*
+- **On the Desk it goes into the pocket at once** (over the same 0.6 s), and never hangs under the pointer there, on any screen. The boards own the pointer, and Same Grey is literally a test of what sits beside a grey. It plays no arrival cue there. On the Desk a click on the pocket opens the drawer rather than taking the find out; off the Desk, the pocket hands it back as usual. *Ruled in the summary (reconciliation 3).*
 
 **On a phone: from the active pill** (B).
-- There is no pointer, so a tapped find hangs on the same thread from the active tab's pill (`pillAt(href)`, `attention.ts:118`). When the tabs slide, the pill moves and the find swings.
+- There is no pointer, so a tapped find hangs on the same thread from the active tab's pill (`pillAt(href)`, `attention.ts:118`). When the tabs slide, the pill moves and the find swings. The pill is the lit one, `pillOf(path)` in new `src/lib/routes.ts`, so on a case page it hangs from Projects. Arriving on the Desk, it goes into the pocket instead (above).
 - Tapping the hanging find puts it in the pocket.
 
 **The pocket** (A, with the placement fixed).
-- A 28 × 24 glass chip, the same size as the sound chip (`.sound-chip`, `globals.css:201`), with the site's one glass and one radius.
+- A 28 × 24 glass chip, the size the sound chip is today (`.sound-chip`, `globals.css:201`), with the site's one glass and one radius.
 - **It does not exist until the first time you take something.** That is a hidden behaviour of its own.
-- **Where it sits.** On a desktop: `top: 8px; right: 44px`, left of the sound chip with one 8 px gutter. At 1024 px and below, where the sound chip is hidden: `top: 8px; right: 8px`, the sound chip's empty place.
+- **Where it sits.** `top: 8px; right: 8px` on every screen: the top-right corner the sound chip gives up when it moves into the nav (Style R4). *Ruled in the summary: this replaces the first plan (on a desktop `right: 44px`, left of the sound chip; at 1024 px and below, the hidden chip's empty place).*
 - It shows the held find's silhouette at 12 px with its rim, or a 1 px ink hairline square at 40% when your hand is empty. A second dot appears when a thirteenth find is waiting.
 - **A click** takes the find back out to your hand. With nothing held, it opens the drawer.
 - `aria-label`: "Carrying the bolt. Open the drawer." or "Open the drawer."
-- New `src/components/chrome/Pocket.tsx`, mounted in `Shell.tsx` beside `SoundChip` (:199).
+- New `src/components/chrome/Pocket.tsx`, mounted in `Shell.tsx` where `SoundChip` is today (:199), once the chip has moved into `Nav.tsx`.
 
 **Putting it down:** click the find once on any tab (it dithers into the drawer), use the drawer's "Put back", or set it down at a place (2.8).
 
@@ -566,10 +574,10 @@ The packet's second line changes its handover from `hidden` to `sincere`: *it ha
 
 **Pitch.** A specimen drawer of twelve compartments, one for each piece of the intro's ring, where finds lie on eigengrau with museum labels.
 
-**How it opens.** From the pocket, on any tab. It is a `role="dialog"` with `aria-modal`, a focus trap, and Esc to close. Esc is stopped there, so Notes' clear and Projects' wind-back do not also fire while it is open.
+**How it opens.** From the pocket, on any tab. It is a `role="dialog"` with `aria-modal`, a focus trap, and Esc to close. Esc is stopped there, so Notes' clear and Projects' wind-back do not also fire while it is open. The drawer claims Esc and the digits through new `src/lib/keys.ts`'s claim stack (the summary's one capture-phase listener), so on the Desk its Esc closes the drawer before it takes the Desk up a level.
 - It slides down from the pocket's corner on the one grey glass (`rgba(40,40,47,.5)`, 40 px blur, 4 px radius), over 420 ms on `--ease-inout`.
 - On a phone it is a full-height sheet.
-- Urchi at home keeps watching over its lower edge.
+- On Space, Urchi at home keeps watching over its lower edge. Opened on the Desk, it is only the drawer: Urchi never comes to the Desk.
 
 **The layout.**
 - Twelve compartments: 4 × 3 on a desktop (132 px each, about 560 px wide), 2 × 6 on a phone.
@@ -629,32 +637,33 @@ While you carry something, the places that accept it show a thin ring on a phone
 
 | Where | Cursor word | What happens | Kept as | Phase |
 |---|---|---|---|---|
-| **About**, after "things." | "Leave it here" | **It becomes the full stop** (B): "the small things" and then a bolt, at the stop's size and baseline. The Urchi mark after it glances at it now and then (`AboutScene`'s `GAZE`, :31). Feasibility: the stop is split out of the last line's troika `Text`, and a plane textured by `paint.ts` sits at its caret box, placed by the same code that places the mark (`MARK`, :23). The screen-reader text becomes "the small things, and a bolt." Setting another there swaps the old one into the drawer. | `placed.about` | 1 |
+| **About**, after "things." | "Leave it here" | **It becomes the full stop** (B): "the small things" and then a bolt, at the stop's size and baseline. The Urchi mark after it glances at it now and then (`AboutScene`'s `GAZE`, :31). Feasibility: the stop is split out of the last line's troika `Text`, and a plane textured by `paint.ts` sits at its caret box, placed by the same code that places the mark (`MARK`, :23). The screen-reader text becomes "the small things, and a bolt." Setting another there swaps the old one into the drawer. Once Sky ships (week 4), "the small things" is a link to the Tools drawer; the full stop stays the finds', outside the link (decisions, Music, About and Notes 4). About's foot stays at two lines. | `placed.about` | 1 |
 | **Space, at home**, on a spike | "Give it back" | It rests on one of three side spikes, as a mote rests (`Motes.ts:312-318`, `restOn`), and Urchi blinks at it twice. It looks up at it after each breath for a while. Needs new `URCHI_SPIKES` (three side-spike tips, taken from the head mesh's protrusion vertices, as `build-suit.mjs` finds them) and a new `room.onHead(mx, my)` mapping for the pose at home (`RoomScene.ts:355-366`). **Taking Urchi with you folds its spikes** (`tuck`, `SUIT_BUILD`), so anything perched goes into its pack, and the drawer notes: "It put them in its pack." | `spikes` (why "placed") | 1 |
 | **Space, afloat**, near Urchi | "Give it back" | It reaches for it (`reachOut`, `Float.ts:740`, as it reaches for a still pointer) and takes it in its glove. Gems get `pleased`; rubbish gets "><" (*you brought that back?*). If it is the thing it once kept for itself: **"It wanted to hold it again."** It stows it as *its own*. Trust +0.05. | `urchi` | 1 |
-| **404** | none | "Nothing here." becomes "Nothing here. Except a bolt." A tiny client child in `not-found.tsx` reads `store.held`. | none | 2 |
+| **The Desk** (`/desk`, `/today`, `/tools`, `/security`) | none | Nothing is set down here. The find goes into the pocket at once and never hangs under the pointer (2.6). *Ruled in the summary (reconciliation 3).* | none | 1 |
+| **404** | none | "Nothing here." becomes "Nothing here. Except a bolt." A tiny client child in `not-found.tsx` reads `store.held`. It sits in Style R8's 404 (the sanitised path, the six tabs as words plus "Colophon"), as the summary's reconciliation 9 has it. | none | 2 |
 | **Notes** | "Set it down" | It settles at the foot of the column like a paperweight, and the heading gains a clause: "Two since September: two random. And a bolt." The client side appends to `indexSentence` (`notes.ts:113`). A letter strip set down here reads as one of the notes, dated the day it was found. | `placed.notes` | 2 |
 | **Music** | "Leave it in the room" | It takes the room's colour: a gem's lit facets bend to the record's tone (`bend`, `tone.ts:392`). With no record on, a gem lends the room its own colour at preview strength (`CAPS.preview`). Copy: "No record on. The room takes the gem's colour." Under an open door, a crystal's glass ring loops at 5%. | `placed.music` | v2 |
 | **Projects** | "Tie it on" | It clips to the loose end at the top (now) as a bead that sways with the ball. A relic hung on its own project's mark settles there with that project's pluck. This needs `ThreadScene` internals (`NOVA_EVENT` has no listener to lean on). | `placed.projects` | v3 |
 
 #### 2.9 Gifts
 
-**Pitch.** Any find can be given as a link. Whoever opens it gets a copy, delivered by their own Urchi's room.
+**Pitch.** Any find can be given as a link. Whoever opens it gets a copy, delivered by their own Urchi's room. *Decided: gifts are copies ("It is a copy. Most gifts are."), not look-but-don't-keep, because copies travel better (decisions, Space finds 3; new `GIFT = "copy"` in `finds.ts`).*
 
 **How it works.**
-1. In the drawer, **Give** copies `https://<site>/f/<code>`.
+1. In the drawer, **Give** copies `https://<site>/f/<code>`, where `<site>` is `SITE_URL`, read from `NEXT_PUBLIC_SITE_URL` (the Vercel production URL until the domain is bought; a production build fails while it is unset or still `.example`).
 2. New route `src/app/f/[code]/page.tsx`:
    - `generateMetadata` decodes the code (pure `findOf`, no server data). The title is the find's name ("Quartz, smoky.") and the description its opinion line, so a link unfurls as the thing itself.
    - The page then runs `location.replace("/?find=<code>")` in the browser. A server redirect would make unfurlers read `/`'s metadata instead.
-   - Putting `generateMetadata` on `/` itself would make the home page dynamic, which is why this is a route of its own.
-3. On `/?find=`, after the eyes open plus 2 s:
+   - Putting `generateMetadata` on `/` itself would make the home page dynamic, which is why this is a route of its own. *Once the CSP moves to nonces every page renders dynamically anyway (summary, "The CSP's first form"). The route still earns its place: `opengraph-image.tsx` receives `params`, never `searchParams`, so a find's own card needs a path, and canonicals are set per route, never on the root layout.*
+3. On `/?find=`, after the eyes open plus 2 s. The parcel is that visit's one arrival act: it comes first in the summary's order (a gift parcel, the news look, the rhythm greeting, recognition), and the others wait for another visit.
    - **At home:** a small parcel (the find in a paper wrap, faceted in `fabric`) drifts in from the right edge at mote speed and comes to rest on a spike. The mote physics and `restOn` do this already. Urchi blinks at it twice. Caption: **"Urchi / Someone sent you this."** Cursor word: "Take". Taken, the wrap dithers off and the find is presented the sincere way.
    - **Afloat:** the parcel comes along a second thin line from the right edge into its glove. The line is a plain `Ribbon` with no physics beyond a sag.
 4. The gift goes into the drawer with `origin: gift`. Label: "Given, 29 September. It is a copy. Most gifts are."
 5. A browser opens the same link once (`store.gifts`); a second open shows the parcel's caption as "You have this one."
 6. Gifts never count toward once types, so gifting cannot be used to farm them.
 
-**A bad check** (a typo, or someone minting a piece of eigengrau by hand): the parcel arrives, Urchi looks at it and glares at *it* (`react("angry")` aimed at the parcel, not at you), and it dithers away. Caption: **"A forgery. It can tell."** The check is a 1-in-1296 integrity check, not a signature. The cybersecurity area can decide whether to make that honesty into a point (section 10).
+**A bad check** (a typo, or someone minting a piece of eigengrau by hand): the parcel arrives, Urchi looks at it and glares at *it* (`react("angry")` aimed at the parcel, not at you), and it dithers away. Caption: **"A forgery. It can tell."** The check is a 1-in-1296 integrity check, not a signature. *Decided: it stays a quiet check. Nothing on the site invites anyone to try it, and no light, game or paper asks for a forged code, because security here is defensive only (decisions, Space finds 3; section 10).*
 
 **Phone:** the same, with the parcel on a spike. **Reduced motion:** the parcel dithers in on the spike. **Night:** the parcel still comes, and the glove variant applies ("It found this in its sleep.").
 
@@ -699,13 +708,15 @@ Off by default. All synthesised, in the bed's F G A C D. With sound off nothing 
 
 #### 2.11 Trust (hidden, from A, fed by the existing call)
 
-- **Range:** 0 to 1, starting at 0.2. It is never shown. Affinity is felt, not read.
+*Ruled in the summary (reconciliation 5): trust lives once, in `eigengrau:urchi` (new `src/engine/urchi/memory.ts`), with the model in Urchi §12.1. The finds keep no trust of their own. Their events (the keeps trade, giving a find back, taking a reverent one, a snapped line) feed that one value, and the thresholds below read it.*
+
+- **Range:** 0 to 1, starting at 0.2, and decaying toward 0.2 between visits (`T ← 0.2 + (T − 0.2)·e^{−days/30}`, Urchi §12.1). It is never shown. Affinity is felt, not read.
 - **Goes up:**
-  - +0.05 per day known (once a day)
-  - +0.1 when its own rhythm is tapped back, whether in the keeps trade or **the existing Call's third answer** (the `trust` act, `acts.ts:455`). One line in `Call` writes it.
+  - Days known no longer add trust directly (the first draft had +0.05 per day known). Coming back is rewarded by §12.1's own sources: strokes, calm company and a slow blink met with stillness.
+  - +0.15, §12.1's figure, when its own rhythm is tapped back, whether in the keeps trade or **the existing Call's third answer** (the `trust` act, `acts.ts:455`). One line in `Call` writes it, once.
   - +0.05 when you give something back afloat
   - +0.05 when you take a reverent find
-- **Goes down:** −0.05 when a throw snaps its line (`fl.thrown`, `Float.ts:272`).
+- **Goes down:** −0.1 per line snapped, §12.1's figure, written once (the first draft had −0.05 when a throw snaps its line, `fl.thrown`, `Float.ts:272`). A night waking costs §12.1's −0.15, not the finds'.
 - **It governs:**
   - once types (≥ 0.5)
   - `giveKept` (≥ 0.6, weekly)
@@ -720,17 +731,17 @@ Off by default. All synthesised, in the bed's F G A C D. With sound off nothing 
 
 #### 2.13 Persistence
 
-One key, versioned, with every access guarded in the pattern of `along.ts` and `sky/seed.ts`. Private mode keeps it in memory for the page's life. New `src/engine/finds/store.ts`. A second tab sees `out` through the `storage` event and shows the same outing rather than starting one.
+One key, versioned, with every access guarded in the pattern of `along.ts` and `sky/seed.ts`. Private mode keeps it in memory for the page's life. New `src/engine/finds/store.ts`, built on the shared `keep("finds", …)` from new `src/lib/store.ts` (versioned, guarded, kept in step across browser tabs), not on its own storage code. A second tab sees `out` through the `storage` event (which `keep()` already listens to) and shows the same outing rather than starting one. *Ruled in the summary: storage goes through `store.ts`; the key goes into the README's list and onto `/kept`; trust and the seed live in `eigengrau:urchi`, not here.*
 
 ```ts
 // localStorage["eigengrau:finds"]
 type Kept = { code: string; at: number; eyes: string; song?: string; pack?: true; gone?: number; given?: number };
 type FindsV1 = {
   v: 1;
-  salt: string;                        // six base-36 chars, rolled once per browser (rollSeed, sky/seed.ts:24)
+  // no salt here: it is derived from eigengrau:urchi's seed, subSeed(hashSeed(seed), "finds") (2.4)
   first: number;                       // first visit, ms (the letter's date, v2)
-  days: string[];                      // YYYY-MM-DD this browser was here (last 60): "days known"
-  trust: number;                       // 0..1 (2.11)
+  days: string[];                      // YYYY-MM-DD in his day (day.ts) this browser was here (last 60): "days known"
+  // no trust here: it lives once, in eigengrau:urchi (2.11)
   dry: number;                         // finds since the last rare or better (pity)
   today: { day: string; n: number; next: number; lastEmpty: boolean };
   out: { code: string; left: number; found: number | null; back: number; far: [number, number] } | null; // wall ms
@@ -752,7 +763,7 @@ type FindsV1 = {
 };
 ```
 
-Under 3 KB even when full. `migrate(raw)` upgrades older shapes, and anything unreadable starts fresh.
+Under 3 KB even when full. `migrate(raw)` upgrades older shapes (it is the `read(data, from)` that `keep()` takes), and anything unreadable starts fresh.
 
 **Wall time, not the panel's clock.** `out` stores wall times. `outing.resume()` runs on mount and when the tab comes back (`onVisibility`, `CreativeSpacePanel.tsx` about :540):
 - **Still out:** it is placed at the right depth for the time elapsed.
@@ -763,6 +774,8 @@ Under 3 KB even when full. `migrate(raw)` upgrades older shapes, and anything un
 **Pending while away.** On a visit's first load, for each whole day since the last visit (`lastVisit()`, `visits.ts:110`), up to three, it makes a find with origin `away` and puts it on a spike. Hover a spike: "Urchi / It kept these for you." Label: "brought back on Tuesday, while you were out."
 
 **Cheating** (clearing storage, changing the clock) just starts a new drawer or skips a wait. There is nothing to win, no leaderboard and no shared scarcity. The design only makes sure the honest path is the pleasant one.
+
+**Forgetting.** `/kept` lists `eigengrau:finds` and what it holds, beside `eigengrau:urchi`, and its "Forget me" button clears every `eigengrau:` key, the drawer included (decisions, item 6).
 
 #### 2.14 Rendering and budget
 
@@ -785,20 +798,22 @@ Under 3 KB even when full. `migrate(raw)` upgrades older shapes, and anything un
 | Case | What happens |
 |---|---|
 | **First visit** | The first outing waits only 20 s afloat and 8 s of stillness, rummages for 8-12 s and always brings the bolt: "A bolt. It thinks it is gold." Most first-timers who take Urchi afloat and leave it for a minute and a half see a whole outing |
-| **Phone** | The far point is upper middle; the far figure's hit area is at least 44 × 44 px; captions rise by themselves as `PHONE_CAPTION` does (:58); taking is a tap with a 24 px margin round the find; the find hangs from the pill; the pocket is top right; the drawer is a full-height sheet; far zoom is a pinch, which already works |
-| **Reduced motion** | Outings are a dither out and back where it floats (the float-in already is, `Float.ts:534`); handovers use lids, pupils and faces only; the find sits at the hanging glove; nothing swings, the drawer does not slide, finds do not turn; the dither still runs (a dither is not motion); all of it is still there |
+| **Phone** | The far point is upper middle; the far figure's hit area is at least 44 × 44 px; captions rise by themselves as `PHONE_CAPTION` does (:58); taking is a tap with a 24 px margin round the find; the find hangs from the lit pill (`pillOf`); the pocket is top right, as on every screen; the drawer is a full-height sheet; far zoom is a pinch, which already works; checked at 390 px and at 320 px, where the six pills leave the pocket its corner |
+| **Reduced motion** | Outings are a dither out and back where it floats (the float-in already is, `Float.ts:534`); handovers use lids, pupils and faces only; the find sits at the hanging glove; nothing swings, the drawer does not slide, finds do not turn; the dither still runs (a dither is not motion); all of it is still there. `Carried`, `Pocket` and `Drawer` watch `prefers-reduced-motion` live, as the house rules ask of DOM features |
 | **Sound off** | Silent. The twitch and the glint carry the moment |
-| **His night** | No outings. An outing under way when night starts finishes, and it comes back and dozes where it floats, holding the find; the presentation waits until you wake it, and it glares (the existing rule) and then remembers it has something for you. The asleep handover (2.3, #9) happens once a night |
+| **His night** | No outings. An outing under way when night starts finishes, and it comes back and dozes where it floats, holding the find; the presentation waits until you wake it. The night's first wake in a browser is the softer one (heavy lids, a slow blink; decisions, item 6), and only a second wake the same night glares; either way it then remembers it has something for you. The asleep handover (2.3, #9) happens once a night |
 | **Late (23:00-00:59)** | More empty returns; ice, messages and the moth lean up |
 | **While he plays something** | No outings; one under way comes back early: "It came back for the song." |
 | **Tab hidden, another tab, a reload** | Wall time; resume; "caught" if it is already back |
 | **Returning visitor** | Up to three finds on the spikes; the drawer as they left it, with changes (ice gone, the seed up); once types become possible |
-| **Two browser tabs** | The `storage` event; one outing shows in both |
+| **Two browser tabs** | The `storage` event, through `keep()`; one outing shows in both |
+| **On the Desk** | Urchi is never there. A carried find goes into the pocket at once and never hangs under the pointer; the pocket opens the drawer; nothing is set down (2.6, 2.8) |
+| **`?still`** | No outing starts, the rummage's searching turns stop, and carried finds do not swing, so screenshots stay stable (the house rule for every new random process) |
 | **Private mode** | Everything works for the page's life. Nothing is promised past it, and nothing says so |
 | **Zoomed when it leaves** | The depth is computed against the zoom, so the far figure is the same size whatever the zoom; zooming while it is out works (it is still "floating") |
 | **Window resized mid-outing** | The far point is stored as shares of the room |
 | **Screen reader** | Live lines in the existing region (:882): "Urchi has swum off to look for something." / "Urchi is back. It is holding a bolt." / "Urchi came back with nothing." / "You are carrying the bolt." / "Urchi is keeping it." / "The bolt is in the drawer." The control's name follows the state: "Call Urchi back", "Take the bolt from Urchi", "Ask Urchi what it is hiding", "Ask Urchi for the mote" |
-| **Debug (development only)** | `?outing=now` sends it at once; `?find=<code>` shows that find presented; `/dev/finds` (left out of production like `/dev/suit`) shows a grid of sixty-four seeds (`?cat=`, `?tier=`, `?seed=`, `?turn=`), and `?check=1` runs 100k draws (tier odds within 1%) and code round-trips in the page for Playwright to read; `__outing` is exposed on the stage element beside `__float` (:284) |
+| **Debug (development only)** | `?outing=now` sends it at once; `?find=<code>` shows that find presented; `/dev/finds` (left out of production like `/dev/suit`) shows a grid of sixty-four seeds (`?cat=`, `?tier=`, `?seed=`, `?turn=`), and the checks that were `?check=1` (100k draws with tier odds within 1%, and code round-trips) are Vitest golden tests beside `make.ts` and `code.ts`, with scripts under `tsx` (*ruled in the summary: one runner*); `__outing` is exposed on the stage element beside `__float` (:284) |
 
 #### 2.16 Implementation sketch
 
@@ -809,10 +824,11 @@ Under 3 KB even when full. `migrate(raw)` upgrades older shapes, and anything un
   - `make.ts`: `findOf`, the pick, pity.
   - `shape.ts`: the ported hull and polygons, and the recipes.
   - `paint.ts`: the Canvas 2D painter, ramps, rim, glint, and the JS Bayer.
-  - `store.ts`: `eigengrau:finds`.
+  - `store.ts`: `eigengrau:finds`, on `keep()` from `src/lib/store.ts`.
   - `context.ts`: `snapshot()`, reading the clock, sky variant, song and hue bin, weekday, days and colourway.
   - `FindSprite.ts`.
-  - Only relative imports inside this folder, so `/dev/finds` can load it without aliases.
+  - Only relative imports inside this folder, so `/dev/finds` can load it without aliases. *With Vitest as the one runner the alias works everywhere, so this is discipline, not necessity (summary, "Test runner"); the pure modules still import `random.ts` and `day.ts` from `src/lib/`.*
+  - `make.test.ts` and `code.test.ts` (Vitest): the golden draws and round-trips (2.15, Debug).
 - `src/engine/space/Outing.ts`:
 
   ```ts
@@ -834,6 +850,7 @@ Under 3 KB even when full. `migrate(raw)` upgrades older shapes, and anything un
 - `src/engine/space/Sketch.ts`: line-drawn finds, using `Marks`' geometry.
 - `src/components/chrome/{Pocket,Carried,Drawer}.tsx`.
 - `src/app/f/[code]/page.tsx`; `src/app/dev/finds/page.tsx`.
+- Shared, from the summary's foundations (built once, before finds): `src/lib/random.ts` (`hashSeed`, `subSeed`, `rng`, `seeded`), `src/lib/day.ts` (`today()`), `src/lib/store.ts` (`keep()`), `src/lib/keys.ts`, `src/lib/routes.ts` (`pillOf`), `src/lib/count.ts` (`find_taken`), and `src/engine/urchi/memory.ts` (`eigengrau:urchi`: trust and the seed).
 
 **Changed:**
 - `RoomScene.ts`: public `figureDepth = 1`, multiplied into `floatUnit` (:270), `urchi.zoom` (:483) and `cellFor` (:481); new `onHead(mx, my)` for the pose at home.
@@ -843,19 +860,19 @@ Under 3 KB even when full. `migrate(raw)` upgrades older shapes, and anything un
   - `lengthExtra` added to `length` (:313)
   - the far figure's click routed to `Outing.callBack`
 - `Tether.ts`: `twitch(strength)`; a width taper in `Ribbon.draw` (:101); the pixelated split (far half to `Cells`).
-- `attention.ts`: `TargetKind` gains `"far" | "find" | "carried"` (and `"shooting"` in v1.5), with `FLOOR` entries (:70) `far: 0.7, find: 0.5, carried: 0.4`; a public `bored` getter.
+- `attention.ts`: `TargetKind` gains `"far" | "find" | "carried"` (and, in v1.5, Urchi §15's `"shot"`, which the shared `witness` act already brings; the finds add no `"shooting"` kind of their own), with `FLOOR` entries (:70) `far: 0.7, find: 0.5, carried: 0.4`; a public `bored` getter.
 - `acts.ts`: `setOff`, `present(handover)`, `hide`, `keep`, `giveKept`, `wary`, `revere`, `puzzle`, `emptyHanded`, `stow`, written like the others (a generator, with a `finally` that puts back whatever it changed).
 - `limbs.ts`:
   - quirks `offer`, `behind`, `stow`, `cradle`, `armsLength`, `compare`, each checked on the rig at `/dev/suit?view=quirks&only=offer,stow`, as the others were
   - `swim(phase, hold?)`
 - `character.ts`: export `LIGHT` (hoisted) and `SUIT_COLOUR`; new `handAt(side)`.
-- `Faces.ts`: `Reaction` gains `"pleased"` (the `happy` face, hold 1.2 s, again 10 s).
+- `Faces.ts`: `Reaction` gains `"pleased"` (the `happy` face, hold 1.2 s, again 10 s; no notes rising, and never from a hidden mood, as the summary rules).
 - `site.ts`:
   - `UrchiReaction` gains `"wink" | "doubleBlink"`
-  - set `TIME_ZONE`
+  - set `TIME_ZONE = "Australia/Melbourne"` and add `HEMISPHERE = "south"` (decided)
   - a new `URCHI_LINES` entry once this ships: "It brings things back. Mostly bolts." (36 characters, reaction `glanceAway`)
-- `Call.ts`: `expect(gaps, onMatch)`, and one line in the trust path that raises persistent trust.
-- `CreativeSpacePanel.tsx`:
+- `Call.ts`: `expect(gaps, onMatch)`, and one line in the trust path that raises persistent trust in `eigengrau:urchi` (its header, `Call.ts:14`, is rewritten to match, as decided).
+- `CreativeSpacePanel.tsx` (*ruled in the summary: `src/engine/space/Space.ts` is extracted from this panel's effect first, in week 3, so the effect-side items below land in `Space.ts`, and only `RANK`, `SAID` and the React state stay in the panel*):
   - the `find` slot in `RANK` (:113)
   - `urchiWord` and `controlName` (:219), which check the outing first
   - hit-testing the find, the far figure and the spikes before Urchi in `onDown`/`onUp` (about :622, :664)
@@ -864,29 +881,32 @@ Under 3 KB even when full. `migrate(raw)` upgrades older shapes, and anything un
   - the new `SAID` lines
 - `AboutScene.ts`: the full stop.
 - `sfx.ts`: `find(kind)`; phase 2 synths.
-- `Shell.tsx`: mount `Pocket`, `Carried`, `Drawer` (:197-200).
+- `Shell.tsx`: mount `Pocket`, `Carried`, `Drawer` (:197-200); `Pocket` takes `SoundChip`'s place at :199 once Style R4 moves the chip into `Nav.tsx`.
 - `globals.css`: `.pocket-chip`.
 - `README.md`: a sentence in the Space row, and `eigengrau:finds` in the storage list (:106-113).
+- `/kept`: `eigengrau:finds` and what it holds, and the `find_taken` event exactly as sent.
 
 #### 2.17 Build plan
 
 **Phase 1: "It went and got something"** (about six working days)
 
+*Scheduled in the summary: the foundations (`random.ts`, `day.ts`, `store.ts`, `keys.ts`, `pillOf`) land in week 2, `Space.ts` is extracted in week 3, the spine (the outing, the bolt, carrying, About's full stop) lands in week 4 (19-25 October), and phase 2 begins in week 6 (2-8 November). Finds depend on Urchi's package one and the foundations (priorities 8 and 12).*
+
 | Day | Work | Done when |
 |---|---|---|
-| 1 | `finds.ts` (ten phase-1 types), `code.ts`, `make.ts`, `shape.ts`, `paint.ts`; `/dev/finds` | Sixty-four seeds look like one family, with the helmet's facets and Urchi's rim; each paint ≤ 0.3 ms; `?check=1` passes |
+| 1 | `finds.ts` (ten phase-1 types), `code.ts`, `make.ts`, `shape.ts`, `paint.ts`; `/dev/finds` | Sixty-four seeds look like one family, with the helmet's facets and Urchi's rim; each paint ≤ 0.3 ms; the Vitest golden tests pass (tier odds within 1% over 100k draws, code round-trips) |
 | 2 | `store.ts`, `context.ts`; `figureDepth`, `Float.drive`, `out`, `lengthExtra`; `Tether` twitch, taper and split | Playwright with `?outing=now`: shots at depths 1, 0.3 and 0.08 show it smaller, pixelated, and the line tapering to it; zoom still works while it is out |
 | 3 | `Outing.ts` (asking, leaving, out, found, back; resume by wall time; call back); `setOff`; the one-armed stroke; the glint | A reload mid-outing resumes; a tab return shows "caught" |
 | 4 | `FindSprite` with the dither from the hand; the handovers proud, sincere, hidden, keeps (with the trade), wary and empty; quirks `offer`, `behind`, `stow`, `armsLength`, `cradle`; `pleased`, `wink`; the caption slot, cursor words and control names | Each handover plays for each phase-1 type; reduced motion shows the find before the glove |
-| 5 | `Carried.tsx`, `Pocket.tsx`, `Drawer.tsx`; About's full stop; spikes (placed and pending) | Carry a find from Space to About with "5", set it down, and it is still there after a reload |
-| 6 | Phone paths, the sound mapping, the night rules, the live lines; lint, typecheck, screenshots of every state on desktop and phone; the README row | Every row of 2.15 is checked |
+| 5 | `Carried.tsx`, `Pocket.tsx`, `Drawer.tsx`; About's full stop; spikes (placed and pending) | Carry a find from Space to About with "6", set it down, and it is still there after a reload; on the Desk it goes straight into the pocket |
+| 6 | Phone paths, the sound mapping, the night rules, the live lines; `find_taken`; lint, typecheck, screenshots of every state on desktop and phone (390 px and 320 px); the README row and `/kept`'s line; one Notes log line ("Urchi goes out now, if you leave it alone.") | Every row of 2.15 is checked |
 
 **Phase 2: the rest of the loop** (about four days):
 - the reverent, puzzled and asleep handovers
 - the rest of the catalogue (#11-58)
 - repeats
 - gifts (`/f/`)
-- trust wiring into `Call`
+- trust wiring into `Call`, and the finds' events into `eigengrau:urchi`
 - things that change
 - 404 and Notes places
 - B's synth cues
@@ -896,7 +916,7 @@ Under 3 KB even when full. `migrate(raw)` upgrades older shapes, and anything un
 **What it shows about Darius:**
 - **Character direction.** Nine temperaments from existing hooks (lids, pupils, tilts, the owl's bob, quirks) without a single new face.
 - **Writing.** Sixty captions, repeats and labels in one consistent voice, which "Basic Human" undersells.
-- **Systems restraint.** Seeded, deterministic items with no server and no counters, and a reward that is a performance rather than a stat.
+- **Systems restraint.** Seeded, deterministic items with no server and no counters on screen (the one cookieless event, `find_taken`, is disclosed on `/kept`), and a reward that is a performance rather than a stat.
 - **Craft continuity.** One light, one rim, one dither and one glint shared by the head, the suit, the sky and now the finds.
 - **Accessibility as design.** Every beat has a reduced-motion form, a keyboard path and a spoken line.
 - **Curiosity.** He knows what a pallasite is.
@@ -950,36 +970,38 @@ Under 3 KB even when full. `migrate(raw)` upgrades older shapes, and anything un
 
 **Shows:** consequence and memory. The site remembers what you did to it and answers with care rather than a penalty.
 
-**Risks:** it could reward throwing. It does not: a snap is remembered, never scored, knots stop at three, and trust dips by 0.05.
+**Risks:** it could reward throwing. It does not: a snap is remembered, never scored, knots stop at three, and trust dips by Urchi §12.1's 0.1 per line snapped, in the one value in `eigengrau:urchi`.
 
 ### 4. v1.5: The star that fell (from B's landing and A's fallen star; S-M, two to three days)
 
 **Pitch.** On the rare nights a star crosses its sky, Urchi follows it with its whole head, looks where it came down, and goes there next.
 
+*Ruled in the summary (reconciliation 7): there is one crossing event and one `witness` act, Urchi §15's ("It saw it too"), with that section's habituation; the sky calendar's meteor showers use the same event. This section adds only the landing and the outing to it. Step 1 below is therefore §15's, not a second follower.*
+
 **How it works.**
-1. **Following it** (useful on its own, S). `Stars.shoot()` (`Stars.ts:429`) already computes the head's path into `uShootB`. A new getter, `shootingAt(): Point | null`, returns its place in room px. A new `TargetKind` `"shooting"` with a high floor (0.9) lets Urchi turn its whole head to follow it across the sky, at home or afloat.
+1. **Following it** (useful on its own, S). `Stars.shoot()` (`Stars.ts:429`) already computes the head's path into `uShootB`. The first draft added a getter, `shootingAt(): Point | null`, and a `TargetKind` `"shooting"` with a high floor (0.9). Instead it is Urchi §15's new `Stars.onShot(cb)` (start, heading, duration) with `Sky.clientOf(x, y, layer)`, and §15's `witness` act (kind `"shot"`) turns its whole head to follow the star across the sky, afloat (the sky is only there afloat). Its repeats are §15's: the first star in a visit gets the whole scene, the second and third a turn and a look to you, and after that a look only if it is already facing that way.
 2. **Where it came down.** When the star leaves the frame, Urchi looks at the spot a beat longer (1.2 s). A new `sky/Landing.ts` layer (one point; the sparkle's arm in the suit's `accent` amber; fading over the visit) marks it. **Caption, once:** "Where it came down. It is still warm."
 3. **Going there.** Its next outing's far point is the landing. It brings back **"A piece of a shooting star. Still warm."** with the reverent handover. Its breath slows, its blinks lengthen, and if you leave it be, it dozes off holding it.
 4. **The ember cools** from amber to rock over twenty minutes in the drawer. The next visit: "Cold now. It was warm on 29 September."
 5. **Sound** (on): the room goes quiet for four seconds (`sfx.air`, saved and restored as in 2.10). Then the glow.
 
-**Conditions.** A star must actually cross: this uses a new `onShoot` event from `Stars`, not `sky.variant`. **Reduced motion:** no star is drawn, so none of this happens. That is honest, and it is the one place a reduced-motion visitor misses something, because nothing crossed their sky.
+**Conditions.** A star must actually cross: this uses the shared `onShot` event from `Stars`, not `sky.variant`. **Reduced motion:** no star is drawn, so none of this happens. That is honest, and it is the one place a reduced-motion visitor misses something, because nothing crossed their sky.
 
 **Implementation:**
-- `Stars.shootingAt()` and `onShoot`
+- `Stars.onShot` and `Sky.clientOf`, built once for Urchi §15 (the finds only subscribe)
 - the widened sky types (`SkyLayers`, `Sky.add`, `Sky.ts:12`, :189)
 - `Landing.ts` with defaults in `sky/defaults.ts`, which then appears in `?debug=1` for free
 - `Outing` takes a far point override
 
 **Shows:** a character whose attention is driven by the world, not by a script.
 
-**Risks:** with shooting stars every 16-32 s (`STARS.shooting.every`), following each one could become a tic. Follow at most one a minute, and land only the first.
+**Risks:** with shooting stars every 16-32 s (`STARS.shooting.every`), and every 5-11 s on meteor-shower nights (the sky calendar, Strategy §10), following each one could become a tic. §15's habituation keeps it from one (the first draft's own limit was one a minute), and only the first star of a visit lands.
 
 ### 5. v2: The real work drifts past (relics and wreck days, from A's Salvage and relics and B's wrecks and 5.6; L)
 
 **Pitch.** Twice a week one of his finished projects drifts through the sky as a small wreck. Urchi goes out to it and brings back pieces labelled in his own words, and the pieces send you to the case page.
 
-**Designed for the real GitHub projects he is importing now.** The import should write these fields per project into `site.ts`:
+**Designed for the real GitHub projects he is importing now.** *That branch has since merged (`0d9641d`, decisions fact 1) with four public projects and their covers.* The import should write these fields per project into `site.ts`. *Decided: the daily sync (new `scripts/sync-github.mjs`, week 3) writes them, for public repositories only, into new `src/content/github.json`, not `site.ts`; private repositories appear only as closed marks and are never named, so they never drift out here (decisions, item 5 and Space finds 4):*
 - `repo`
 - `language`
 - `archived`
@@ -988,7 +1010,7 @@ Under 3 KB even when full. `migrate(raw)` upgrades older shapes, and anything un
 - `lastCommit: { date, message }`
 - `cover?`
 
-Status then follows from the data:
+Status then follows from the data (for wreck days only; it does not replace the hand-set status word, and VECTOR, NextBranch and Atelier read "shipped" on `main` without meeting this rule):
 - archived → `dead`
 - no push in six months and a release → `shipped`
 - no push in six months and no release → `paused`
@@ -996,14 +1018,16 @@ Status then follows from the data:
 
 **Alive work is never found out here.** Only dead, shipped and paused work drifts. Paused work drifts nearer, with one amber light blinking.
 
+**Decided: wreck days are parked until the rule is met.** They begin when the first public repository is archived, or has had no push for six months and has a release (decisions, Space finds 4). All fifteen repositories were created in 2026, none is archived, and VECTOR is live and in use, so none qualifies today. When one does, the sync prints its name and the L-sized build is scheduled then. After that, paused work may drift too. This changes the day he archives a repository.
+
 **How it works.**
-1. **The day.** Wreck days are two days a week, chosen by `hashSeed(isoWeek)` in his zone. They are the same for every visitor, so the world is shared and needs no server. The wreck is one finished project, chosen by the same seed. If he has no finished work yet, it is a fictional derelict from A's four starter archetypes: a weather satellite, a tool bag (after the one lost from the ISS in 2008), a solar array and a capsule hatch, each with a name plate like `KESTREL-4, 1987`.
+1. **The day.** Wreck days are two days a week, chosen by `hashSeed(isoWeek)` in his zone. They are the same for every visitor, so the world is shared and needs no server. The wreck is one finished project, chosen by the same seed. The first draft filled the gap with a fictional derelict from A's four starter archetypes (a weather satellite, a tool bag after the one lost from the ISS in 2008, a solar array and a capsule hatch, each with a name plate like `KESTREL-4, 1987`). *Decided: there are no fictional derelicts; with no finished work there are no wreck days (above).* The day comes from `hashSeed` in `src/lib/random.ts` and the ISO week from `day.ts`, in his zone.
 2. **The pass** (a new `sky/Wreck.ts` SkyLayer, uniforms only per frame).
    - While you are afloat, it comes in from depth at the right, small and pixelated (the layer finally reads `pixelSize`, `layer.ts:23`).
    - It grows to the room's plane in the right-middle third, within the line's reach (60% of the width, 85% on a phone), slows for about three minutes, then recedes.
    - The cycle is twelve minutes, while this visitor has pieces left today.
    - A project wreck is a 6-10 facet hull painted by `paint.ts`, its colour from the cover's tone (`toneOf`) or, failing that, its language colour capped at chroma 0.06.
-3. **Caption on first sight each day** (the `news` slot rules): **"Halo, shipped 2021. It is passing today."** A fictional wreck: "KESTREL-4, 1987. It comes by today." Nothing more.
+3. **Caption on first sight each day** (the `news` slot rules): **"Halo, shipped 2021. It is passing today."** A fictional wreck would have read "KESTREL-4, 1987. It comes by today.", and is cut (above). Nothing more. *Halo, here and below, is one of the placeholder projects at `9b8c07c` (`site.ts:144`), kept as the worked example; a real wreck will be a public repository that meets the rule.*
 4. **Urchi notices.** A new target kind `"wreck"` (weight 1.2) spikes as it arrives: a startle (`STARTLE`), eyes wide. Afloat, it points (`reachFor`).
 5. **Getting there.** On a wreck day, an outing's far point is the wreck's anchor. **Or help it** (A's one active verb): hold it and fling it at the wreck.
    - A release heading within 25° of the wreck, faster than 0.3 of the snap speed (`Float.release`, :443), is aimed.
@@ -1047,7 +1071,7 @@ Status then follows from the data:
 
 **Pitch.** Torn strips of paper, each with one line in serif, add up to a letter he left for whoever finds it. It is dated the day you first came.
 
-**The letter** (his to rewrite at any time in `finds.ts`):
+**The letter** (his to rewrite at any time in `finds.ts`; *decided: it ships as written here, and his rewrite replaces it without code*):
 
 > Whoever finds this: it found you first.
 > It will bring you things. Mostly bolts.
@@ -1102,6 +1126,7 @@ Line six is his existing `URCHI_LINES` line (`site.ts:59`), so a visitor who has
 - **Caption:** "A ticket stub. I left it out here." Label provenance: "Left out here by him on 3 October."
 - Finds become a second, lighter channel for his life next to Notes, and the site stays alive between projects.
 - **The burrito** (#58) is the first of these, keyed to his real note of 28 September.
+- *Decided: `npm run leave` is built and optional, and nothing waits on it (decisions, Space finds 2).*
 
 ### 9. v3 and later
 
@@ -1120,7 +1145,7 @@ Line six is his existing `URCHI_LINES` line (`site.ts:59`), so a visitor who has
   - **Plant a hint in Notes** one day, or only its author will ever solve it.
 - **The drift and the moon** (B), S-M. These are far-zoom layers revealed by `stage`:
   - **The drift**, after the third find: a faint ring of one-pixel debris, levels 5-10 above eigengrau, turning once an hour, closing into an ellipse at `ZOOM.min`. "Out past the line, the things it brings back." Rubbish, rocks and ice then come "from the drift".
-  - **The moon**, two weeks after the first find: a 42-vertex icosphere in its real phase where he lives. The age is ((now − 2000-01-06 18:14 UTC) / 86 400 000) mod 29.530588853 days; the lit fraction is (1 − cos(2π · age / 29.53)) / 2. Captions: "The moon, as it is where he is.", "The moon is full where he is." It brings "Moon dust. It has been blinking since." (`doubleBlink`).
+  - **The moon**, two weeks after the first find: a 42-vertex icosphere in its real phase where he lives. He lives in Melbourne (`HEMISPHERE = "south"`), so the disc is drawn as the southern sky shows it: mirrored left to right from the northern view, lit on the left while it waxes. The age is ((now − 2000-01-06 18:14 UTC) / 86 400 000) mod 29.530588853 days; the lit fraction is (1 − cos(2π · age / 29.53)) / 2. Captions: "The moon, as it is where he is.", "The moon is full where he is." It brings "Moon dust. It has been blinking since." (`doubleBlink`).
   - At his night the drift is 30% fainter and the moon brighter. Under reduced motion both are still.
 - **Let go, and it becomes a star** (A). `sky/Kept.ts` places a faint named star for each let-go find at a seeded place. Hover it: "Quartz, smoky. Let go 3 October."
 - **Projects and Music places** (2.8).
@@ -1135,23 +1160,30 @@ Line six is his existing `URCHI_LINES` line (`site.ts:59`), so a visitor who has
   - **Drawing.** It looks from star to star in saccades 400-700 ms apart: the same system that reads captions (`read()` jumps across words every 200-260 ms, `acts.ts:101`), slowed down as if deciding. A thin ink line (`LINE_LOOK` at 35%) draws itself from the last star to the new one as its gaze lands, over 150 ms per segment, with a tick (the Projects tick at `rate` 1.2) for each.
   - **Done.** It looks at the whole figure, slow-blinks, then looks at you.
   - **Naming.** If the figure's shape matches a find in your drawer (the find's silhouette hull snapped to the nearest stars), the caption is "The Bolt. Its own." Otherwise it names it from the site's words: "Two Eyes. It drew itself.", "The Burrito. It was free.", "Nocturne, in stars." Names from notes come only from notes tagged `random`, `music` or `site`.
-  - **After.** The lines fade over a minute, or stay faint at far zoom for the visit. The drawer gets a label with no object: "The Bolt, in stars. Drawn by Urchi on 29 September." It is shareable as `/?sky=<seed>&drawn=<figure>`.
+  - **After.** The lines fade over a minute, or stay faint at far zoom for the visit. The drawer gets a label with no object: "The Bolt, in stars. Drawn by Urchi on 29 September." It is shareable as `/?sky=<seed>&v=1&drawn=<figure>`. *Decided: skies are frozen as version one (`sky/versions.ts`) before the first shared link, and a shared sky link carries its version (decisions, Tools 3).*
   - **Implementation:** a new `sky/Lines.ts` layer and a `joinStars` act.
   - **Edge cases:** a phone uses figures of four. Under reduced motion the pupils jump and the lines appear whole. It does not draw asleep.
   - **Risk:** scribbles. Prefer shapes the eye completes: triangles, a kite.
 - **To the cybersecurity area:**
-  - **"A tag, the letters shifted. I would know."** (#51). A very rare find whose tag carries one of his lines under a Vigenère shift keyed to the colourway name at the moment it was found (the label shows that name, so the key is on the label for anyone who reads carefully). In the drawer: "Copy the letters". If the site gets a cipher tool, add "Try the cipher tool".
-  - **The gift checksum and "A forgery. It can tell."** (2.9). The honest version, integrity and not authenticity, is itself a small demonstration of knowing the difference. A signed version would need a secret the browser cannot hold, which means a server, which this design refuses on purpose.
+  - **"A tag, the letters shifted. I would know."** (#51). A very rare find whose tag carries one of his lines under a Vigenère shift keyed to the colourway name at the moment it was found (the label shows that name, so the key is on the label for anyone who reads carefully). In the drawer: "Copy the letters". *Ruled in the summary (reconciliation 1): it stays a find, and there is no cipher tool in Tools. Once Plaintext exists (from Monday 7 December, as decided), the label also links to that week's Thursday strips, the Vigenère day, at its path `/today/plaintext/<n>`. Plaintext is the one cipher game.*
+  - **The gift checksum and "A forgery. It can tell."** (2.9). The honest version, integrity and not authenticity, is itself a small demonstration of knowing the difference. A signed version would need a secret the browser cannot hold, which means a server, which this design refuses on purpose. *Decided: it stays a quiet check. No Phosphenes light, game or paper invites anyone to forge a code, because security on this site is defensive only.*
 
 ---
 
-### Open questions for the owner
+### Decisions
 
-1. **How much colour on Space?** The design lets gems and gold add colour where light falls: gems up to OKLab chroma 0.12 on lit facets only, and the one gem that matches the eyes. Is that the right line, or should gems stay ink-glass until they catch the light, with colour only in the glint?
-2. **Will you write the words?** The once list, the capsule lines, the letter and the `npm run leave` finds are the part people will remember, and they need your voice, not a generated one. Twelve short lines and a seven-line letter to start.
-3. **Should gifts be copies?** As designed, a gift link gives the recipient a copy ("It is a copy. Most gifts are."). The alternative is look-but-don't-keep: "You can look. It is theirs." Copies travel better, and look-only keeps each drawer singular.
-4. **What will the GitHub import write?** Relics and wreck days need `archived`, `pushedAt`, a release flag, `language`, `lastCommit` and ideally a cover per repo. Can the session adding the projects write those fields now, and do you have any finished or archived repos you are happy to see drift past as wrecks?
-5. **Is this pacing stingy enough, or too stingy?** Three outings a day, the first always fruitful, one in three empty after that, about two finds a day at most, and three waiting on its spikes after a week away. Lower would make each find rarer. Higher risks a slot machine.
+*The owner is asked nothing. The five questions this section first put to him are decided in `decisions.md` ("By section", Space finds 1-5); what else it depended on is decided there under "The eight". Each line gives the decision and its reason, and, where one exists, what would change it.*
+
+1. **How much colour.** Gems reach at most OKLab chroma 0.12, on lit facets only, and stay ink-glass in shadow; gold keeps to the same cap, and the eye-matching gem (#11) stays. *Why:* colour only where light falls keeps "colour comes from something". *Changes if:* at 10% zoom, dithered and pixelated, a 0.12 gem reads as an interface accent; then 0.09. New `GEM_CHROMA = 0.12` (decisions, Space finds 1).
+2. **The words.** They ship as written here: the captions and repeats, the once list (#53-57), the letter (§6) and the burrito (#58). The capsule (#38) carries one of his five `URCHI_LINES` not shown this visit until new `CAPSULE_LINES` has his own; the USB stick's "first project" is the public project with the earliest `start`; `npm run leave` is optional. *Why:* his hours go to `WORK_LINE`, the `why`/`did` lines and notes, and these lines are already in the voice. *Changes if:* he writes his own, which replace these without code (decisions, Space finds 2).
+3. **Gifts.** They are copies: "It is a copy. Most gifts are." Forgery detection stays a quiet check, and nothing invites anyone to try it. *Why:* copies travel better, and security here is defensive only. New `GIFT = "copy"` in `finds.ts` (decisions, Space finds 3).
+4. **The GitHub import, and wrecks.** The sync (week 3) writes `archived`, `pushedAt`, `release`, `language` and `lastCommit` for public repositories only, into `src/content/github.json`; the four covers already exist. Wreck days stay parked until a public repository is archived, or has had no push for six months and has a release, and there are no fictional derelicts meanwhile. *Why:* none of the fifteen qualifies today (all were created in 2026, and VECTOR is live), and private repositories are never named. *Changes if:* he archives a repository (decisions, Space finds 4; item 5).
+5. **Pacing.** As designed: three outings a day (two on Sundays), the first always fruitful, one in three empty after that. *Why:* there are no counts yet to tune against. It is revisited on Monday 23 November after four weeks of `find_taken`; if almost nothing is taken after a browser's first find, the second outing comes sooner, and the rates never go up (decisions, Space finds 5).
+6. **Where he is.** `TIME_ZONE = "Australia/Melbourne"`, `HEMISPHERE = "south"`: his night, his day for the outing count and the code's day, and the moon as the southern sky shows it. *Why:* his commits carry +10:00 and his public coursework is a Swinburne unit. *Changes if:* he moves city (decisions, item 1).
+7. **Trust and memory.** One trust and one seed, in `eigengrau:urchi` with Urchi §12.1's model; the finds feed it and derive their salt from it. The night's first wake is groggy, not a glare. *Why:* the summary's reconciliation 5, and a stranger's first touch at 01:00 should not be told off (decisions, item 6).
+8. **Counts.** One named event, `find_taken { tier }`, through Umami, cookieless and proxied same-origin, disclosed on `/kept`; no number ever reaches the screen. *Why:* it is the only way to know whether anyone waits long enough to see an outing (decisions, item 7).
+9. **The Desk.** Pill three (Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6): About's key is 6; on the Desk a carried find goes into the pocket at once; Urchi never comes there, and the key (#48) looks for a lock in every pill but the Desk's. *Why:* renumbering is free only until the digits work (decisions, item 4).
+10. **The pocket.** Top right on every screen, once the sound chip moves into the nav. *Why:* the summary's ruling on "The pocket's place", which removes the desktop and phone split.
 
 ### If you only do one thing here
 
@@ -1162,3 +1194,5 @@ Build phase 1's spine and nothing else:
 - You take it. It hangs on a short thread under your pointer, and you carry it to About, where it becomes the full stop after "the small things".
 
 That is `Outing.ts`, `figureDepth`, `Float.drive`, `Tether.twitch`, `setOff`, the proud handover, one type in `finds.ts`, the painter, `FindSprite`, `Carried.tsx` and About's stop: about three to four days. It proves every hard part (depth, the line, the glove anchor, the painter, carrying across mounted tabs) on the single find with the most character. Every later type, handover and story is then content poured into a mould that already works.
+
+*Scheduled in the summary for week 4 (19-25 October), after Urchi's package one (week 2) and the extraction of `Space.ts` (week 3), and before the launch gate in the week of 23 November, which needs "the finds spine live".*

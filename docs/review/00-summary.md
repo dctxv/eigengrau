@@ -1,16 +1,16 @@
 # eigengrau: review and ideas (29 September 2026)
 
-*For Darius. Specialists working in parallel wrote proposals for seven areas. A reviewer then checked each one line by line against the repository at `9b8c07c`, and cut, corrected and merged them. Nothing in the repository was changed. This first part is mine, as the lead. It says what matters most, decides where new things live, sets the order of work, and settles the places where the specialists disagreed. The seven reviewed sections follow it in full, in this order: **Urchi: making it feel alive**, **Style and UX**, **State of the project and engineering**, **Space: Urchi's finds**, **Daily games**, **Free tools**, and **Strategy, structure and GitHub projects**.*
+*For Darius. Specialists working in parallel wrote proposals for eight areas. A reviewer then checked each one line by line against the repository at `9b8c07c`, and cut, corrected and merged them. The security draft had stopped partway, so three more writers finished it, and it was reviewed the same way. Nothing in the repository was changed. This first part is mine, as the lead. It says what matters most, decides where new things live, sets the order of work, and settles the places where the specialists disagreed. You asked to be asked nothing, so nothing here waits on you: every question the report once put to you is decided in **Decisions**, with its reason and what would change it. Where **Decisions** or the Security section moves a date, its date wins, and the dates below have been brought into line with them.*
 
-*One gap, stated plainly. The security specialist's draft stopped partway: its tools, papers and plan were never written, so no Security section follows. Everything decided about security is gathered in this part, under "What I'd push on even more" (bet three) and "Where the new things live", and each piece names the section that specifies it.*
+*After this part come, in this order: **Decisions**; **Urchi: making it feel alive**; **Space: Urchi's finds**; **Addendum: Where it goes** (your "could be planets", answered); **Daily games**; **Free tools**; **Cybersecurity: kept, read back, and noticed** (the Security section); **Style and UX**; **Addendum: The existing Music, About and Notes tabs get fixes but almost no feature improvements**; **Strategy, structure and GitHub projects**; **State of the project and engineering**; and **What only you can do** (the hours only you can spend, the lean line, and prompts for notes). Below, the reviewed sections are cited by short names: Urchi, Space finds, Daily games, Free tools, Cybersecurity, Style, Strategy and Engineering.*
 
 ---
 
 ## The short version
 
 - **Keep the style. The gaps are around it, not in it.** The site uses two colours, one glass and one radius, a serif for your voice and a grotesk for the site's, motion that behaves like objects, synthesised sound that waits to be asked, and a creature with real attention. The engineering underneath is cleaner than most production code. Nothing in this report asks it to look more like other portfolios. What is missing sits around the style: who made it, what he made, whether it survives a locked-down laptop, and whether it holds up to the scrutiny a security reader will give it.
-- **Do this today: give the session adding your GitHub projects the brief in Strategy §1.** All fifteen repositories were created in 2026, and the thread places projects by whole years. With real data the ball unwinds to about 1.1 turns, every pluck is the same D4, the heading reads "15 projects since 2026", and the intro's ring of twelve thins to however many real images there are. The brief costs little inside that branch and a lot after it: take out every placeholder together, add `start`/`end` months, wind at least nine turns, place marks by date, use `countWord`, write months in `statusWord`, keep private repositories closed, and give each project a `did` line.
-- **Fill in four placeholders this week:** `TIME_ZONE` (with a new `HEMISPHERE`), `SITE_URL`, and the email and GitHub links in `site.ts`. Urchi's sleep, the daily game's midnight, the link cards, the canonicals and `security.txt` all wait on them. Know what the zone means: if you are on Melbourne or Sydney time, Urchi's 01:00-06:59 falls on roughly 10:00-16:00 in New York (09:00-15:00 after 1 November) and on the London afternoon and evening. Many overseas visitors will meet it asleep, so its sleep life comes early, not last.
+- **Do this today: give the session adding your GitHub projects the brief in Strategy §1.** All fifteen repositories were created in 2026, and the thread places projects by whole years. With real data the ball unwinds to about 1.1 turns, every pluck is the same D4, the heading reads "15 projects since 2026", and the intro's ring of twelve thins to however many real images there are. The brief costs little inside that branch and a lot after it: take out every placeholder together, add `start`/`end` months, wind at least nine turns, place marks by date, use `countWord`, write months in `statusWord`, keep private repositories closed, and give each project a `did` line. *Since written:* that branch merged on the 29th as `0d9641d`, with four public projects, `TURNS_LEAST = 9` and no placeholders left, but without the months, the `did` lines, the closed marks or `countWord`. Those go to one week-1 branch, "Projects: months on the thread" (**Decisions**, Engineering 5).
+- **Four placeholders, filled this week from decisions, not answers:** `TIME_ZONE = "Australia/Melbourne"` (with a new `HEMISPHERE = "south"`), `SITE_URL` from `NEXT_PUBLIC_SITE_URL` (the Vercel production URL until the domain resolves), and the email (the address your own commits carry) and GitHub (`dctxv`) links in `site.ts`. Urchi's sleep, the daily game's midnight, the link cards, the canonicals and `security.txt` wait only on that commit (**Decisions**, items 1-2). Know what the zone means: Melbourne moves from +10:00 to +11:00 on Sunday 4 October, and from then Urchi's 01:00-06:59 falls on 10:00-15:59 in New York (09:00-14:59 after 1 November) and on the London afternoon and evening. Many overseas visitors will meet it asleep, so its sleep life comes early, not last.
 - **Three launch blockers.**
   - Without WebGL the site shows "Application error". `error.tsx` would not catch it; a boundary round each panel would, with a lights-off view. Urchi is Canvas 2D underneath, so it can keep breathing in that view.
   - There are no security headers, and two proxies are wider open than they should be, on a site meant to show security skill.
@@ -33,22 +33,24 @@
   - Left alone afloat, Urchi asks with a look and swims off on a paying-out line. It shrinks into the room's own pixels and comes back one-armed, holding a bolt it thinks is gold.
   - You carry it on a short thread across the tabs, and can leave it as the full stop on About.
   - Rarity is acted, never labelled. Outings come from waiting, never from clicking. No number ever appears.
+- **Where Urchi goes: not to planets, to a rock.** A planet it could land on would fill the room, so each week one small body (stone, iron or comet, the same for everyone) passes behind Urchi on two of your days, and it lands there and brings back a piece. It is built the week after launch, and the real planets stay out of its invented sky (**Addendum: Where it goes**).
 - **Daily games, with no Urchi in them:**
   - **Same Grey** first: match a grey against company that lies about it. Monday 12 October.
-  - **Stet** second: proofread a paragraph. 2 November.
-  - **Plaintext** third: a weekly letter, one cipher a day, Caesar on Monday to XOR on Sunday. 23 November.
+  - **Stet** second: proofread a paragraph, from forty public-domain passages you approve in one sitting. 9 November.
+  - **Plaintext** third: a weekly letter, one cipher a day, Caesar on Monday to XOR on Sunday. 7 December, because each game waits for four weeks of the last one's archive.
   - **Plate** (Chladni sand figures) is the flagship, once the first three have players. **Last login** is a hand-written Saturday incident.
   - Shares are plain text: no emoji grids, no timers, no shaming for a lost streak.
 - **Tools that leave with the visitor.**
   - **Sky** first: any word draws its own night sky, to take away as a lock screen.
   - Then **Grain** (the dither Urchi leaves through, for any picture), **Cues** (interface sounds in one key) and **Tone**.
   - Every tool page says what it has asked of the network since it opened, and a test keeps that line true.
-- **Security, shown as noticing.** Harden the site first. Then read its headers back in public on `/kept`, and write three short papers about your own fixes. Then the play: Plaintext, Last login and Phosphenes (lights hidden in the site's own layers). For this reader a security gap is worse than having no security content at all, so the proof comes before the playground.
+- **Security, shown as noticing.** Harden the site first, starting with the two open proxies in week 1, because this report already sits on a public branch. Then read its headers back in public on `/kept`, and write three short papers about your own fixes (25 October, 8 November and 22 November), drafted from the diffs for you to approve. Then the play: Plaintext, Last login and Phosphenes (lights hidden in the site's own layers). For this reader a security gap is worse than having no security content at all, so the proof comes before the playground. All of it is specified in **Cybersecurity: kept, read back, and noticed**.
 - **How to work.**
   - A `CLAUDE.md` of house rules for the parallel branches.
   - One test runner.
   - A content lint that fails the build while placeholders remain.
   - Launch gates by date, not more polish: soft launch on Sunday 11 October, public launch in the week of 23 November.
+- **Your hours: about fifty-three over the nine weeks to launch, six a week on the lean line, mostly briefing branches and reading merges.** Your own voice is needed only for `WORK_LINE`, the `why` and `did` lines, your notes, each paper's last section and a few Urchi lines; everything else is drafted for you to approve (**What only you can do**).
 
 ---
 
@@ -91,9 +93,9 @@ The bold moves worth making are the day's eye colour as the one accent, in three
 
 ### What is placeholder
 
-- The six projects and every image in `public/work` (being replaced now).
+- The six projects and every image in `public/work` (replaced on `main` that evening, in `0d9641d`).
 - Two notes ("i got a free burrito heh", "hi"). The `cybersec` category is empty.
-- `SITE_URL` (`https://eigengrau.example`), `TIME_ZONE` (`null`), the email and GitHub links (`TODO(darius)`), and `UPDATED`.
+- `SITE_URL` (`https://eigengrau.example`), `TIME_ZONE` (`null`), the email and GitHub links (`TODO(darius)`), and `UPDATED`. The first four are decided (**Decisions**, items 1-2: the Vercel URL until the domain, `Australia/Melbourne`, and the two links); only the commit is left.
 - The only role on the site is "Basic Human". It is also the page `<title>` and the JSON-LD `jobTitle`.
 - About's status line, which is the one sentence on the site without a full stop.
 
@@ -106,7 +108,7 @@ The bold moves worth making are the day's eye colour as the one accent, in three
    - `/api/cover` will fetch from any port on two CDN domains and follows redirects.
    - `/api/preview` searches and streams any song for anyone.
    - `/api/now` has no timeout and no CDN cache, and it reports an outage as a quiet week.
-   - *Engineering §3.1-3.2.*
+   - *Engineering §3.1-3.2; Cybersecurity §1.*
 4. **Nobody is named.** The name appears for about four seconds on desktop and never on a phone. Links unfurl as a bare grey title on a placeholder domain. *Style R1-R2, Strategy §4.1.*
 5. **Phones are second-class.**
    - The sound chip is hidden at 1024px and below, so a third of the craft is unreachable.
@@ -157,7 +159,7 @@ Do not spend on detail inside the eyes while it is afloat. At the default zoom t
 
 That proves every hard part (depth, the line, the glove anchor, the painter, carrying across kept tabs) in three or four days (**Space finds**, "If you only do one thing").
 
-**My one addition: a softer first wake.** Because of the time zone, many first visits will land at your night. Today a click wakes Urchi and it glares. Make the first wake of the night, per browser, a groggy one: heavy lids, a slow blink, and the yawn (M1) once it exists. Keep the glare for a second wake the same night. A stranger's first touch should not be told off.
+**My one addition: a softer first wake.** Because of the time zone, many first visits will land at your night. Today a click wakes Urchi and it glares. Make the first wake of the night, per browser, a groggy one: heavy lids, a slow blink, and the yawn (M1) once it exists. Keep the glare for a second wake the same night. A stranger's first touch should not be told off. It now ships in package one, in week 2, because a US-morning launch arrives at your 01:00 (**Decisions**, item 6).
 
 **What it shows.** You know the difference between tracking and attention, and you can build it from the perceptual literature. You also direct a character with restraint.
 
@@ -179,11 +181,11 @@ That proves every hard part (depth, the line, the glove anchor, the painter, car
 
 | Layer | What | When | Specified in |
 |---|---|---|---|
-| **Proof** | Static headers. A CSP in Report-Only, then a nonce policy enforced after a clean week. HSTS without `preload` until the domain has been lived on for a month. `/api/preview` serving only songs the site signed, redirects followed one hop and re-checked. `/api/cover` taking only image types, with `nosniff`, a sandbox CSP, timeouts and a cached 404. `security.txt`, robots and sitemap. JSON-LD escaped before GitHub text reaches it. The 404 echoing only a sanitised path, so nobody can make the site say their sentence. The notes-from-phone Action guarded on `author_association == 'OWNER'`, with the issue body passed only through `env:` (no script injection). Secret scanning and `gitleaks` before any Source link. | weeks 2-3 | Engineering §3.1-3.2, §9; Style R8; Strategy §7.2, §3.12 |
-| **Reading it back** | `/kept`, "How this site is kept". It reads back the headers your browser was just given, one sentence each. It lists where the server may go, with the tests that prove each fence. It gives a threat model per API route, "what it gives away about me" (your time zone, sleep, listening and handle, stated and chosen), a disclosure policy, a Thanks list, and provenance: "Built 29 September at 16:52 from 9b8c07c. Forty-one tests passed before it was allowed out." | week 3 | Strategy §6.1; Engineering §11.1 |
-| **Papers** | Three, by 23 November, each ending with "what I would tell the developer". (1) "How this site stopped being anyone's song proxy": the constrained SSRF on `/api/cover`, the open search-and-stream on `/api/preview`, and the fixes. (2) "A CSP for a three.js site whose text renderer builds its workers from `blob:` URLs". (3) A CTF or lab write-up, or the notes Action and the injection it does not have. They live at `/security/<slug>` and in Notes as `cybersec` entries. | weeks 4-9 | Strategy §2.2, §5.8 |
-| **Play** | **Plaintext:** real cryptanalysis (frequency fits, the index of coincidence, the XOR case trick), every day verified by a solver, with week one's answer the site's own name. **Last login:** a weekly incident, "Someone else was here today", with a casebook of MITRE ATT&CK IDs. **Phosphenes:** lights hidden in the site's layers, six in season one (the robots line, the console, a favicon that blinks a word in Morse, a ROT13 note, a header on the ambient bed, a DNS TXT record). Checked by PBKDF2 digests, with the flags generated at build and git-ignored, and "Seen in the dark" instead of a leaderboard. Also the very rare find "A tag, the letters shifted", and the forged-gift check: "A forgery. It can tell." | weeks 5-9, then seasons | Daily games §4, §6; Strategy §6.2; Space finds §10, §2.9 |
-| **Tools to check with** | Every tool page's live network line is already a small security demonstration. Security tools come later and share the Tools frame: "Headers, read" (paste any response's headers, or read this site's; it shares its grader with `/kept`), "A token, opened" (a JWT decoder with a local weak-secret check; the token never leaves the page), and "A certificate, unfolded" (PEM and X.509 through its own DER walker). **They were drafted but not reviewed, so each needs a full spec in the Free tools frame before it is built.** | from December | Free tools (frame and privacy line) |
+| **Proof** | Static headers. A CSP in Report-Only, then a nonce policy enforced after a clean week. HSTS without `preload` until the domain has been lived on for a month. `/api/preview` serving only songs the site signed, redirects followed one hop and re-checked. `/api/cover` taking only image types, with `nosniff`, a sandbox CSP, timeouts and a cached 404. `security.txt`, robots and sitemap. JSON-LD escaped before GitHub text reaches it. The 404 echoing only a sanitised path, so nobody can make the site say their sentence. The notes-from-phone Action guarded on `author_association == 'OWNER'`, with the issue body passed only through `env:` (no script injection). Secret scanning and `gitleaks` before any Source link. | weeks 1-3 (the proxies in week 1) | **Cybersecurity** §1, on the plumbing in Engineering §3.1-3.2, §9; Style R8; Strategy §7.2, §3.12 |
+| **Reading it back** | `/kept`, "How this site is kept". It reads back the headers your browser was just given, one sentence each. It lists where the server may go, with the tests that prove each fence. It gives a threat model per API route, "what it gives away about me" (your time zone, sleep, listening and handle, stated and chosen), a disclosure policy, a Thanks list, and provenance: "Built 29 September at 16:52 from 9b8c07c. Forty-one tests passed before it was allowed out." | week 3 | **Cybersecurity** §2; Strategy §6.1; Engineering §11.1 |
+| **Papers** | Three, by 22 November, each ending with "what I would tell the developer", drafted from the real diffs and approved by you. (1) "How this site stopped being anyone's song proxy", 25 October: the constrained SSRF on `/api/cover`, the open search-and-stream on `/api/preview`, and the fixes. (2) "The sentence that would not draw", 8 November: a CSP for a three.js site whose text renderer builds its workers from `blob:` URLs. (3) "Notes from a phone, and the injection they do not have", 22 November: the notes Action. It is chosen over a CTF write-up because it is defensive and comes from a real diff; a CTF you finish becomes paper four. They live at `/security/<slug>` and in Notes as `cybersec` entries. | weeks 4-8 | **Cybersecurity** §4; Strategy §2.2, §5.8 |
+| **Play** | **Plaintext:** real cryptanalysis (frequency fits, the index of coincidence, the XOR case trick), every day verified by a solver, with week one's answer the site's own name. **Last login:** a weekly incident, "Someone else was here today", with a casebook of MITRE ATT&CK IDs. **Phosphenes:** lights hidden in the site's layers, five on 1 November and eight by launch, starting with six (the robots line, the console, a favicon that blinks a word in Morse, a ROT13 note, a header on the ambient bed, a DNS TXT record). Checked by PBKDF2 digests, with the flags generated at build and git-ignored, and "Seen in the dark" instead of a leaderboard. Also the very rare find "A tag, the letters shifted", and the forged-gift check: "A forgery. It can tell." | Phosphenes from week 5, Plaintext from 7 December, then seasons | **Cybersecurity** §3, §6; Daily games §4, §6; Strategy §6.2; Space finds §10, §2.9 |
+| **Tools to check with** | Every tool page's live network line is already a small security demonstration. Security tools come later and share the Tools frame, under "To check": "Headers, read" (paste any response's headers, or read this site's; it shares its grader with `/kept`), "Policy, read" (a CSP, directive by directive), "A token, opened" (a JWT decoder that decodes and explains and never tries a secret; the token never leaves the page), and "A certificate, unfolded" (PEM and X.509 through its own DER walker). **Each is now specified in Cybersecurity §5, in the Free tools frame: Headers and Policy 7-11 December, the token 14-16 December, the certificate 11-22 January.** | from 7 December | **Cybersecurity** §5; Free tools (frame and privacy line) |
 | **Code you can run** | Demos that execute code live at `/lab/<demo>`: each is its own document with its own CSP, framed with `sandbox="allow-scripts"` and no `allow-same-origin`. Anything that runs code a visitor pastes goes on a separate origin. | only after all of the above | Engineering §5.3 |
 
 **What it shows.** Recon, web security, cryptography, incident reasoning and threat modelling, as part of the site's personality rather than a list of badges. It also shows the rarer skill of explaining security in plain sentences.
@@ -197,7 +199,7 @@ That proves every hard part (depth, the line, the glove anchor, the painter, car
 - streaks computed, never stored;
 - plain-text shares with a preview image.
 
-Stet then makes your writing the supply. It needs two paragraphs a week, and those paragraphs become Notes content. Plaintext is the security piece a technical reviewer can actually play. **The rule:** no new game until the last one has four weeks of archive and the counts show people coming back.
+Stet then runs on forty public-domain passages you approve in one sitting, and any note of 80 to 120 words can be lent to it; nothing asks you for two paragraphs a week (**Decisions**, Daily games 4). Plaintext is the security piece a technical reviewer can actually play. **The rule:** no new game until the last one has four weeks of archive and the counts show people coming back.
 
 ### Bet five: "It travels" (everything that leaves carries the site)
 
@@ -216,7 +218,7 @@ Each one is small. Together they are how the site reaches the people who would n
 **Strategy** §2 walks through seven readers. Five facts stand out:
 
 1. **A recruiter** on a managed laptop may have WebGL off, and gives you thirty seconds with forty other tabs open.
-2. **A graduate screener,** if you are finishing a degree (a public coursework repository suggests you are), wants a PDF, a degree and a date.
+2. **A graduate screener** (your public coursework is a Swinburne unit, so the site treats you as a student there, and the content lint asks for the degree before launch) wants a PDF, a degree and a date.
 3. **A security manager** runs `curl -I` before reading a word.
 4. **A friend** opens your link in Instagram's in-app browser: held upright, with audio restricted and five seconds of patience.
 5. **An overseas visitor** at 3 am your time meets a sleeping creature.
@@ -359,22 +361,22 @@ Impact runs from 1 to 5. Effort: S is up to a day, M is 2-4 days, L is 1-2 weeks
 | # | Item | Area | Impact | Effort | Why now | Depends on |
 |---|---|---|---|---|---|---|
 | 1 | The brief to the GitHub-projects session: placeholders out together, `start`/`end` months, at least nine turns placed by date, `countWord`, months in `statusWord`, closed private repos, `did` lines, real images for the ring | Strategy §1 | 5 | S-M | The branch is running today. After it merges, the fix is a second pass over 5.3k lines | nothing |
-| 2 | Fill in the placeholders: `TIME_ZONE`, `HEMISPHERE`, `SITE_URL` (a literal, or from the environment with a production throw), email, GitHub | Engineering §1.2 | 5 | S | Sleep, the games' midnight, cards, canonicals and `security.txt` all wait on them | your answers |
+| 2 | Fill in the placeholders as decided: `TIME_ZONE = "Australia/Melbourne"`, `HEMISPHERE = "south"`, `SITE_URL` from `NEXT_PUBLIC_SITE_URL` with a production throw (the Vercel URL until the domain), email, GitHub | Engineering §1.2; Decisions, items 1-2 | 5 | S | Sleep, the games' midnight, cards, canonicals and `security.txt` all wait on them | nothing (decided) |
 | 3 | Lights off: a `PanelBoundary` round each panel; flat Space (a live 2D Urchi), flat Projects and flat About; `error.tsx` and `global-error.tsx`; an `--disable-webgl` test | Engineering §1.1 | 5 | S-M | Recruiters on locked-down laptops get "Application error" | nothing |
-| 4 | Your name on screen (the monogram unfolds, the name on phones, an About byline); `WORK_LINE` in the title and JSON-LD; link cards for the site, projects and notes; icons | Style R1-R2; Strategy §4.1, §4.3 | 5 | M | Most people's first sight of the site is a link preview | 2, your `WORK_LINE` |
-| 5 | Security, first slice: headers, CSP in Report-Only, the three proxies fixed, `/api/now` timeouts, cache and an honest outage, `security.txt`, `robots.ts`, `sitemap.ts` | Engineering §3.1-3.3 | 5 | M | An F grade on a site meant to show security skill | 2 |
+| 4 | Your name on screen (the monogram unfolds, the name on phones, an About byline); `WORK_LINE` in the title and JSON-LD; link cards for the site, projects and notes; icons | Style R1-R2; Strategy §4.1, §4.3 | 5 | M | Most people's first sight of the site is a link preview | 2 (`WORK_LINE` is the decided draft, Decisions item 3) |
+| 5 | Security, first slice: headers, CSP in Report-Only, the three proxies fixed, `/api/now` timeouts, cache and an honest outage, `security.txt`, `robots.ts`, `sitemap.ts` | Engineering §3.1-3.3; Cybersecurity §1 | 5 | M | An F grade on a site meant to show security skill | 2 |
 | 6 | House rules and the net: `CLAUDE.md`, `npm run check`, Vitest with the day-one kit (content lint, proxy host tests, `countWord` goldens), tests in the Vercel build command | Engineering §2, §3.4 | 4 | M | Parallel branches are about to multiply, and nothing checks them | nothing |
 | 7 | Case page v2 (title first, his part, made with, how long, the strip, links), the GitHub sync with its weave and daily Action, and Source hygiene per repo | Strategy §3.4-3.12; Style R5 | 5 | M | Real work presented as real work; the thread becomes true | 1 |
-| 8 | Urchi, package one: latency, head speed by amplitude, eyes first, near aversions; the favicon's blinks | Urchi §1-2, §16.3 | 5 | S-M | What every visitor meets in the first five seconds; it touches Urchi's own files and one line of `RoomScene.ts` | `random.ts` |
-| 9 | Keys and numbering: Desk third, `keys.ts`, digits 1-6, `pillOf` (a case page lights Projects), the `?` sheet | Style R3; Strategy §5.2-5.5 | 3 | S | Renumbering is free only until the digits work | the numbering decision |
+| 8 | Urchi, package one: latency, head speed by amplitude, eyes first, near aversions; the softer first wake; the favicon's blinks | Urchi §1-2, §16.3 | 5 | S-M | What every visitor meets in the first five seconds; it touches Urchi's own files and one line of `RoomScene.ts` | `random.ts` |
+| 9 | Keys and numbering: Desk third, `keys.ts`, digits 1-6, `pillOf` (a case page lights Projects), the `?` sheet | Style R3; Strategy §5.2-5.5 | 3 | S | Renumbering is free only until the digits work | nothing (Desk third is decided) |
 | 10 | Plainly, with print, a PDF and a security lens | Strategy §4.2 | 4 | M | A recruiter's thirty seconds, and a graduate screener's file | 1, 4 |
 | 11 | Sound on every screen: the chip moves into the nav, has a fixed name, and uses `audioSession` for previews; phone targets of 24px or more | Style R4, R9 | 3 | S-M | A third of the craft is unreachable on phones and tablets | nothing |
 | 12 | Foundations: `random.ts`, `day.ts`, `store.ts`, `tabOf`, and `Space.ts` extracted | Engineering §4, §6 | 4 | M | Games, finds, tools and memory all plug into these | 2 |
 | 13 | The Desk frame and the Today drawer, with Same Grey (400 days frozen and validated) | Daily games §1-2; Strategy §5 | 4 | M | A daily reason to come back. No. 1 at your midnight into Monday 12 October | 9, 12 |
-| 14 | `/kept` with the live self-check; paper one; CSP enforced with nonces after a clean week | Strategy §6.1; Engineering §11.1 | 4 | M | Turns the hardening into proof anyone can check in thirty seconds | 5 |
+| 14 | `/kept` with the live self-check; paper one; CSP enforced with nonces after a clean week | Cybersecurity §2, §4; Strategy §6.1; Engineering §11.1 | 4 | M | Turns the hardening into proof anyone can check in thirty seconds | 5 |
 | 15 | Finds, phase 1: the outing, six handovers, ten types, carrying, the pocket, the drawer, About's full stop, the spikes | Space finds §2 | 4 | L (the spine alone is 3-4 days) | Your own idea, and the site's philosophy as a mechanic | 8, 12 |
 | 16 | Sky, the first tool: versioned skies, lock-screen exports, the hand-off to Urchi | Free tools §1 | 3 | M (plus the frame, 2 days) | The engine is already built, and it leaves with the visitor | 13 |
-| 17 | Phosphenes, season one: the hub and six lights | Strategy §6.2 | 3 | M | Security as noticing, once the proof is in place | 5, 14 |
+| 17 | Phosphenes, season one: the hub and six lights | Cybersecurity §6; Strategy §6.2 | 3 | M | Security as noticing, once the proof is in place | 5, 14 |
 
 ---
 
@@ -384,16 +386,16 @@ The pace below assumes about twenty-five commits a day across parallel branches,
 
 ### Today, Tuesday 29 September
 
-1. Paste the brief from **Strategy** §1 into the session adding your projects.
-2. Answer the eight questions that unblock most of this. Each section's own questions can wait until its work starts.
-   1. **Your time zone and hemisphere.** They set Urchi's sleep, the daily game's midnight and the meteor showers. The commits say +10:00.
-   2. **The domain.** It sets `SITE_URL`, the cards, the canonicals, `security.txt` and when HSTS preload can go on.
-   3. **`WORK_LINE`.** About eight words that say what you do. If you are finishing a degree, which one and when? LinkedIn, if any?
-   4. **The Desk third,** renumbering Notes, Music and About. I recommend it.
-   5. **Private work.** Which private repositories may appear as closed projects? May their weekly counts thicken the thread? May the site say when you push?
-   6. **How much of Urchi's face may change.** The pupils' rest share, the blink's speed, a catchlight. Also, may it remember visitors across visits, in their browser only?
-   7. **Counts.** May the site count a few moments (a finished puzzle, a snapped line) with no cookies and no identity? Without it you will never know whether anyone plays.
-   8. **Claude Code.** How plainly should the site say it was built with it? My advice: one line on `/colophon`, said first, reads as process skill. "I wrote what each branch should do, and read every merge."
+1. Paste the brief from **Strategy** §1 into the session adding your projects. (It merged that evening with half the brief; the rest goes to the week-1 branch "Projects: months on the thread", **Decisions**, Engineering 5.)
+2. Nothing to answer. The eight questions that unblock most of this are decided in **Decisions** (`01-decisions.md`), one line each below, and each section's own questions are decided there too.
+   1. **Where you are.** `TIME_ZONE = "Australia/Melbourne"` and `HEMISPHERE = "south"`: Urchi's sleep, each puzzle's midnight (falling back to UTC) and the meteor showers keep your day, which moves to +11:00 on Sunday 4 October.
+   2. **The domain.** `SITE_URL` reads `NEXT_PUBLIC_SITE_URL`, the Vercel production URL until `dariustan.dev` (or the first free fallback) is bought by Friday 9 October; HSTS preload a month after it goes live.
+   3. **`WORK_LINE`.** "Student developer in Melbourne. Interfaces, AI tools and security.", a working draft you may rewrite, with "Basic Human" beside it; Swinburne on Plainly, its degree checked by the lint before launch; no LinkedIn.
+   4. **The Desk third,** with Notes, Music and About answering to 4, 5 and 6 from the first day any digit works.
+   5. **Private work.** All eight private repositories appear as closed, unnamed marks ("Closed. Ask and I will show you."), their pushes thicken the thread only as monthly totals, and push times show only for public ones.
+   6. **Urchi's face and memory.** Pupils rest at 0.85, the calm blink goes in, the catchlight stays a flagged experiment, the glare keeps its grown pupil, and it remembers visitors in their browser only, as About and `/kept` say.
+   7. **Counts.** Yes: Umami, cookieless and proxied same-origin, three named events (a game finished, a find taken, a tool export), disclosed on `/kept`.
+   8. **Claude Code.** Once, plainly and first, on `/colophon`: "I wrote what each branch should do, and read every merge."
 
 ### The next two weeks (30 September to 11 October)
 
@@ -405,19 +407,21 @@ The pace below assumes about twenty-five commits a day across parallel branches,
 - Sound on every screen, and phone targets.
 - `CLAUDE.md`, `npm run check`, Vitest and the content lint.
 - Lights off.
+- The two open proxies closed, with their tests, moved up from week 2 because this report sits on a public branch (**Decisions**, Engineering 4; **Cybersecurity**, "If you only do one thing here").
 - "Since Tuesday" (the status line dates itself).
-- **Content:** a `why` and a `did` for six to eight projects, real covers for the top five, and hygiene on every public repository you will link.
+- **Content:** a `why` and a `did` for six to eight projects (the `did` lines drafted for you to approve), real covers for the top five, and hygiene on every public repository you will link.
 
 **Week 2, 5 to 11 October: safe, plain, and the Desk's frame.**
-- Security's first slice: headers, CSP in Report-Only, the proxies, `security.txt`, robots and sitemap.
+- Security's first slice: headers, CSP in Report-Only, `security.txt`, robots and sitemap (the proxies closed in week 1).
+- The domain bought by Friday 9 October, before the soft launch (**Decisions**, item 2).
 - Plainly, with the PDF and the security lens.
-- Quiet counts (Umami proxied same-origin, unless you are on Vercel Pro).
+- Quiet counts: Umami, cookieless and proxied same-origin, sending three named events and nothing else (**Decisions**, item 7).
 - Foundations (`random`, `day`, `store`, `tabOf`); the Desk frame and the Today drawer; Same Grey, with 400 days frozen and validated.
-- **In parallel, on its own branch:** Urchi's package one behind `lifelike`, recorded before and after against the probe. It touches `attention.ts`, `character.ts` and `Urchi.ts`, plus one line of `RoomScene.ts` for the flag. The `?debug=urchi` panel waits for `Space.ts`.
+- **In parallel, on its own branch:** Urchi's package one behind `lifelike`, now with the softer first wake, recorded before and after against the probe. It touches `attention.ts`, `character.ts` and `Urchi.ts`, plus one line of `RoomScene.ts` for the flag. The `?debug=urchi` panel waits for `Space.ts`.
 - **Content gate, Sunday 11 October:**
   - every project real, with `why` and `did`;
   - five notes;
-  - `WORK_LINE` written.
+  - `WORK_LINE` in place (the decided draft passes; your rewrite is welcome at any time).
 - **Soft launch, Sunday 11 October:** your Instagram bio and your CV.
 - **Same Grey No. 1** goes live at your midnight into Monday 12 October, if the frozen days pass their checks. Otherwise it moves to Monday 19 October.
 
@@ -426,12 +430,12 @@ The pace below assumes about twenty-five commits a day across parallel branches,
 | Week | Urchi and Space | Projects and content | Desk | Security |
 |---|---|---|---|---|
 | 3, 12-18 Oct | Extract `Space.ts`, then the `?debug=urchi` panel. Lids that follow the eyes; log-normal and incomplete blinks; the blink reflex | The sync, the weave and the daily Action; `Piece:` trailers begin; two notes; `npm run log` and the feed | Same Grey No. 1 on Monday | `/kept` v1; the CSP moves to nonces |
-| 4, 19-25 Oct | The finds spine (outing, bolt, carry, About's full stop). The shared shooting-star event and "It saw it too" | The Urchi case page with "Five visors" | Tools frame; **Sky** | Paper one. The sky calendar by Tuesday 20 October, for the Orionids around the 21st |
-| 5, 26 Oct-1 Nov | Stroking and the purr; ears and the bristle | The thread alive: thickness, the loose end, `/api/pulse`; your GitHub profile README | `/colophon` with the switches | CSP enforced after a clean week; **Phosphenes**: the hub and six lights |
-| 6, 2-8 Nov | Finds phase 2 begins; breath and sighs; rests more than it performs afloat | Two notes | **Stet No. 1** on Monday 2 November | Paper two |
-| 7, 9-15 Nov | Moods, habituation, microsleeps | "He is working" on Space; notes from your phone; the ThreadScene layout extraction with golden numbers | **Grain** | |
-| 8, 16-22 Nov | Sleep life: dreams, the pillow, the softer first wake | | Plaintext ready; the monospace lands with it | Two more lights. The Leonids around the 17th |
-| 9, 23-29 Nov | Memory and persona: recognition, "it knows your rhythm", the arrival budget | Launch check | **Plaintext, week 1 "The name"**, from Monday 23 November | Paper three; "Seen in the dark" |
+| 4, 19-25 Oct | The finds spine (outing, bolt, carry, About's full stop). The shared shooting-star event and "It saw it too" | The Urchi case page with "Five visors" | Tools frame; **Sky** | Paper one, Sunday 25 October. The sky calendar by Tuesday 20 October, for the Orionids around the 21st |
+| 5, 26 Oct-1 Nov | Stroking and the purr; ears and the bristle | The thread alive: thickness, the loose end, `/api/pulse`; your GitHub profile README | `/colophon` with the switches | CSP enforced after a clean week; **Phosphenes**: the hub and five lights on Sunday 1 November, the sixth when the domain resolves |
+| 6, 2-8 Nov | Finds phase 2 begins; breath and sighs; rests more than it performs afloat | Two notes | The Stet bank: forty public-domain passages approved by Monday 2 November | Paper two, Sunday 8 November |
+| 7, 9-15 Nov | Moods, habituation, microsleeps | "He is working" on Space; notes from your phone; the ThreadScene layout extraction with golden numbers | **Stet No. 1** on Monday 9 November; **Grain** | |
+| 8, 16-22 Nov | Sleep life: dreams and the pillow (the softer first wake is already in, from week 2) | | Room for the launch (Plaintext moves to 7 December) | Paper three, Sunday 22 November. Two more lights, the fold and the small print. The Leonids around the 17th |
+| 9, 23-29 Nov | Memory and persona: recognition, "it knows your rhythm", the arrival budget | Launch check | Same Grey carries the Desk into the launch | "Seen in the dark" |
 
 - **Content gate, Sunday 1 November:** paper one is out, and there have been two notes a week since the soft launch.
 - **Content gate and launch gate, the week of 23 November.** Every item in **Strategy** §15's list must hold, including:
@@ -449,8 +453,8 @@ The pace below assumes about twenty-five commits a day across parallel branches,
 
 ### Later (December onwards)
 
-- **Desk:** Cues or Tone (early December). Plate, if the counts say the dailies are played. Last login's first Saturday. Settle, A week and That night, in that order and only on demand.
-- **Security:** the remaining six lights, and season two with the secret rotated. The security tools, once each has a proper spec. `/lab` demos last, if at all.
+- **Desk:** **Plaintext, week 1 "The name"**, on Monday 7 December, with the monospace. Cues or Tone (early December). Plate, if the counts say the dailies are played. Last login's first Saturday. Settle, A week and That night, in that order and only on demand.
+- **Security:** the remaining lights (the register on 13 December, then one every three to four weeks, to twelve), and season two from Monday 1 March 2027, with new answers in the same places. The security tools, as **Cybersecurity** §5 specifies and dates them: Headers and Policy 7-11 December, the token 14-16 December, the certificate 11-22 January. `/lab` demos last, if at all.
 - **Urchi:** the micro-acts (the sneeze, staring at nothing, the double-take), dizziness after a spin, a level head while tumbling, pupils with a size of their own, a catchlight experiment, and the constellations it draws with its eyes.
 - **Finds:** the lines you snapped, the fallen star and its ember, the letter in seven pieces, the geode, `npm run leave`, then wreck days made from real projects.
 - **Dated:** the Geminids around Monday 14 December. "The year, wound" on Thursday 31 December, with its numbers frozen that day.
@@ -558,6 +562,6 @@ These go into `CLAUDE.md`, so every branch reads them before it writes a line. T
 | `/api/preview` | Engineering: signed ids and one re-checked redirect hop. The security draft: recompute the week's songs, and `redirect: "error"`. | **Engineering's version.** A store's CDN may redirect legitimately, and a signature does the same job with less work. |
 | One page or two for "how it is made and kept" | Style: `/colophon`. Security and engineering: `/kept`. Strategy's first draft: one merged page. | **Two short pages, linked to each other.** The security reader needs one URL that is all threat model. |
 | When Urchi's realism starts | Strategy: realism in week 3, after the Desk. Urchi: week 1. | **Package one in week 2, on its own branch.** It is two or three days, it touches files no other early work touches, it is the first five seconds of every visit, and you asked for it. The rest follows strategy's weeks. |
-| Analytics | Games: Vercel custom events. Engineering and strategy: those need Pro. | **Umami, proxied same-origin, unless you are on Pro.** `/kept` then says exactly what is counted. |
+| Analytics | Games: Vercel custom events. Engineering and strategy: those need Pro. | **Umami, proxied same-origin.** Decided in **Decisions**, item 7: cookieless, three named events; Vercel's own events only if you move to Pro and prefer them. `/kept` then says exactly what is counted. |
 | A path-scoped CSP for tools | The security draft and the first tools draft: stricter policies per path, with tools opened by full loads. The tools review: client-side navigation under one site-wide policy. | **One site-wide policy, and client-side navigation.** The site is one long-lived document, so a per-path policy binds only on a hard load. `connect-src 'self'` already makes "nothing leaves this page" true everywhere, and the network watch plus a test prove it. Only `/lab` demos, which run code, get documents of their own. |
 | Case page layout | Style R5: a facts row ("2024 to now", "Source Live"). Strategy §3.10: sentences ("Mostly TypeScript. A little Python."; "From April to July. Eighty-one commits, most of them in May."). | **Strategy's order and sentences, in style's type,** with style's lit pill, focus handling and "Next:" link. |

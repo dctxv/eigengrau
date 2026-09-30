@@ -1,42 +1,46 @@
 ## Free tools
 
-Reviewed against the repo at `9b8c07c` ("Space: a sky behind Urchi afloat, starting with the stars"). Where another reviewed area already decides something (engineering's CSP and registry, security's proxies, style's Desk and tagline, the games' pill), this review defers to it and names the seam.
+Reviewed against the repo at `9b8c07c` ("Space: a sky behind Urchi afloat, starting with the stars"). Where another reviewed area already decides something (engineering's CSP, registry and proxies, style's chip and tagline, strategy's Desk), this review defers to it and names the seam.
+
+*Ruled in the summary: the tools live in the Tools drawer of the Desk, the third pill (Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6), and the games' own "Today" pill is not built. The proxy fixes are engineering's (§3.1-3.2: `/api/preview` serves only songs the site signed, with one redirect hop re-checked; `/api/cover` takes only images). Where this section cites the unreviewed security draft (F1-F3, §2.5, §4), engineering's version is the one built.*
 
 ### Review verdicts
 
 | Idea | Verdict | Why |
 |---|---|---|
-| The bench frame: `/tools` index, `/tools/<slug>` pages, one engine per tool, the colophon | KEEP WITH CHANGES | This is the right frame. Name the visible label "Tools", because every other label is a plain noun and the route is `/tools`. Keep "bench" as the name in the code. Tools need a `shown` prop and must stop their frames when hidden, in case they live inside a Desk. Reduced motion has to be watched live. |
-| Ways in: a fourth word under About, a Notes log line, Urchi's news, "Bench" on the thread | KEEP WITH CHANGES | `ELSEWHERE` renders every entry as an off-site `target="_blank"` link (`AboutPanel.tsx:71-81`), and "Elsewhere" means off-site anyway. Link the words "small tools" in `TAGLINE` instead; style R2 already puts the tagline on About. Keep the Notes line, the news hook and the thread project. |
+| The bench frame: `/tools` index, `/tools/<slug>` pages, one engine per tool, the colophon | KEEP WITH CHANGES | This is the right frame. Name the visible label "Tools", because every other label is a plain noun and the route is `/tools`. Keep "bench" as the name in the code. Tools need a `shown` prop and must stop their frames when hidden, because they live inside the Desk, which is a kept panel. Reduced motion has to be watched live. |
+| Ways in: a fourth word under About, a Notes log line, Urchi's news, "Bench" on the thread | KEEP WITH CHANGES | `ELSEWHERE` renders every entry as an off-site `target="_blank"` link (`AboutPanel.tsx:71-81`), and "Elsewhere" means off-site anyway. Link the words "small tools" in `TAGLINE` instead; style R2 already puts the tagline on About. Keep the Notes line, the news hook and the thread project. *Ruled in the summary (reconciliation 8): `WORK_LINE` sits under About's status line, not `TAGLINE`, and "small tools" is linked only if those words are in his line, which they are not. About's door is the phrase "the small things" in the statement, which leads to the Tools drawer once Sky ships (`decisions.md`, Tools 1). The news hook moves `UPDATED.desk` and looks at the Desk pill (reconciliation 4).* |
 | The privacy line: a live network watch, CSP and lint | KEEP WITH CHANGES | It is the best idea here, and it doubles as security work. It had three errors. A path-scoped CSP only binds on a hard load, because the site is one long-lived document. The watch cannot see WebSockets. And at 35% ink the line reads at about 2.9:1, so it fails AA. Rely on engineering's site-wide `connect-src 'self'`, and set the line at 60% ink (6.0:1). |
 | State in the link, memory, and "Take" | KEEP WITH CHANGES | A query string is sent to the server when the link is opened, so "the word never leaves the page" was false for shared links. Anything personal (a word, a place, a date) goes after the `#`. Settings stay in the query. On a desk "Take" downloads; the share sheet is for touch. |
 | The kit, `src/components/bench/` | KEEP WITH CHANGES | Text at 35% fails contrast. Pad and Plot were missing (Cues and Settle need them). Letter keys must be switchable (WCAG 2.1.4). Build each part when a tool first needs it, not all thirteen up front. |
 | 1. Sky | KEEP WITH CHANGES (build first) | It is unique to this site, the engine is ready, and it leaves with the visitor as a wallpaper. Five fixes. Version the sky, or a retune changes every word's sky. Past 5,760 CSS px the export runs out of stars. A phone sees only about 80 stars, so it needs a denser preset. Space never re-reads its seed, so "Put it behind Urchi" needs a hand-off. The twinkle cannot loop by rounding speeds. |
 | 2. Grain | KEEP WITH CHANGES | A crowded genre, but linear light, OKLab matching and the dissolve GIF set it apart in ten seconds. It was over-scoped for M: camera, SVG, CSS and e-ink bytes move to a second pass. The "fraction of a JPEG" claim becomes a live, honest size readout. |
-| 3. Cues | KEEP WITH CHANGES | Rare and personal. It must never call `sfx.set(true)`. That starts the ambient bed and remembers sound as on for the whole site, and phones have no chip to turn it off (`globals.css:237-241`). Cues gets its own AudioContext. The buffer test needs a seeded RNG. Cut the latency calibration. |
+| 3. Cues | KEEP WITH CHANGES | Rare and personal. It must never call `sfx.set(true)`. That starts the ambient bed and remembers sound as on for the whole site, and phones have no chip to turn it off (`globals.css:237-241`; the summary moves the chip into the nav on every screen, and the rule stands anyway). Cues gets its own AudioContext. The buffer test needs a seeded RNG. Cut the latency calibration. |
 | 4. Tone | KEEP WITH CHANGES | Cheap, and it explains the Music room. Cut the palette of five, which is a Coolors clone and contradicts "the one colour". Cut "Or name a record", which widens the proxies security wants closed. The floor must adapt to the visitor's own ground and ink. |
 | 5. Quieter | CUT | It is Hemingway, alex and write-good with house taste, and it is the least "cool" tool on the list. It also preaches a voice that the site, largely written with Claude Code, speaks, not one visibly his: his only notes are "i got a free burrito heh" and "hi". Salvage: run its rules on log lines in `npm run note`. |
 | 6. Facets, Trace mode | CUT | L effort against vtracer, potrace and Vectorizer.AI. The claimed engine is not really there: `trace-ref.mjs` is about fifty lines inside a `page.evaluate`, keyed to magenta and blue reference art, and traces each region on its own, which is exactly the gap-prone method the proposal warns against. |
 | 6. Facets, Facet mode | CUT (parked) | Low-poly photo generators are a crowded toy genre, and the planes-and-rim twist is unproven. Revisit after four tools have shipped. |
-| 7. A week | KEEP WITH CHANGES (later) | It is the site's most personal engine opened to everyone, and the card is a social object. It must fit security's fixes. There are no previews for strangers' weeks (F3). Covers go through minted ids (§2.5). ListenBrainz goes through the same route, because `connect-src 'self'` blocks it in the browser. MusicPanel (1,442 lines) needs pieces extracted first. |
-| 8. Settle | KEEP WITH CHANGES (later) | The tagline's middle word is "motion". A table of one spring in every dialect, plus a live interruption demo, is uncommon and exactly his craft. Every mapping must come from each library's source and be tested. Moved up from 8th to 5th. |
+| 7. A week | KEEP WITH CHANGES (later, only on demand) | It is the site's most personal engine opened to everyone, and the card is a social object. It must fit security's fixes. There are no previews for strangers' weeks (F3). Covers go through minted ids (§2.5). ListenBrainz goes through the same route, because `connect-src 'self'` blocks it in the browser. MusicPanel (1,442 lines) needs pieces extracted first. *Decided (`decisions.md`, Tools 4): his Last.fm key never serves strangers, so A week is ListenBrainz-only, and it is built only on demand.* |
+| 8. Settle | KEEP WITH CHANGES (later, only on demand) | The tagline's middle word is "motion". A table of one spring in every dialect, plus a live interruption demo, is uncommon and exactly his craft. Every mapping must come from each library's source and be tested. Moved up from 8th to 5th. |
 | 9. Tab | CUT | RealFaviconGenerator already does this well, and animated favicon states are a gimmick few will ship. Salvage the craft as a write-up: publish `lidLine` and `live-icon.js` as a note and a snippet. |
-| 10. That night | KEEP WITH CHANGES (stretch) | The one real sky, for a site named after darkness, and a well-loved kind of gift given free. L effort. Version one has no planets and no SVG. Stars' haze is a straight quad (`Stars.ts:120-130`), so the Milky Way cannot follow an arc in a round projection. The geolocation permission conflicts with engineering's policy. |
+| 10. That night | KEEP WITH CHANGES (stretch) | The one real sky, for a site named after darkness, and a well-loved kind of gift given free. L effort. Version one has no planets and no SVG. Stars' haze is a straight quad (`Stars.ts:120-130`), so the Milky Way cannot follow an arc in a round projection. The geolocation permission conflicts with engineering's policy. *Ruled in the summary: `Permissions-Policy` denies by default, and `geolocation=(self)` joins it in the same commit as "Here". Decided (`decisions.md`, Tools 5): later, and only on demand, after A week.* |
 | "Considered, and cut" (tap tempo, numbers to words, banding fixer, glass generator, QR, the security tools, rhythm game, make-your-own-Urchi) | KEEP | Every cut there is right. The rhythm game belongs to the games, which must stay free of Urchi. The security tools share this frame, as described below. |
 
 #### Checked against the repo
 
 1. **No digit shortcuts exist.**
    - The pills are plain `<Link>`s (`Nav.tsx:33-37`, `Tab.tsx:46-57`), and no `keydown` handler anywhere reads digits. The games review measured this in Playwright.
-   - "Tools never use digits" is still a good rule, because style R3 proposes adding keys 1 to 5. The premise was wrong, though.
+   - "Tools never use digits" is still a good rule, because the summary adds keys 1 to 6 (Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6) through one listener in `src/lib/keys.ts`. The premise was wrong, though.
 2. **`sfx.set(true)` is not a neutral "on" (`sfx.ts:1286`).**
    - It calls `ambientStart()`, which fetches `/audio/ambient.mp3` and loops the bed.
    - It writes `eigengrau:sound = 1` for every future visit.
    - At 1024px wide or less the chip has `display: none` (`globals.css:237-241`), so a phone visitor would have no way to turn it off.
+   - *Ruled in the summary: the chip moves into the nav on every screen (Style R4, week 1). The rule that no tool flips it stands on its own.*
 3. **A CSP scoped to `/tools/*` only applies to a hard load.**
    - Shell keeps one document alive (`Shell.tsx:128-133`), so a client-side trip from `/` to `/tools/grain` runs under `/`'s policy.
    - Engineering's site-wide `connect-src 'self'` (reviewed `engineering.md` §3.1) already makes the claim true on every document, and its probe found no connect violations. Drop the path variant.
    - Engineering's `Permissions-Policy` sets `camera=()` and `geolocation=()`. That would block Grain's camera and That night's "Here". Both need `(self)`.
+   - *Ruled in the summary: deny by default, and grant a feature in the same commit as the first thing that uses it. `camera=(self)` arrives with Grain's second pass, and `geolocation=(self)` with That night's "Here". The microphone stays `()`, because Cues promises it never listens.*
 4. **Query strings are sent to the server.**
    - Opening `/tools/sky?w=darius` puts "darius" in the host's request log.
    - Only a fragment (`#w=darius`) stays in the browser.
@@ -60,6 +64,7 @@ Reviewed against the repo at `9b8c07c` ("Space: a sky behind Urchi afloat, start
 11. **The voices are not deterministic.**
     - `snapWave`, `tab`, `focus` and `close` (`sfx.ts:110, 121-123`) and the thud's knock (`sfx.ts:1111-1118`) all call `Math.random()`.
     - A buffer-for-buffer test needs an injected, seeded RNG. `rng` in `tune.ts:88` will do.
+    - *Ruled in the summary: `rng` moves, with `hashSeed`, `subSeed`, `unitOf` and `pickWeighted`, into the shared `src/lib/random.ts` (engineering §4.1), and `tune.ts` re-exports it. The tools import it from there.*
 12. **OG images cannot be made "at build time" with Playwright.**
     - `scripts/gen-assets.mjs` is run by hand, needs a local Chromium and ffmpeg, and its output is committed.
     - Vercel's build has no browser.
@@ -73,7 +78,7 @@ Reviewed against the repo at `9b8c07c` ("Space: a sky behind Urchi afloat, start
     - Last.fm's `call()` is `now/route.ts:73`.
     - `RHYTHM` (`Call.ts:16`) is not exported.
     - `mp4-muxer`'s author now points to its successor, Mediabunny. Check which is maintained when the loop is built.
-    - The repo has no LICENSE, so "MIT" on exported code is the owner's call. See question 2.
+    - The repo has no LICENSE, so "MIT" on exported code needed a decision. Decided (`decisions.md`, Tools 2): an MIT `LICENSE` for the code, and a `NOTICE` keeping the words and Urchi's likeness all rights reserved. See "Decisions" below.
 19. **Everything else checks out.**
     - The tone.ts line numbers: `labOf :48`, `deltaE :82`, `toneOfPixels :114`, `read :166`, `CAPS :341`, `MIN_CONTRAST :346`, `underGrain :361`, `bend :392`, `Spring :417`, `dither :463`.
     - The dither GLSL (`Urchi.ts:17-22`), `magnet` (`ThreadScene.ts:688`), `weekFact` (`fact.ts:129`), `said` (`fact.ts:54`), the Writer (`notes.ts:87`), `lidLine` (`LiveIcon.tsx:119`), `SLEEP` (`:20`), `countWord` (`site.ts:201`), `whatsNew` (`visits.ts:167`) and `urlSeed` (`seed.ts:31-35`).
@@ -86,9 +91,14 @@ Reviewed against the repo at `9b8c07c` ("Space: a sky behind Urchi afloat, start
 
 Seven small, free instruments that run in the visitor's browser. Each is one of the site's own engines turned outward, and each ends by showing where that engine runs on the site.
 
-The tagline already promises them: `TAGLINE` (`site.ts:9`) reads "Interfaces, motion and small tools, built with care." Today it is only the meta description and the sr-only mirror on `/` (`layout.tsx:10`, `page.tsx:10`). Once style R2 puts it on About, "small tools" becomes the door.
+The tagline already promises them: `TAGLINE` (`site.ts:9`) reads "Interfaces, motion and small tools, built with care." Today it is only the meta description and the sr-only mirror on `/` (`layout.tsx:10`, `page.tsx:10`). Style R2 proposed putting it on About, with "small tools" as the door.
 
-The security tools ("Headers, read", "A token, opened" and the rest, from `security.md` §4) use the same frame, kit, registry and privacy line. Their content is the security reviewer's, so this document covers only the seam.
+*Ruled in the summary: the door is the Desk pill, third in the row. On About, `WORK_LINE` takes the place under the status line, and "small tools" is not linked because those words are not in his line. The About statement's own phrase "the small things" (`site.ts:22`) leads to the Tools drawer once Sky ships, and is unlinked before that (`decisions.md`, Tools 1; Music, About and Notes, 4).*
+
+The security tools ("Headers, read", "A token, opened", "A certificate, unfolded" and the rest, named in the unreviewed `ideas/security.md`'s at-a-glance table; its §4, where they were to be specified, was never written) use the same frame, kit, registry and privacy line. They sit under "To check" at `/tools/<slug>`. This document covers only the seam, and each still needs a full spec in this frame before it is built, from December. They are defensive only (`decisions.md`, Tools, "Also settled here"):
+- "A token, opened" decodes and explains a JWT on the page, and never tries a secret. The draft's weak-secret check is cut.
+- "Headers, read" reads pasted headers or this site's own, and never fetches a URL on a visitor's behalf, because that would make it a proxy.
+- "A certificate, unfolded" reads only what it is given.
 
 ---
 
@@ -106,6 +116,8 @@ The security tools ("Headers, read", "A token, opened" and the rest, from `secur
 
 **Build first:** the frame (two days), then Sky, Grain and Cues, then Tone as a cheap fourth. That is about sixteen working days.
 
+*Ruled in the summary: these are working days, spread over the calendar. The frame and Sky land in week 4 (19-25 October), Grain in week 7 (9-15 November), then Cues in early December and Tone after it. Settle, A week and That night follow only on demand, in that order (`QUEUE`, `decisions.md`, Tools 4).*
+
 ---
 
 #### What it holds to
@@ -121,6 +133,7 @@ The security tools ("Headers, read", "A token, opened" and the rest, from `secur
    - Settings go in the query: short keys, fixed precision, colours as six hex digits.
    - Personal input goes in the fragment: a word, a place, a date.
    - The page says which is which.
+   - *Ruled in the summary: anything personal in a link goes after the `#`. Decided: the only exceptions are where the server has to see it to do the job (A week's name, and Sky's later picture link). Each is the visitor's choice, never the default link, and the page says what it sends before the link is made.*
 4. **"Take" is the verb, with the tool's own noun:** "Take the sky", "Take the picture", "Take the sound", "Take the colour". The site already says "Take with you".
 5. **Two colours for the chrome.**
    - Content may be in colour: a picture, a swatch, a sky.
@@ -131,12 +144,13 @@ The security tools ("Headers, read", "A token, opened" and the rest, from `secur
    - On touch, Take goes through the share sheet, so a picture lands in Photos. On a desk it downloads.
 7. **Keys only where you are.**
    - Letter keys work only while focus is inside the tool and not in a text field.
-   - The Keys card can turn them off, which WCAG 2.1.4 asks for.
-   - Digits are left alone for the tabs (style R3 proposes 1-5).
+   - The Keys card can turn them off, which WCAG 2.1.4 asks for. It is the same switch as `/colophon`'s (`eigengrau:keys`), so turning letters off in one place turns them off in both.
+   - Digits are left alone for the tabs (1-6: Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6).
+   - Every key goes through `src/lib/keys.ts`: a tool claims its letters while focus is inside it, and Esc goes up one level, from a tool to the Tools drawer and then to the Desk's shelf.
 8. **Two switches for sound, never crossed.**
-   - The chip governs the sounds the site makes at you.
+   - The chip governs the sounds the site makes at you. It lives in the nav on every screen (Style R4).
    - Play in Cues governs the sounds you ask for, on its own audio context.
-   - No tool ever flips the chip.
+   - No tool ever flips the chip, and a tool that moves `sfx.air` saves the value it found and restores it on leaving.
 9. **No accounts, no watermark, no metadata.**
    - A PNG taken from here carries nothing, not even his name.
    - The one exception is A week's card, which is a social object; its credit can be turned off.
@@ -157,40 +171,46 @@ The security tools ("Headers, read", "A token, opened" and the rest, from `secur
   - The tool itself is a client component loaded with `next/dynamic` and `ssr: false`, since WebGL and audio need a browser.
   - The pages follow the case pages (`src/app/projects/[slug]/page.tsx`), wearing the same `case-rim`s top and bottom.
 - **Two homes, one codebase.**
-  - **If the Desk lands** (style R16, engineering §4.5): Tools is a drawer in it. The Desk panel owns `/tools/*` through the `owns` list, so a tool stays mounted with the Desk and keeps its state like any tab. It must then pause when hidden: each tool takes a `shown` prop from `onShown` (`where.ts:64`) and stops its frames.
-  - **If it does not:** Shell gives each `/tools/<slug>` a throwaway panel, shown at once with no slide (`Shell.tsx:128-133`). No pill lights, and the tool keeps its last input in module scope for the visit.
+  - **In the Desk** (decided; first proposed as style R16, specified in Strategy §5.5 and engineering §4.5): Tools is a drawer in it. The Desk panel owns `/tools/*` through the `owns` list, so a tool stays mounted with the Desk and keeps its state like any tab. It must then pause when hidden: each tool takes a `shown` prop from `onShown` (`where.ts:64`) and stops its frames.
+  - **If it did not** (not built): Shell would give each `/tools/<slug>` a throwaway panel, shown at once with no slide (`Shell.tsx:128-133`). No pill would light, and the tool would keep its last input in module scope for the visit.
   - Either way, the tools keep their own URLs, because strangers arrive from search and from shared links.
+  - *Ruled in the summary: the Desk lands, as the third pill, with the drawers Today, Tools and Security (Strategy §5.5, Engineering §4.5). The first home is the one built: `pillOf` lights pill 3 on every `/tools` path, and the Desk pill remembers the last drawer. The throwaway panel is not built; it is kept here only as what happens if all three drawers are ever cut (`decisions.md`, 4).*
 - **Navigation is client-side,** with `next/link`. There are no hard loads: a song playing through Music's wall keeps playing, and Urchi stays afloat.
   - The CSP holds anyway, because it is site-wide.
-  - This differs from the security review's advice for `/break`, whose demos need their own document. Tools do not.
-- **The games stay separate.** The owner wants the daily games apart from Urchi, and the index does not list them. The Desk may show both drawers; this document does not mix them.
+  - This differs from the security draft's advice for its demos, which need their own document. Tools do not. *Ruled in the summary: those demos live at `/lab/<demo>`, each its own document with its own CSP, and come last, if at all.*
+- **The games stay separate.** The owner wants the daily games apart from Urchi, and the index does not list them. The Desk shows three drawers, Today, Tools and Security; this document does not mix them.
+- **No Urchi on the Desk.** Urchi is not drawn in any tool, on the index or in a drawer. The tools may name it in words ("the dither Urchi leaves through"), and Sky's "Put it behind Urchi" hands the visitor over to Space, where Urchi lives.
 
 ##### Ways in
 
 - **About.**
-  - When style R2 puts `TAGLINE` under the status line (12px grotesk at 60% ink), the words "small tools" in it become a link to `/tools`, with the site's 1px underline at 35% ink.
+  - Style R2 proposed putting `TAGLINE` under the status line (12px grotesk at 60% ink), with the words "small tools" in it as a link to `/tools`, in the site's 1px underline at 35% ink. The same look serves the link that is built (below).
   - "Elsewhere" keeps its three words, because it means off-site.
-  - If the Desk lands, its pill is the main door and this link is the quiet one.
-- **Notes.** One site log line in grotesk whenever a tool lands, tagged `site`:
+  - The Desk's pill is the main door and this link is the quiet one.
+  - *Ruled in the summary (reconciliation 8): `WORK_LINE` sits under the status line, not `TAGLINE`, and "small tools" is linked only if those words are in his line. They are not ("Student developer in Melbourne. Interfaces, AI tools and security."), so the quiet door is instead the phrase "the small things" in About's statement (`site.ts:22`). From the day Sky ships (week 4) it leads to the Tools drawer, with the gloss "Small tools, free. They keep nothing of yours." Before that it is unlinked. The full stop after "things" stays the finds' (`decisions.md`, Music, About and Notes, 4).*
+- **Notes.** One site log line in grotesk whenever a tool lands, tagged `site`, offered by `npm run log` from the tool's merge subject and kept in `src/content/log.json` (a `[quiet]` commit is never offered):
   - "A sky to take away."
   - "Grain: the dither Urchi leaves through, for any picture."
 - **Urchi's news.**
-  - Add `tools: "YYYY-MM-DD"` to `UPDATED` (`site.ts:99`) and a template to `URCHI_NEWS` (`site.ts:83`): `tool: "A new tool since {date}."`
-  - `whatsNew` (`visits.ts:167-187`) pushes `{ href: "/about", date: UPDATED.tools }`, or `/desk` if that exists, with the tool line.
-  - Urchi then looks up at that pill once in the visit, as it already does for notes.
-- **Projects (optional).**
-  - Add "Tools" to `PROJECTS` as a real project ("alive since 2026", why-line "Small things I made for other people. They keep no data.").
+  - Add `desk: "YYYY-MM-DD"` to `UPDATED` (`site.ts:99`) and a template to `URCHI_NEWS` (`site.ts:83`): `tool: "A new tool since {date}."`
+  - `whatsNew` (`visits.ts:167-187`) pushes `{ href: "/desk", date: UPDATED.desk }` with the tool line.
+  - Urchi then looks up at the Desk pill once in the visit, as it already does for notes. It finds the pill by `data-tab`, because the Desk pill's href changes with the last drawer.
+  - *Ruled in the summary (reconciliation 4): one `UPDATED.desk`, not `UPDATED.tools`, and it moves only when a new game, tool or paper lands. Urchi never points at the Desk for the daily puzzle; the look is for new things only. Urchi looks from Space, and never comes to the Desk itself.*
+- **Projects (decided: yes, from the day Sky ships).**
+  - Add "Tools" to `PROJECTS` as a real project ("alive since October 2026", with months in `statusWord` as the projects brief asks; why-line "Small things I made for other people. They keep no data.").
   - Each tool is a `SPACE_ITEMS` piece with `project: "tools"`, and its cover is made by the tool itself: a Sky, a Grain of a photograph, a Cues waveform.
-  - This fits alongside the real GitHub projects now being added, because it is real work.
+  - This fits alongside the real GitHub projects now on `main` (`0d9641d`), because it is real work.
+  - Why: it is his work in public, and each tool's cover costs nothing because the tool makes it. What would change it: if the week-1 branch "Projects: months on the thread" (marks placed by `start` month, `countWord` in `projectsLine`) has not landed by week 4, the project waits for it rather than adding a mark by hand.
 
 ##### The index, `/tools`
 
 - **Heading.** The Notes pattern: the grotesk label "Tools", then a serif sentence written from the registry with `countWord`.
   - "Four, free. What you give them stays on this page."
   - Once A week exists: "Seven, free. What you give them stays on this page, but for one, which says so."
-  - With the security tools on the same index: "Six to make things with, and five to take things apart."
-- **At night.** In Urchi's night hours (`clock().hours === "night"`, `hours.ts:31-44`) the sentence gains a clause in the voice of `URCHI_STATES`: "It is 3:12 here, and Urchi is asleep. These keep no hours."
-  - `TIME_ZONE` is still null (`site.ts:16`), so "here" is the visitor's own hours, exactly as on Space.
+  - With the security tools on the same index: "Six to make things with, and three to check things with." *Ruled in the summary: the security tools sit under "To check", and there are three so far ("Headers, read", "A token, opened", "A certificate, unfolded"). The count comes from the registry.*
+- **At night.** In Urchi's night hours (`clock().hours === "night"`, `hours.ts:31-44`) the sentence gains a clause in the voice of `URCHI_STATES`: "It is 3:12 here, and he is asleep. These keep no hours."
+  - *Ruled in the summary: Urchi never comes to the Desk, so the clause names him, not Urchi, as the Desk's own night line does ("He is asleep. The desk is not.", Strategy §5.6).*
+  - `TIME_ZONE` is null today (`site.ts:16`). Decided: it becomes `"Australia/Melbourne"`, with `HEMISPHERE = "south"` (`decisions.md`, 1), so "here" is Melbourne and "night" is 01:00 to 06:59 there. Melbourne moves to +11:00 on Sunday 4 October 2026, and `clock()` follows the zone, not a fixed offset.
 - **Rows.** One per tool, in the Notes column's width, in rank order, grouped under two grotesk 11px labels at 60%: "To make" and "To check".
   - On the left, a 56px thumbnail.
     - It is a still WebP. On hover or focus it becomes a two-second muted `<video>` loop, made by the tool itself through a local script (`npm run tools:thumbs`, the way `gen-assets.mjs` works) and committed.
@@ -201,7 +221,7 @@ The security tools ("Headers, read", "A token, opened" and the rest, from `secur
   - Hovering a row raises the cursor label "Open" (`src/components/CursorLabel.ts`, desktop only).
 - **Foot.**
   - The privacy line.
-  - "How these are kept": a link to security's `/kept` once it exists.
+  - "How these are kept": a link to `/kept`, which lands in week 3, before the Tools drawer does.
   - In development only, `/dev/tools`: the kit in every state, as `/dev/suit` shows the suit (`src/app/dev/suit/page.tsx`, which answers 404 in production).
 
 ##### A tool page, top to bottom
@@ -213,9 +233,10 @@ The security tools ("Headers, read", "A token, opened" and the rest, from `secur
    - Sentences count in words up to ninety-nine; readouts use digits.
 4. **The colophon.**
    - Below the fold, three to six serif sentences at 60% ink.
-   - It covers how the tool works, where the engine runs on the site, the file it came from (linked, if the repo is public), libraries and licences, how much was fetched to open it, when it was made and in how long, and its keys.
+   - It covers how the tool works, where the engine runs on the site, the file it came from, libraries and licences, how much was fetched to open it, when it was made and in how long, and its keys.
+   - The repository `dctxv/eigengrau` is public, so the file is always linked, as a commit permalink rather than `main`, so the link does not rot (`decisions.md`, Tools 2).
    - Grain's reads:
-     > Made from the dither Urchi leaves through (`src/engine/urchi/Urchi.ts`). An eight by eight Bayer matrix is three two by two matrices added, each a quarter the weight of the one before: sixty-four thresholds laid over the picture. Colours are matched in OKLab, where distance is how different two colours look, and the error is spread in linear light, so a middle grey stays a middle grey. The GIF encoder is gifenc (MIT). Twenty-eight kilobytes, fetched when you opened this. Made in October 2026, in four days.
+     > Made from the dither Urchi leaves through (`src/engine/urchi/Urchi.ts`). An eight by eight Bayer matrix is three two by two matrices added, each a quarter the weight of the one before: sixty-four thresholds laid over the picture. Colours are matched in OKLab, where distance is how different two colours look, and the error is spread in linear light, so a middle grey stays a middle grey. The GIF encoder is gifenc (MIT). Twenty-eight kilobytes, fetched when you opened this. Made in November 2026, in four days.
 5. **The privacy line.**
 
 ##### The privacy line
@@ -228,15 +249,18 @@ Every tool page ends with one grotesk 11px line at 60% ink (6.0:1): **"Asked of 
   - **The site's own traffic** is named rather than hidden.
     - `/api/now`: Space and Music poll it through `pollNow` (`now.ts:83-117`) while the document is visible, whichever tab is shown. "One request since you opened this: /api/now. That was the site asking what he is playing, not this."
     - Next's `?_rsc=` prefetches for links in view: "Two requests, both this site fetching its own pages ahead of you."
+    - The count, when a visitor takes something: one `tool_export { tool, format }` event to Umami through the same-origin `/u/` (`decisions.md`, 7). "One request since you opened this: /u/. That was this site counting that a sky was taken, and in what shape. Nothing else went with it." Nothing is sent while the browser signals Do Not Track or Global Privacy Control, and then the line says nothing about it. The event is sent by `src/lib/count.ts`, outside `src/tools/**`, so the tools' own lint rule still holds.
+    - `/api/beacon`, the summary's route for errors and web vitals: "One request: this site noting how quickly it opened, or that something broke. It carried no picture and no word."
   - **Anything else** turns the line to full ink and names the URL. A test makes sure this never happens.
   - The colophon says what the watch cannot see: "It sees what the browser lists. The page's policy stops the rest from leaving."
 - **The policy.**
   - Engineering's site-wide `connect-src 'self'`, with `img-src 'self' data: blob:` and `worker-src 'self' blob:` (reviewed `engineering.md` §3.1), is true on every document, so no path-scoped variant is needed.
-  - Change its `Permissions-Policy` to `camera=(self)` and `geolocation=(self)`. Grain's camera and That night's "Here" ask only when pressed.
+  - Its `Permissions-Policy` gains `camera=(self)` and `geolocation=(self)`, each when its first user lands. Grain's camera and That night's "Here" ask only when pressed.
+  - *Ruled in the summary: deny by default, and grant a feature in the same commit as the first thing that uses it. So the first tools ship under `camera=()` and `geolocation=()`; `camera=(self)` arrives with Grain's second pass, and `geolocation=(self)` with That night's "Here". `microphone=()` never changes.*
 - **The code.**
   - Engineering's lint rule under `src/tools/**`: `no-restricted-globals` and `no-restricted-properties` for `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` and `navigator.sendBeacon`.
   - One exception file, for A week's client.
-  - Its end-to-end test `e2e/tools-offline.spec.ts` uses every tool with a fixture and asserts that nothing unknown went out.
+  - Its end-to-end test `e2e/tools-offline.spec.ts` uses every tool with a fixture and asserts that nothing unknown went out. The known list is `/api/now`, `?_rsc=` prefetches, `/u/` carrying only `tool_export`'s two fields, and `/api/beacon`. It runs in Playwright, waiting for `load`, not `networkidle`, because the site polls.
 
 This is where the tools and the security work meet. The page shows the instinct; `/kept` explains it.
 
@@ -251,6 +275,7 @@ This is where the tools and the security work meet. The page shows the instinct;
   - Pictures are held as `ImageBitmap`s and closed when a new one is dropped.
 - **Across visits.**
   - Per-viewer settings live in `localStorage` under `eigengrau:bench:<slug>`, every access guarded, as the README describes for the site's other keys.
+  - *Ruled in the summary: the key goes through `keep()` in `src/lib/store.ts` (versioned, guarded, kept in step across browser tabs), is listed in the README and on `/kept`, and is cleared by `/kept`'s "Forget me" with every other `eigengrau:` key.*
   - Pictures and sounds are never stored.
   - A remembered word or place always comes with "Forget it".
 - **Exports** (new, `src/lib/bench/take.ts`).
@@ -264,7 +289,8 @@ This is where the tools and the security work meet. The page shows the instinct;
 - Heavy work goes to Workers: `new Worker(new URL("./x.worker.ts", import.meta.url), { type: "module" })`. That pattern is supported by Turbopack, Next 16's default. Check it under both `next dev` and a real build.
 - **One WebGL context per tool,** made with `makeRenderer` (`loader.ts:107`).
   - On unmount: `renderer.dispose()`, then `renderer.forceContextLoss()`. Space, Projects and About already hold contexts in hidden panels, and iOS evicts the oldest past a handful.
-- **The registry.** Engineering's `src/tools/index.ts` (`meta.ts` per tool) drives the index, `sitemap.ts` and the OG images.
+  - *Ruled in the summary: no fourth kept context. Because the Desk is a kept panel, a tool's context is also released when its drawer closes, or after the Desk has been hidden for ten seconds (through `onShown`), and made again when it is shown. The tool's state lives in its URL and in `store.ts`, so nothing is lost.*
+- **The registry.** Engineering's `src/tools/index.ts` (`meta.ts` per tool) drives the index, `sitemap.ts` and the OG images. It also holds `QUEUE`, the build order for the later tools, with the demand rule (`decisions.md`, Tools 4).
   - OG images are committed PNGs made by the tools through a local Playwright script (`npm run tools:og`), or `next/og` where the image is only type.
 
 ---
@@ -283,7 +309,8 @@ This is where the tools and the security work meet. The page shows the instinct;
   - 100 and 60 are for text. 35 is for underlines and inactive marks that repeat a label elsewhere. 20 and 8 are for hairlines and fills.
 - **Type.**
   - Serif for sentences, grotesk for labels and readouts.
-  - If style's monospace lands (reviewed `style-ux.md` C), it takes hex values, hashes and tool output, and nothing else.
+  - When style's monospace lands (reviewed `style-ux.md` C), it takes hex values, hashes and tool output, and nothing else.
+  - *Ruled in the summary: monospace only where alignment carries meaning, and only from Plaintext on. Decided (`decisions.md`, Style 2): it is Commit Mono 400, arriving with Plaintext on Monday 7 December. In the tools that means hex values, hashes, headers and code snippets (Cues' module, Settle's dialects), and not readouts in general. Before 7 December they are grotesk with tabular figures.*
 
 | Part | What it is | Look | Hands and keys | Sound (chip on only) |
 |---|---|---|---|---|
@@ -297,7 +324,7 @@ This is where the tools and the security work meet. The page shows the instinct;
 | **Caption** | What just happened. | Serif 15, one line, `aria-live="polite"`. It changes with the site's word rise (`Mask.tsx`), instantly under reduced motion. | none | none |
 | **Readout** | Facts. | Label and value rows, grotesk 11, tabular figures, both at 60% or more (label 60%, value 100%). | Select and copy. | none |
 | **Sheet** | The phone's controls. | Glass, 4px top radius, two detents: a peek of 88px (the main control and Take) and open at 60% height. A 24×2 hairline handle. It sits above `--bottom-ui` and the safe area. | Drag, or tap the handle. | none |
-| **Keys** | What the keys do. | A glass card: keys in grotesk 12, meanings in serif 15, and a last line "Letters as keys: on. Turn off." | `?` opens it, Esc closes it. The switch is kept on the device. | none |
+| **Keys** | What the keys do. | A glass card: keys in grotesk 12, meanings in serif 15, and a last line "Letters as keys: on. Turn off." | `?` opens it, Esc closes it. It is the tool's part of the site's `?` key sheet, shown first while a tool has focus. The switch is `eigengrau:keys`, the same one `/colophon` sets, kept on the device. | none |
 | **Colophon** | How it was made. | Serif 15 at 60%, at most 60ch. Links underlined 1px at 35%. | none | none |
 | **Watch** | The privacy line. | Grotesk 11 at 60%; full ink if anything unknown left. | none | none |
 | **Pad** (new) | Somewhere to tap a rhythm. | A 160px square (full width on a phone, 120px tall) with a 1px hairline at 20%. Each tap leaves a hairline ring that fades in 300ms; none under reduced motion. | Pointer or Space bar. Taps are timed from each event's own `timeStamp`. | Only Cues' own context. |
@@ -392,10 +419,11 @@ This is where the tools and the security work meet. The page shows the instinct;
     2. pick a variant with `pickWeighted(weights, unitOf(h, "variant"))`;
     3. `merge` the variant's patch, then the tuning;
     4. `resolve` against `subSeed(h, "stars")`.
-  - It imports only `tune.ts` and types, with relative imports, so Node can test it.
+  - It imports only `tune.ts` (whose hashing now comes from `src/lib/random.ts`) and types, and touches no DOM or three.js, so it stays pure and testable.
   - **New `sky/versions.ts`:** `{ 1: { sky: SKY, stars: STARS } }`. Before the owner pastes a retuned `defaults.ts`, the current version is frozen as a literal. The live defaults become the next version, and Space always draws the latest.
+    - *Decided (`decisions.md`, Tools 3): the tuned `defaults.ts` is frozen as version one in the Sky tool's first commit (week 4), before Sky's first link. Until then `?sky=` is a development knob and promises nothing. If a `?sky=` link is shared publicly before week 4, freeze at that commit.*
   - Links carry `v`. A word from an older link says: "This sky was drawn before the sky was last retuned. Behind Urchi it will look a little different."
-  - **A test** runs under Node's own test runner, the `node --test` script the games review adds. It pins `drawSky("darius", 1)`: its variant, and the first five stars' places and radii. The same word then draws the same sky on Space and on the tool, today and after any retune.
+  - **A test** runs under Vitest, the site's one runner. It pins `drawSky("darius", 1)`: its variant, and the first five stars' places and radii. The same word then draws the same sky on Space and on the tool, today and after any retune. *Ruled in the summary: one runner, Vitest, with scripts under `tsx`, not `node --test`; `@/` imports work in both.*
 - **New `src/tools/sky/render.ts`.**
   - A renderer from `makeRenderer(canvas)` (`loader.ts:107`), for the same raw colour output as Space.
   - A scene with an `OrthographicCamera(-w/2, w/2, h/2, -h/2, -1000, 1000)`, as `RoomScene` lays it out (`RoomScene.ts:196`).
@@ -421,6 +449,7 @@ This is where the tools and the security work meet. The page shows the instinct;
   - `/tools/sky/[word]` gets its own `opengraph-image.tsx` with `next/og`. A new `svgSky(drawSky(...))` writes the view's stars as SVG circles with radial gradients and glints as thin paths, and Satori renders it through `<img src="data:image/svg+xml…">`.
   - A pasted link then shows its sky in a chat.
   - The page says what that costs: "This link shows its sky in a chat. To draw it, it tells this site the word."
+  - It is a separate choice beside "Copy link", never the default, because it breaks the summary's rule that anything personal goes after the `#` (see "What it holds to", 3).
 - **New files:**
   - `src/engine/space/sky/{draw.ts, versions.ts}`;
   - `src/tools/sky/{render.ts, export.ts, Sky.tsx, meta.ts}`;
@@ -456,7 +485,8 @@ This is where the tools and the security work meet. The page shows the instinct;
 - **Sound off.** Silent.
 - **Urchi's night.**
   - The sky keeps no hours; the index's clause covers it.
-  - "Put it behind Urchi" keeps the seed but does not wake it: "It is asleep. The sky is kept for when you take it out." Waking it with a click is what makes it glare, and a tool should not start that.
+  - "Put it behind Urchi" keeps the seed but does not wake it: "It is asleep. The sky is kept for when you take it out." Waking it is the visitor's own act on Space, not a tool's. The night's first wake in a browser is groggy and a second one glares (`decisions.md`, 6), and a tool should start neither.
+  - Night is 01:00 to 06:59 in Melbourne (`decisions.md`, 1), whatever the visitor's own hour.
 - **Returning visitor.** The last word shows as a greyed placeholder: "Last time: darius. Forget it."
 
 **Effort.** M, three days:
@@ -517,7 +547,7 @@ This is where the tools and the security work meet. The page shows the instinct;
 
 ##### Second pass (one to two days)
 
-- **The camera, live,** with ordered patterns only, at 30fps on the GPU. It asks only when "Camera" is pressed.
+- **The camera, live,** with ordered patterns only, at 30fps on the GPU. It asks only when "Camera" is pressed. `camera=(self)` joins `Permissions-Policy` in the same commit as this button, and not before.
   - "Keep" captures the dithered frame. It uses `ImageCapture` at full sensor resolution where it exists (Chromium), and the video frame elsewhere.
 - **"Six-colour e-paper"** palette, and a "400 by 240, one bit" size preset.
 - **More outputs:**
@@ -581,7 +611,7 @@ This is where the tools and the security work meet. The page shows the instinct;
 - **Privacy.**
   - Everything is local, and re-encoding through a canvas drops EXIF.
   - If the source JPEG carried a location (a sixty-line APP1 reader finds the GPS tags), the page says: "This picture knew where it was taken. What you take from here does not."
-  - A metadata scrubber as a tool of its own belongs to security.
+  - A metadata scrubber as a tool of its own belongs to security. It would sit under "To check" in the same registry, and like the other security tools it needs its own spec before it is built.
 - **Link.** `/tools/grain?p=bayer8&c=3&pal=16161d.e9e9e2&l=0&k=0&t=0`. "The link carries the settings. Open it with a picture of your own."
 
 ##### Edge cases
@@ -633,6 +663,7 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
   - **Tick:** the Notes riffle (`:124`).
   - **Bloom:** the supernova's swell (`:947-1040`).
   - **Knock** (new): a thud and a short burst of filtered noise, a knuckle on a door.
+  - *Ruled in the summary: Urchi's four sounds (`pat`, `patOwn`, `tug`, `snap`) stay Urchi's, and Urchi never comes to the Desk. Decided: Pat, Tug and Snap stay as ways of making a sound, but their defaults sit away from Urchi's own note and length, and no preset reproduces any of the four. Why: a sound that means Urchi on Space should not become anyone's "send". What would change it: nothing short of that rule leaving `CLAUDE.md`.*
 - **At most six dials a voice,** named plainly:
   - Note, snapped to the scale;
   - Length;
@@ -658,23 +689,27 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
   - an iOS Core Haptics AHAP file: `HapticTransient` events, with intensity from the cue's level and sharpness from its brightness.
   - On iOS: "Your phone does not let a page buzz it. Android does."
   - The snippets are marked "untested on your device", because they are.
-- **"The site's own".** Presets for every sound on eigengrau: "Urchi's pat", "Its own beat" (D3), "The line's tug", "The line snapping", "A living project" (a ring), "A dead one" (a thud), "The supernova", "The counter". "Every sound on this site, to take."
+- **"The site's own".** Presets for the site's sounds: "A living project" (a ring), "A dead one" (a thud), "The supernova", "The counter". The first draft also offered "Urchi's pat", "Its own beat" (D3), "The line's tug" and "The line snapping", under the line "Every sound on this site, to take."
+  - *Ruled in the summary (see the note under Voices): the first four are Urchi's and are left out. The presets are "A living project", "A dead one", "The supernova" and "The counter", with the Notes riffle's tick and the tab cues where they fit. The line becomes: "Every sound this site makes, but Urchi's. Those stay its own."*
 
 ##### The two switches (the fix)
 
 - **Cues never calls `sfx.set`.**
   - That call starts the ambient bed (`ambientStart()`) and remembers sound as on for every later visit (`sfx.ts:1286-1293`).
-  - On a phone there is no chip to turn it back off (`globals.css:237-241`).
+  - On a phone there is no chip to turn it back off (`globals.css:237-241`). That is true today; the summary moves the chip into the nav on every screen in week 1 (Style R4), and Cues still never touches it.
 - **Instead:**
   - Play makes Cues' own `new AudioContext({ latencyHint: "interactive" })` inside the gesture, and it is closed on unmount.
   - The page says: "Play is its own switch. The rest of the site stays as quiet as you left it."
-  - If the site's sound is on (`sfx.enabled`), the page puts the bed through the wall while you audition, with `sfx.air(400, 0.3)` (`sfx.ts:1371`), and opens it again on leaving with `sfx.air(AIR_OPEN, 0.6)` (`AIR_OPEN`, `sfx.ts:44`).
-- **On a phone** this is the only place the site makes a sound, and the colophon says so: "On a phone, this is the one room with sound in it."
+  - If the site's sound is on (`sfx.enabled`), the page puts the bed through the wall while you audition, with `sfx.air(400, 0.3)` (`sfx.ts:1371`), and on leaving puts back the air it found, over 0.6 s. (The first draft forced it open with `sfx.air(AIR_OPEN, 0.6)`; `AIR_OPEN`, `sfx.ts:44`.)
+  - *Ruled in the summary: `sfx.air` is saved and restored, never forced open. On arriving, Cues reads the air it finds through a new one-line getter (`airHz` is private today, `sfx.ts:46`), and on leaving it ramps back to that value over 0.6 s instead of to `AIR_OPEN`. A supernova float left half-walled stays half-walled.*
+- **On a phone** this was to be the only place the site makes a sound, because the chip is hidden there today, and the first draft's colophon said so: "On a phone, this is the one room with sound in it."
+  - *Ruled in the summary: once the chip is in the nav on every screen (Style R4, week 1), this is no longer true. The colophon says instead: "Play is its own switch. The one in the nav is the site's."*
 - **iOS's ring/silent switch.** Test `navigator.audioSession.type` on a real iPhone (Safari 16.4 and later):
   - `"transient"`, the spec's type for a notification ping, which should mix over the visitor's music;
   - `"playback"`, which beats the silent switch but, by the spec, may pause their music.
   - Choose the one that does not stop their podcast. If the switch wins, say so: "Your phone is on silent. It wins."
-- **A song left playing in Music's room** is still heard faintly here. `tabOf` counts `/tools/*` as Space, three rooms away: 260 Hz, −28 dB (`sfx.ts:322-326, 498-503`). The page leaves it be.
+- **A song left playing in Music's room** is still heard faintly here. Today `tabOf` would count `/tools/*` as Space, three rooms away: 260 Hz, −28 dB (`sfx.ts:322-326, 498-503`). The page leaves it be.
+  - *Ruled in the summary: sfx's own `tabOf` (`sfx.ts:498`) becomes `pillOf`, and the Desk is third. `/tools/*` is then in the Desk, two rooms from Music (5): 420 Hz, −22 dB, with the bed at −4 dB (`sfx.ts:324`). Space moves to four rooms away, past the end of `AWAY`, and takes its last entry (`sfx.ts:702`).*
 
 ##### How it goes
 
@@ -690,7 +725,7 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
 ##### In and out
 
 - **WAV,** 16 or 24 bit, 44.1 or 48 kHz, mono. Peak-normalised to −1 dBFS, or levelled across a sheet.
-- **"As code".** A self-contained ES module of one or two kilobytes that synthesises the cue into an AudioBuffer at runtime, so there are no files to ship, which is how the site does it. Only the chosen voice's generator is inlined.
+- **"As code".** A self-contained ES module of one or two kilobytes that synthesises the cue into an AudioBuffer at runtime, so there are no files to ship, which is how the site does it. Only the chosen voice's generator is inlined. It opens with the two-line header "MIT. From eigengrau by Darius Tan, `src/audio/voices.ts` at `<commit>`." (`decisions.md`, Tools 2).
 - **A JSON recipe.**
 - **The sheet as a ZIP** (fflate, MIT), with a README listing each cue's note and length, and one line: "Level them against each other, not against your music."
 - **Haptics** as copyable snippets.
@@ -703,7 +738,7 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
   - `rand` defaults to `Math.random`, so the site sounds as it does now.
   - `pluckSteps` writes into a `Float32Array` rather than an `AudioBuffer`, and keeps its idle-time slicing.
   - Bloom renders through an `OfflineAudioContext` for export.
-  - **A test** renders every voice at 48 kHz with `rng(1)` from `tune.ts:88`, before and after the move, and requires a largest difference under 1e-7. `synth()`'s one-pole lowpass (`:136-140`) moves with them, so the noise voices match too.
+  - **A test** renders every voice at 48 kHz with `rng(1)` from `tune.ts:88` (by then from `src/lib/random.ts`, which `tune.ts` re-exports), before and after the move, and requires a largest difference under 1e-7. It runs under Vitest. `synth()`'s one-pole lowpass (`:136-140`) moves with them, so the noise voices match too.
 - **Rhythm.**
   - Export `RHYTHM` from `Call.ts:16`.
   - A pure new `src/tools/cues/rhythm.ts` adds tempo estimation: the median gap, and how well it fits at one, one half and one quarter.
@@ -749,7 +784,7 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
 - A synth can grow for ever. The cap is eight voices and six dials.
 - iOS audio quirks: test on a real phone before shipping.
 - Levels in real apps: the README's note on levelling.
-- The licence of the code export: see question 2.
+- The licence of the code export: decided as MIT, with the two-line header naming the file and commit (`decisions.md`, Tools 2).
 
 ---
 
@@ -802,7 +837,7 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
 - **A Tailwind v4 `@theme` block.**
 - **JSON:** one entry per file, `{ file, L, a, b, s, hex, oklch }`.
 - **A PNG card:** the picture, the room and the sentence.
-- **"Take the reader itself".** `toneOfPixels` and `bendOn` with their constants, as a standalone module of about two kilobytes, so anyone can do what the Music tab does. The licence is question 2.
+- **"Take the reader itself".** `toneOfPixels` and `bendOn` with their constants, as a standalone module of about two kilobytes, so anyone can do what the Music tab does. It is MIT, and opens with the two-line header "MIT. From eigengrau by Darius Tan, `src/lib/tone.ts` at `<commit>`." (`decisions.md`, Tools 2).
 
 ##### How it's built
 
@@ -931,6 +966,8 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
 
 **Effort.** M, three to four days. The dialect tests are a whole day.
 
+*Decided (`decisions.md`, Tools 4): Settle is first in the later queue, and it is built only on demand: when the tool before it in `QUEUE` has `tool_export` events on at least twenty of its first thirty days, or when three different people write asking for it.*
+
 **What it shows.**
 - The site is full of tuned physics: the tether, the magnet, the colour spring, the slide. This turns that craft into knowledge he can hand over.
 - It shows he knows every platform's words for the same thing.
@@ -946,11 +983,13 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
 
 **Pitch.** Anyone's week of listening, in one honest sentence.
 
-**Who it's for.** Last.fm and ListenBrainz users, a large and share-happy crowd, and friends of the owner.
+**Who it's for.** ListenBrainz users (Last.fm users can import their scrobbles there), a share-happy crowd, and friends of the owner.
+
+*Decided (`decisions.md`, Tools 4): his Last.fm key never serves strangers, so A week reads ListenBrainz only, keyless, through its own route. It has no previews, and its covers go through minted ids. It comes after Settle in `QUEUE` and is built only on demand (the rule under Settle). Why: a key issued to him should answer only for him, and ListenBrainz needs none. What would change it: nothing on the Last.fm side; ListenBrainz closing its public API would cut the tool.*
 
 ##### What it does
 
-- **Type a Last.fm name,** or a ListenBrainz one. The page does for them what Music does for Darius:
+- **Type a ListenBrainz name.** The page does for them what Music does for Darius:
   - **The heading** is the week's single most surprising fact, from `weekFact` (`fact.ts:129`):
     - "Nothing since Thursday."
     - "Holocene eleven times in a row."
@@ -960,7 +999,7 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
   - **The ten songs,** sized by plays.
   - **The room,** lit by the top sleeve's tone.
 - **Their hours.**
-  - Facts about the time of day (`BANDS`, `fact.ts:39-46`) need a time zone, and Last.fm does not publish one.
+  - Facts about the time of day (`BANDS`, `fact.ts:39-46`) need a time zone, and ListenBrainz hands listens over as Unix timestamps with no zone attached.
   - The page reads the week in the visitor's own zone, and says so: "Read in your hours, Europe/London. Change."
 - **A card to take.**
   - PNG at 1080×1350 and 1080×1920.
@@ -969,26 +1008,28 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
 - **The link `/tools/week/<name>`** has its own OG image (`next/og`, type and colour only), so pasting it into a chat shows the sentence.
 - **Later: "Compare".** "You both played Bon Iver. She played it forty times more."
 - **No previews for strangers' weeks.**
-  - Security narrows `/api/preview` to songs the site itself listed (F3), and the page says so.
-  - "Previews are for his week only. Hear it on Last.fm." Each title links out.
+  - Security narrows `/api/preview` to songs the site itself listed (F3), and the page says so. *Ruled in the summary: engineering's version, `/api/preview` serving only songs the site signed for his own week.*
+  - "Previews are for his week only." Each title links out to its recording on MusicBrainz where ListenBrainz has matched it to one, and is plain text where it has not.
 
 ##### How it goes
 
 - **Desktop.** Laid out as Music: the heading, the stack of ten, the sleeve.
-- **Phone.** Laid out as Music's phone layout. The first tap on a song chooses it; the second opens Last.fm.
+- **Phone.** Laid out as Music's phone layout. The first tap on a song chooses it; the second opens its MusicBrainz page, where there is one.
 
 ##### How it's built: the one tool with a backend
 
 - **A new route, `src/app/api/week/[user]/route.ts`,** reusing:
-  - the Last.fm client. Security §2.5 moves `call()` (`now/route.ts:73-78`) and the week's page fetch into a shared new `src/app/api/lastfm.ts`. Use that, with the server-side key.
+  - not the Last.fm client. The first draft reused it: security §2.5 moves `call()` (`now/route.ts:73-78`) and the week's page fetch into a shared new `src/app/api/lastfm.ts`, with the server-side key. That move can still happen for Music's sake, but A week does not import it.
   - `weekFact`, unchanged, since it is already pure.
-- **Caching.** Per name, ten minutes at the edge: `Cache-Control: public, s-maxage=600, stale-while-revalidate=3600`. One name is four or five Last.fm calls (`now/route.ts:164-169`), so the cache matters.
+  - *Decided (`decisions.md`, Tools 4): not the Last.fm client. His key stays serving only his own week through `/api/now` (`call()`, `now/route.ts:73`). The route uses a new keyless ListenBrainz client, `src/app/api/listenbrainz.ts`, on one fixed host (`api.listenbrainz.org`) with the same five-second timeout the store searches use (`SEARCH_MS`, `songs.ts`). It maps each listen's `track_name`, `artist_name` and `listened_at` onto `weekFact`'s `Scrobble` (`{ title, artist, at }`, `fact.ts:12`), so `weekFact` stays unchanged.*
+- **Caching.** Per name, ten minutes at the edge: `Cache-Control: public, s-maxage=600, stale-while-revalidate=3600`. Through Last.fm one name would have been four or five calls (`now/route.ts:164-169`). *With ListenBrainz only, one name is one listens call for most weeks (a second for a week over a thousand listens) plus up to ten sleeve lookups, so the cache still matters.*
 - **Rate limit.**
   - A Vercel firewall rule, around 30 a minute per IP, if the plan offers it.
-  - Otherwise, a per-instance token bucket plus the cache. Answer "Last.fm is busy. Try in a minute." rather than a stack trace.
-- **Validation.** Names must match Last.fm's own rule: a letter, then 1 to 14 letters, digits, `_` or `-`. Anything else is a 400 with no upstream call.
+  - Otherwise, a per-instance token bucket plus the cache. Answer "ListenBrainz is busy. Try in a minute." rather than a stack trace.
+- **Validation.** The first draft used Last.fm's own rule (a letter, then 1 to 14 letters, digits, `_` or `-`). *With ListenBrainz only: a conservative pattern (a sane length, no slash, no control characters), sent encoded. Anything else is a 400 with no upstream call.*
 - **Covers** go through `/api/cover` with ids the week route mints and signs (security's HMAC, §2.5), so the proxy still serves only URLs the site made.
-- **ListenBrainz** goes through the same route (`?from=lb`). Its API is keyless, but the site-wide `connect-src 'self'` would block the browser from calling it directly.
+  - *Decided: no new host. ListenBrainz has no Last.fm image hashes, so the week route looks up each of the ten with the lookup Music already uses for sleeves Last.fm lacks (`findSong`, `songs.ts:183`). It keeps only art on `ART_HOSTS` (`songs.ts:27`), turns it into a cover id (`artId`, `songs.ts:218`) and signs it. A song with no confident match gets a plain square. Why: the rule is that a route fetches only from fixed hosts, and Cover Art Archive would add a host that answers by redirecting to another (archive.org). What would change it: if these lookups start slowing Music's own sleeves under the stores' limits, A week drops its sleeves before anything else.*
+- **ListenBrainz** goes through the same route (`?from=lb`). Its API is keyless, but the site-wide `connect-src 'self'` would block the browser from calling it directly. *Decided: it is the only source, and `from=lb` is kept as `decisions.md` has it, so the URL does not change if a second source is ever added.*
 - **The page.** Pull the heading, the stack of ten and the room light out of `MusicPanel.tsx`, which is 1,442 lines, into `src/components/music/` so both use them. That is the extra day in the estimate.
 
 ##### Looks, sounds, reads
@@ -997,16 +1038,18 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
 - **Sounds.** None, beyond `done` on a take with the chip on.
 - **Reads.**
   - "No plays this week. A quiet one."
-  - "Last.fm does not know rj."
-  - "rj keeps their listening private."
-  - "Last.fm asked this site to slow down. Try in a minute."
+  - "ListenBrainz does not know rj."
+  - "rj has not sent ListenBrainz anything yet."
+  - "ListenBrainz asked this site to slow down. Try in a minute."
+
+  *Decided: ListenBrainz only (`decisions.md`, Tools 4), so every line names it. Last.fm's "keeps their listening private" has no ListenBrainz counterpart and becomes the empty-account line.*
 
   The site never says "we" or "us". It is "he", "it" and "this site".
 
 ##### Privacy and link
 
-- **Privacy.** Said above the fold: "This one asks Last.fm, through this site. It keeps nothing, and it sees only what Last.fm shows anyone." Names are never logged; errors are logged without them. The page credits "Data from Last.fm", with a link, as Last.fm's terms expect.
-- **Link.** `/tools/week/rj?tz=Europe/London`. The name has to reach the server anyway, and the page says so.
+- **Privacy.** Said above the fold: "This one asks ListenBrainz, through this site. It keeps nothing, and it sees only what ListenBrainz shows anyone." Names are never logged; errors are logged without them. The page credits "Data from ListenBrainz", with a link.
+- **Link.** `/tools/week/rj?tz=Europe/London`. The name has to reach the server anyway, and the page says so. This is one of the two exceptions to "personal after the `#`" (see "What it holds to", 3).
 
 ##### Edge cases
 
@@ -1016,13 +1059,13 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
 - **Urchi's night.** No change.
 - **Returning visitor.** "Last time: rj. Forget it."
 
-**Effort.** M, three to four days: the route, extracting MusicPanel's parts, the page, the card and the OG image.
+**Effort.** M, three to four days: the route, extracting MusicPanel's parts, the page, the card and the OG image. Built only on demand, after Settle (`decisions.md`, Tools 4).
 
 **What it shows.** His voice written as code (the fact finder is a set of scored rules), data told as a sentence, and a backend kept as small and as safe as it can be. The most personal tab, opened to everyone.
 
 **Risks.**
-- Last.fm's terms: non-commercial use and a credit. Question 4 asks whether the owner wants his key serving strangers at all.
-- Quota on a busy day: the cache, the limit, and a graceful "busy".
+- Last.fm's terms: non-commercial use and a credit. Decided (`decisions.md`, Tools 4): his key never serves strangers, so these terms no longer apply to A week; ListenBrainz needs no key.
+- Quota on a busy day: the cache, the limit, and a graceful "busy". ListenBrainz's own rate limits apply per server address, so one busy day can slow every name at once; the cache is what answers it.
 - The rules were tuned on one person's listening. Test them against fixtures from a range of accounts before launch.
 
 ---
@@ -1037,6 +1080,8 @@ jsfxr and ZzFX make game blips, and sound libraries sell files. Nothing makes a 
 - The astronomy-curious.
 
 It also gives a site named for what the eye sees in the dark one real sky.
+
+*Decided (`decisions.md`, Tools 5): later, and only on demand as defined under Settle, after A week in `QUEUE`. Version one has no planets and no SVG. Why: it is the biggest build for a tool each person needs a few times a year. What would change it: the demand rule being met.*
 
 ##### What it does (version one)
 
@@ -1101,7 +1146,7 @@ It also gives a site named for what the eye sees in the dark one real sky.
 
 - **Privacy.**
   - The place and date stay on the page. The list is bundled, and geolocation is optional and stays local.
-  - `Permissions-Policy` needs `geolocation=(self)`.
+  - `Permissions-Policy` needs `geolocation=(self)`. It is added in the same commit as "Here", and not before (the summary's ruling).
 - **Link.** It carries them after the `#`, and the page says so: "The link has the place and the date after the #. Send it to whoever was there." For example `/tools/that-night#at=kuala-lumpur&d=1998-03-12T21:00&m=1&l=1`.
 
 ##### Edge cases
@@ -1122,7 +1167,7 @@ It also gives a site named for what the eye sees in the dark one real sky.
 **Risks.**
 - Accuracy: state the claims plainly and test them.
 - Licence credits in the colophon: BSC5, GeoNames CC BY, d3-celestial BSD.
-- It is the biggest build, for a tool each person uses a few times a year. Gifts get shared, though. Build it only after the first four have shipped and been used.
+- It is the biggest build, for a tool each person uses a few times a year. Gifts get shared, though. Build it only after the first four have shipped and been used. Decided: only on demand, last in `QUEUE`.
 
 ---
 
@@ -1149,12 +1194,14 @@ It also gives a site named for what the eye sees in the dark one real sky.
 
 | Days | Work |
 |---|---|
-| 1-2 | The frame: routes, the registry, the page shell, `state.ts`, `take.ts`, `watch.ts`, and the kit parts Sky needs. The Permissions-Policy change with engineering. The About tagline link (or the Desk drawer), and the Notes log line. |
+| 1-2 | The frame: routes, the registry, the page shell, `state.ts`, `take.ts`, `watch.ts`, and the kit parts Sky needs. No Permissions-Policy change: camera and geolocation are granted in the commits that first use them. The Desk's Tools drawer, About's "the small things" link once Sky ships, and the Notes log line. |
 | 3-5 | Sky: `draw.ts`, `versions.ts` and the test, the renderer and export, the phone preset, the rarer search, the fragment link, the hand-off to Space. |
 | 6-9 | Grain, first pass: the shared dither GLSL, the ordered path, diffusion in a Worker, palettes, PNG, the dissolve GIF, the linear-light Split. |
 | 10-14 | Cues: `voices.ts` with its seeded buffer test, its own context, the UI, the Pad, WAV, code, the haptic snippets. |
 | 15-16 | Tone, with the `bendOn` refactor and its test. |
-| later | Grain's second pass, Sky's loop and picture link, Settle, A week, then That night. |
+| later | Grain's second pass, Sky's loop and picture link, Settle, A week, then That night. The last three only on demand, in that order (`QUEUE`). |
+
+*Ruled in the summary: in calendar time the frame and Sky are week 4 (19-25 October), Grain week 7 (9-15 November), and Cues or Tone early December. Decided: Cues first, then Tone. Why: Cues ranks higher and tests the kit's last parts (its own context, the Pad, the code export), and Tone is two days that fit into any later week. What would change it: if the real-iPhone `audioSession` test fails and Cues' sound cannot be made to behave, Tone goes first while Cues waits.*
 
 ---
 
@@ -1164,6 +1211,7 @@ It also gives a site named for what the eye sees in the dark one real sky.
   - As a public tool, it repeats Hemingway, alex, write-good and Vale, with house taste on top.
   - It would teach the site's literary voice as if it were his. His own notes are lowercase and cheerful.
   - **Salvage:** check `kind: "log"` lines in `scripts/add-note.mjs` (`npm run note`) for no exclamation marks, counts as words up to ninety-nine, and at most 48 characters for captions. That keeps the site's own lines in tune without preaching to anyone.
+    - *Ruled in the summary: these are "Rules for every new thing", and the content lint enforces the ones that can be checked. So the checks live in the lint, and `npm run note` and `npm run log` (`src/content/log.json`) call the same rules at the prompt.*
 - **Facets.**
   - Trace is L against vtracer and potrace, and the tracing in `trace-ref.mjs` is not a reusable engine.
   - Facet is a crowded toy genre.
@@ -1171,6 +1219,7 @@ It also gives a site named for what the eye sees in the dark one real sky.
 - **Tab.**
   - RealFaviconGenerator already exists.
   - **Salvage:** write "How the tab blinks" as a note, with the `lidLine` trick (`LiveIcon.tsx:112-155`: painted eight times finer, the lid kept where it is most present) and the timer-not-`requestAnimationFrame` lesson. Offer `live-icon.js` as a copyable snippet on it.
+    - *Decided: the note is drafted from `LiveIcon.tsx` and its commits for him to approve, as the papers are, so it costs him a read and not an evening. The snippet carries the MIT header (`decisions.md`, Tools 2). Nothing waits on it.*
 - **The proposal's own cuts stand:**
   - tap tempo on its own;
   - numbers to words;
@@ -1188,37 +1237,50 @@ It also gives a site named for what the eye sees in the dark one real sky.
   - `src/engine/space/sky/Stars.ts`: optional `sparkle.clear`. Later, `starMaterial` and `fillStars` for That night.
   - `src/components/pages/CreativeSpacePanel.tsx`: the `onShown` hand-off branch.
   - `src/engine/urchi/Urchi.ts`: the GLSL moves to `engine/common/dither.glsl.ts`.
-  - `src/audio/sfx.ts`: the voices move to `src/audio/voices.ts`, with an injectable RNG.
+  - `src/audio/sfx.ts`: the voices move to `src/audio/voices.ts`, with an injectable RNG; a one-line getter for the air, so Cues can restore it; and its `tabOf` becomes `pillOf`, which is the Desk's change, listed here because Cues' room sound depends on it.
   - `src/engine/space/Call.ts`: export `RHYTHM`.
   - `src/lib/tone.ts`: export `LINEAR`; `bendOn` with `bend` as its wrapper; `grainTile`.
-  - `src/content/site.ts`: `UPDATED.tools` and a `URCHI_NEWS.tool` line.
-  - `src/lib/visits.ts`: the tools entry in `whatsNew`.
-  - `src/components/pages/AboutPanel.tsx`: the "small tools" link in the tagline, once style R2 lands.
-  - `next.config.ts`: engineering's headers, with `camera=(self)` and `geolocation=(self)`.
+  - `src/content/site.ts`: `UPDATED.desk` (not `UPDATED.tools`, per the summary) and a `URCHI_NEWS.tool` line.
+  - `src/lib/visits.ts`: the Desk entry in `whatsNew`.
+  - `src/components/pages/AboutPanel.tsx`: the link on "the small things" in the statement once Sky ships (through the new `GLOSSES` in `site.ts`), not a "small tools" link in the tagline.
+  - `next.config.ts`: engineering's headers. `camera=(self)` arrives with Grain's second pass and `geolocation=(self)` with That night's "Here", each in that commit; `microphone=()` never changes.
 - **New:**
-  - `src/app/tools/page.tsx` and `src/app/tools/<slug>/page.tsx` (or the Desk's owned routes);
-  - `src/tools/index.ts` and `src/tools/<slug>/…`;
+  - `src/app/tools/page.tsx` and `src/app/tools/<slug>/page.tsx` (or the Desk's owned routes); *decided: the Desk's owned routes. These pages are the server mirrors (metadata and heading), rendered inside the Desk panel through its `owns` list, and `typedRoutes` needs each to exist;*
+  - `src/tools/index.ts` (with `QUEUE`) and `src/tools/<slug>/…`;
+  - `LICENSE` (MIT) and `NOTICE` (words, notes, the finds' captions and letter, and Urchi's likeness all rights reserved), at the repository root (`decisions.md`, Tools 2);
   - `src/components/bench/*`;
   - `src/lib/bench/{state.ts, take.ts, watch.ts}`;
   - `src/engine/space/sky/{draw.ts, versions.ts}`;
   - `src/app/dev/tools/page.tsx` (development only);
-  - `src/app/api/week/[user]/route.ts` (A week only);
+  - `src/app/api/week/[user]/route.ts` and `src/app/api/listenbrainz.ts` (A week only, ListenBrainz only);
   - `scripts/tools-og.mjs` and `scripts/tools-thumbs.mjs` (run locally).
 - **Libraries.** All small and permissive, each loaded only by the tool that needs it:
   - gifenc (MIT);
   - fflate (MIT);
   - later, mp4-muxer (MIT) or Mediabunny, whichever is maintained then.
 
-### Open questions for the owner
+### Decisions
 
-1. **Where do the tools live?** In a Desk room, with Tools as one drawer beside Today (style R16, engineering §4.5), where they stay mounted like tabs? Or as their own `/tools` pages, reached from the words "small tools" on About? The code is the same; the navigation is not.
-2. **May visitors keep what they take?** The repo has no LICENSE. Can exported code (Cues' module, Tone's reader, the favicon snippet) be given away, as MIT or public domain? And is `github.com/dctxv/eigengrau` public, so colophons can link to the files they came from?
-3. **Should skies be frozen?** Freeze the current sky as version one before the first link goes out, so a shared word keeps its sky after you retune Space? Recommended. Or let every word's sky drift with your tuning?
-4. **Your Last.fm key, for strangers?** Are you comfortable with your key serving strangers' weeks, behind a cache and a rate limit, with no previews for them? Or should A week be ListenBrainz-only, or wait?
-5. **That night: now, later, or never?** Is a real star map worth one and a half to two weeks after the first four tools, given how rarely each person needs one and how widely gifts get shared?
+*The owner is asked nothing. Items 1-5 are merged into `decisions.md` ("By section", Tools) and the items it points to; the rest are decided here. Each gives its reason, and what would change it.*
+
+1. **Where the tools live: the Tools drawer of the Desk, the third pill**, at `/tools` and `/tools/<slug>`, with one registry whose rows sit under "To make" and "To check". About's phrase "the small things" leads there once Sky ships. Why: renumbering is free only until the digits work, and a pill is what a returning visitor finds again (`decisions.md`, the eight, 4; Tools 1). Changes if: all three drawers are cut.
+2. **What visitors keep: an MIT `LICENSE` for the code, and a `NOTICE`** keeping the words, the finds' captions and letter, and Urchi's likeness all rights reserved. Exported code carries "MIT. From eigengrau by Darius Tan, `<file>` at `<commit>`." What a tool makes from the visitor's own input is theirs, and an export that shows Urchi says "Urchi is not free to reuse." `dctxv/eigengrau` is public, so colophons link to their files by commit permalink. Why: MIT is the licence people already know how to honour (`decisions.md`, Tools 2). Changes if: he wants snippets free of attribution, then MIT-0.
+3. **Skies are frozen.** `sky/versions.ts` freezes the tuned `defaults.ts` as version one in the Sky tool's first commit (week 4), before Sky's first link, and a word link carries `v=1`. Why: the sky's layers are still arriving, so freezing now would freeze half a sky (`decisions.md`, Tools 3). Changes if: a `?sky=` link is shared publicly before week 4, then freeze at that commit.
+4. **His Last.fm key never serves strangers.** A week reads ListenBrainz only, through its own route, with no previews and with covers through minted ids. Why: his key answers for him alone, and ListenBrainz needs none (`decisions.md`, Tools 4). Changes if: ListenBrainz closes its public API, and then A week is cut.
+5. **That night: later, only on demand, after A week.** Version one has no planets and no SVG, and `geolocation=(self)` arrives in the same commit as "Here". Why: the biggest build, for a tool each person needs a few times a year (`decisions.md`, Tools 5). Changes if: the demand rule is met.
+6. **"Only on demand"** means a tool in `QUEUE` (Sky, then Grain, Cues or Tone, then Settle, then A week, then That night) is built only when the one before it has `tool_export` events on at least twenty of its first thirty days, or when three different people write asking for it. Why: it lets counts, not enthusiasm, decide the later list (`decisions.md`, Tools 4). Changes if: the counts service goes away, and then three people writing decide alone.
+7. **Cues before Tone, in early December.** Why: Cues ranks higher and tests the kit's last parts; Tone is two days that fit into any week. Changes if: the real-iPhone `audioSession` test fails, and then Tone goes first.
+8. **The security tools are defensive only, and each needs a full spec in this frame before it is built, from December.** "A token, opened" decodes and explains, and never tries a secret; "Headers, read" never fetches a URL for a visitor; "A certificate, unfolded" reads only what it is given. Why: nothing on the site asks a visitor to forge, bypass or exploit (`decisions.md`, Tools, "Also settled here"). Changes if: nothing; this is a standing rule.
+9. **`Permissions-Policy` denies by default.** Camera comes with Grain's second pass, geolocation with That night's "Here", and the microphone stays `()`. Why: the summary's ruling, and Cues promises it never listens. Changes if: a tool is cut, and then its grant never lands.
+10. **Counts: one named event, `tool_export { tool, format }`,** through Umami on the same origin (`/u/`), named on the privacy line and on `/kept`, and never sent under Do Not Track or Global Privacy Control. Why: it answers whether anyone takes anything, with no identity (`decisions.md`, 7). Changes if: Umami's free tier ends, and then self-hosted Umami behind the same `/u/`.
+11. **Personal input goes after the `#`, with two exceptions:** A week's name and Sky's later picture link, where the server has to see it. Each is the visitor's choice and says what it sends. Why: the summary's rule holds everywhere a server does not need the input. Changes if: a way is found to render the picture link without the word, and then that exception goes.
+12. **A week's sleeves use no new host:** Music's own lookup (`findSong`) on `ART_HOSTS`, as signed cover ids. Why: a route fetches only from fixed hosts. Changes if: the lookups start slowing Music's own sleeves, and then A week drops its sleeves.
+13. **Cues leaves Urchi's four sounds out of its presets.** Why: the summary's rule that `pat`, `patOwn`, `tug` and `snap` stay Urchi's, and no Urchi on the Desk. Changes if: that rule leaves `CLAUDE.md`.
+14. **"Tools" goes on the thread as a project from the day Sky ships.** Why: it is his work in public, and each tool makes its own cover. Changes if: the months branch has not landed by week 4, and then it waits for that branch.
+15. **"Here" is Melbourne.** `TIME_ZONE = "Australia/Melbourne"`, `HEMISPHERE = "south"`, so the index's night clause and Sky's hand-off follow 01:00 to 06:59 there (`decisions.md`, 1). Changes if: he moves city.
 
 ### If you only do one thing here
 
-Build **Sky**, with only the parts of the bench it needs: the page, Take, the fragment link, the privacy line and the colophon. First freeze today's sky as version one in a pure, tested `draw.ts` that Space and the tool share. Add the twelve-line hand-off, so "Put it behind Urchi" really takes the visitor's word out onto Urchi's line.
+Build **Sky**, in the Desk's Tools drawer in week 4, with only the parts of the bench it needs: the page, Take, the fragment link, the privacy line and the colophon. First freeze the tuned sky as version one, in the Sky tool's first commit, in a pure, tested `draw.ts` that Space and the tool share. Add the twelve-line hand-off, so "Put it behind Urchi" really takes the visitor's word out onto Urchi's line.
 
 It is three days of work on an engine that is already written and tuned. Nothing like it exists elsewhere: no other portfolio has a mascot floating in a sky you can name. It leaves with the visitor as a lock screen, with no logo. And it proves the frame (links, exports, the live privacy line) on the cheapest possible tool before Grain and Cues are built on it.

@@ -8,19 +8,19 @@ Both proposals are unusually well grounded. I opened every file they cite, re-ra
 
 | Idea | Verdict | Why |
 |---|---|---|
-| A · The shared frame: his day, frozen days served on the day, one record per game, share rules | KEEP WITH CHANGES | The most rigorous runway either proposal wrote. Four changes. Address games by query (`/today?stet=6`) rather than hash, so a shared link can carry a preview. Compute streaks instead of storing them. Let the server say which day it is. Give each game its own number from its own first day. |
+| A · The shared frame: his day, frozen days served on the day, one record per game, share rules | KEEP WITH CHANGES | The most rigorous runway either proposal wrote. Four changes. Address games by path (`/today/stet/6`) rather than hash, so a shared link can carry a preview. Compute streaks instead of storing them. Let the server say which day it is. Give each game its own number from its own first day. *Ruled in the summary: paths, not the query this review first proposed (`/today?stet=6`), because the Desk's `tabOf` keeps sub-routes alive and `opengraph-image.tsx` receives `params`, never `searchParams`.* |
 | B · A "Today" shelf with all five games every day, as a 976px row of cards | KEEP WITH CHANGES | Keep the day line, "Share the day", the miniatures, the per-puzzle preview image and the "what not to do" list. Cap the shelf at three games, and set it on Notes' column, which is the site's existing DOM layout, rather than a card grid the site has nowhere else. |
-| B · `/today/<game>` sub-routes, and key `6` | CUT | `isTab` is an exact match (`src/lib/routes.ts:5-7`). A sub-route would therefore mount a throwaway panel (`Shell.tsx:130-133`), lose keep-alive and the slide, and light no pill (`Nav.tsx:35`). No digit shortcut exists anywhere: pressing `2` on `/notes` leaves the URL at `/notes`, which I measured in Playwright. |
+| B · `/today/<game>` sub-routes, and key `6` | KEEP the paths, under the Desk; the key is `3` | On today's code, `isTab` is an exact match (`src/lib/routes.ts:5-7`). A sub-route would therefore mount a throwaway panel (`Shell.tsx:130-133`), lose keep-alive and the slide, and light no pill (`Nav.tsx:35`). That was this review's reason to cut them. No digit shortcut exists anywhere: pressing `2` on `/notes` leaves the URL at `/notes`, which I measured in Playwright. *Ruled in the summary: the Desk owns `/today` through the new `tabOf` (Strategy §5.5, Engineering §4.5), which removes the objection, so puzzles are paths (`/today/<game>/<n>`). The Desk is pill three, so its key is `3`, not `6`.* |
 | B · No new WebGL context; a `?debug=1` panel per game; the bed through the wall for tonal games | KEEP | Right on all three. The wall needs the fix described under Plate. |
-| A · A sixth pill, "Today" | KEEP (see open question 1) | It fits. At 390px the bar is 213px wide, and a sixth digit pill adds about 24px. The strategy review's "Desk" would hold the same panel as its first drawer. |
+| A · A sixth pill, "Today" | MERGED into the Desk (decided) | A sixth pill fits: at 390px the bar is 213px wide, and a sixth digit pill adds about 24px. The pill is "Desk", placed third (Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6), and Today is its first drawer, beside Tools and Security. The panel is the same; the row and the address change. *Ruled in the summary ("Where the new things live"); see Decisions, 1.* |
 
 **The games**
 
 | Idea | Verdict | Why |
 |---|---|---|
 | B · **Same Grey** (match a grey against lying company) | KEEP WITH CHANGES · build first | It is the site's thesis in a minute: DOM and CSS, nothing to write, and S effort on top of the frame. It proves the runway with the least risk. Changes: an explicit weekday ladder, a step table so one step is one level, a named illusion line for each family, a softer Room on phones, and an honest fallback if it proves a one-week novelty. |
-| A · **Stet** (proofread a paragraph; a wrong tap is "let stand") | KEEP WITH CHANGES · second | The About statement ("people who notice the small things") as a game, for anyone who reads, and its paragraphs become Notes content. Changes: the content supply does not add up as written, a ceiling on stets stops tap-everything, rules for doubled words and one-token facts, a `npm run passage` script, and a Notes category for "space". |
-| A · **Plaintext** (a weekly letter, one lock a day, Caesar to XOR) | KEEP WITH CHANGES · third, from a Monday | The strongest security piece among the games: frequency fits, the index of coincidence, repeating-key XOR. Week one turns the site's name into the answer, and every example is verified. Changes: launch on Monday 23 November, a history line for each weekday, and a decision on whether the letters may sit in a public repo. |
+| A · **Stet** (proofread a paragraph; a wrong tap is "let stand") | KEEP WITH CHANGES · second | The About statement ("people who notice the small things") as a game, for anyone who reads, and its paragraphs become Notes content. Changes: the content supply does not add up as written, a ceiling on stets stops tap-everything, rules for doubled words and one-token facts, a `npm run passage` script, and a Notes category for "space". *Decided in `decisions.md` (Daily games 4): the bank launches on forty public-domain passages, marked up by a branch and approved by him in one sitting; his notes reach Stet only when he lends one, so nothing asks him for weekly paragraphs. Stet No. 1 is Monday 9 November.* |
+| A · **Plaintext** (a weekly letter, one lock a day, Caesar to XOR) | KEEP WITH CHANGES · third, from a Monday | The strongest security piece among the games: frequency fits, the index of coincidence, repeating-key XOR. Week one turns the site's name into the answer, and every example is verified. Changes: launch on a Monday (Monday 7 December, decided; first proposed as 23 November), a history line for each weekday, and the letters kept out of the public repository (decided: the repository is public, so every frozen puzzle lives in a private bank fetched at build). |
 | B · **Plate** (Chladni: find the note that draws the figure in sand) | KEEP WITH CHANGES · fourth, the flagship | The most original idea here and the one people would write about. Changes: fix the pitch arithmetic (Saturday's notes fall off the dial), share `sfx.air` politely with the supernova, quiet a song left in Music, a new sustained voice in `sfx`, and a phone layout clear of the edge swipe. Realistic effort is a week and a half, not four days. |
 | A · **Last login** (a day of logins; find the intruder's lines) | KEEP WITH CHANGES · a weekly, hand-written | The best demonstration of how a security person thinks. It is too costly to write well every day, and A's own risk list admits that generated clues read mechanically. So: one incident a week, thirty written by hand and checked by A's solver, with ATT&CK IDs in the casebook. |
 | A · Fairly Sure (80% ranges; calibration) | CUT | It needs a bank of four hundred sourced facts, a single wrong one is fatal, and it is a known format (calibration trainers). Its computed security numbers move into Stet's `qy` facts instead. |
@@ -29,7 +29,7 @@ Both proposals are unusually well grounded. I opened every file they cite, re-ra
 | B · Overhead (pin a patch of the real sky) | CUT for year one | L effort, a licensing chore (stick figures), fiddly on phones, and hard for anyone who does not know the sky. It duplicates the star catalogue pipeline in the Tools proposal's "That night" (`tools.md` §10); revisit once that exists, when it becomes M. |
 | B · Slack (wind a finite thread round beads) | CUT | It ports Urchi's tether and plays Urchi's `tug` and `snap` (`sfx.ts:1339-1350`: "Urchi's line pulled straight hard"), against the owner's "separate from Urchi". It is also L, and generic shortest-path at heart. |
 | A's own cuts: Spelled Out, Redacted to width, Checksum | Agree: CUT | For the reasons A gives: fiddly grids, a Redactle clone, one trick. |
-| A's cut Timing Attack | Hand to Security | A side-channel toy is a good one-off for the security pages, and a poor daily. |
+| A's cut Timing Attack | CUT (defensive only) | A side-channel toy would be a poor daily. It is also cut from the security pages: it asks the visitor to exploit a timing leak, and the site's security work is defensive only. What it would teach (compare secrets in constant time) can be a paragraph in a paper, if his own code ever needs it. |
 
 #### What I checked
 
@@ -63,17 +63,17 @@ Both proposals are unusually well grounded. I opened every file they cite, re-ra
   - The `tone.ts` exports at `:48`, `:65`, `:80` and `:95-97`, with `inGamut` at `:70` private as B says.
   - The `sfx` internals at `:1049`, `:1074`, `:1081`, `:1145`, `:1165`, `:1371` and `:1467`.
 - **Wrong or missing in B:**
-  - `/today/plate` and key `6`, as above.
+  - `/today/plate` and key `6`, as above: wrong against today's `isTab`. *Ruled in the summary: the Desk's `tabOf` makes the path right, and the key is the Desk's `3`.*
   - Plate's F of 60-95 Hz with Saturday's pool {25, 26, 50} puts 50F at 3.0-4.75 kHz. That is off the 60 Hz-2.4 kHz dial, and contradicts "the highest notes stay under 2.8 kHz". 26F reaches 2.47 kHz.
   - The "Bayer matrix at `Urchi.ts:20-21`" is a GLSL function (`bayer8`), not a table. It has to be ported to JS, which is about a dozen lines.
   - `sfx.air` is one global dial. The supernova shuts it (`ThreadScene.ts:3505`) and opens it (`:3623`, `:3648`, `:5248`), so a game that "restores AIR_OPEN" would open the wall under a kept Projects panel mid-float.
   - Held's new pluck needs a per-kind pluck point: `PLUCK_AT` is one constant (`sfx.ts:1054`, used at `:1089`).
-  - The file convention `opengraph-image.tsx` cannot see a query string.
+  - The file convention `opengraph-image.tsx` cannot see a query string. (This is one of the summary's two reasons for paths.)
   - Minor: `countWord` is at `site.ts:201`, not `:200`.
 
 #### The merge, in one paragraph
 
-The direction is **one Today panel with at most three daily games in year one, plus one weekly**. The games are **Same Grey** (from B) first, **Stet** (A) second and **Plaintext** (A) third, with **Plate** (B) as the fourth, flagship game once the first three have players. **Last login** (A) is a Saturday weekly.
+The direction is **one Today drawer on the Desk (pill three) with at most three daily games in year one, plus one weekly**. The games are **Same Grey** (from B) first, **Stet** (A) second and **Plaintext** (A) third, with **Plate** (B) as the fourth, flagship game once the first three have players. **Last login** (A) is a Saturday weekly.
 
 Where each part comes from:
 
@@ -81,7 +81,7 @@ Where each part comes from:
 - **From B:** streaks computed rather than stored; "Share the day"; miniatures; per-puzzle preview images; no new WebGL; a `?debug=1` panel per game; the bed through the wall; and the "what not to do" list.
 - **From both, via the engineering review:** the per-game folder shape `src/games/<id>/{rules.ts, Board.tsx, share.ts}`.
 - **New here:**
-  - query addressing;
+  - addressing that reaches the server (a query in this review's first draft; paths under the Desk by the summary's ruling);
   - the server-reported day;
   - per-game numbering;
   - the prerequisite list;
@@ -93,6 +93,7 @@ Where each part comes from:
   - Last login's cast and ATT&CK casebook;
   - the calendar;
   - counting.
+- **From the summary and `decisions.md`, applied throughout:** the Desk third, paths, the shared `random.ts`, `day.ts` and `store.ts`, Vitest, the private puzzle bank, Umami's `game_finished`, Melbourne's midnight, and the calendar moved so each game has four weeks of archive before the next.
 
 ---
 
@@ -100,22 +101,22 @@ Where each part comes from:
 
 #### 0. Before any of it (about a day)
 
-1. **Set `TIME_ZONE`** (`src/content/site.ts:16`, still `null` with a TODO).
+1. **Set `TIME_ZONE = "Australia/Melbourne"`** (`src/content/site.ts:16`, still `null` with a TODO), with new `HEMISPHERE = "south"` on the line after it. *Decided (`decisions.md`, item 1): his commits carry +10:00, and his public coursework is a Swinburne unit.*
    - The day turns at his midnight, so two friends comparing "Stet 6" are looking at the same paragraph.
-   - Until it is set, the games use UTC, never the visitor's zone. This is unlike `clock()` (`hours.ts:35`) and `localDay` (`notes.ts:34`), which do fall back to the visitor's.
-   - The daily games are the first feature where the null shows to strangers.
-2. **Set `SITE_URL`** (`site.ts:10`, `https://eigengrau.example`). Every share prints its host.
+   - If the zone is ever missing, the games use UTC, never the visitor's zone. This is unlike `clock()` (`hours.ts:35`) and `localDay` (`notes.ts:34`), which do fall back to the visitor's.
+   - The daily games are the first feature where a null would show to strangers, so the content lint fails a production build while `TIME_ZONE` is null.
+   - Melbourne moves to +11:00 on Sunday 4 October 2026, eight days before Same Grey No. 1, and back to +10:00 on Sunday 4 April 2027. His midnight into Monday 12 October is 13:00 UTC on Sunday 11 October, which is 09:00 in New York.
+2. **Set `SITE_URL`** (`site.ts:10`, `https://eigengrau.example`). Every share prints its host. *Decided: it comes from `NEXT_PUBLIC_SITE_URL`, and a production build fails if that is unset or still `.example`. Until a domain exists it is the Vercel production URL; `decisions.md` (item 2) buys `dariustan.dev` by Friday 9 October. The share examples below print that host.*
 3. **One seeded generator.**
-   - Move `hashSeed`, `stir`, `subSeed`, `unitOf` and `rng` from `src/engine/space/sky/tune.ts:57-97` into a new `src/lib/seed.ts`, and have `tune.ts` re-export them.
-   - Delete the copy `mulberry32` in `src/components/chrome/Between.tsx:103-112` and import `rng` instead.
+   - Move `hashSeed`, `stir`, `subSeed`, `unitOf` and `rng` from `src/engine/space/sky/tune.ts:57-97` into a new `src/lib/random.ts`, and have `tune.ts` re-export them. *Ruled in the summary: the shared PRNG lives in `src/lib/random.ts`, not `src/lib/seed.ts`, because `sky/seed.ts` already means visit and URL seeds.*
+   - Delete the copy `mulberry32` in `src/components/chrome/Between.tsx:103-113` and import `rng` instead.
    - The sky does not change, because the two are the same algorithm line for line.
    - A test freezes the first ten outputs of `rng(1)` and `hashSeed("eigengrau")`.
-4. **A test runner.** There is none in `package.json`.
-   - Node here is 22.22, which runs TypeScript directly. I checked: an `.mjs` importing a `.ts` by its extension runs with no flags.
-   - Add `"test": "node --test \"scripts/*.test.mjs\""` and `"today": "node scripts/today.mjs"`. Pass the glob, not the folder: I checked, and `node --test scripts/` reports a failure where the glob passes.
-   - The games' pure modules (`src/games/*/rules.ts`, `sand.ts`, `crypto.ts`, `solve.ts` and `src/lib/today/day.ts`) use only relative imports that carry their `.ts` extension, so the Node script can load them.
-   - **Nothing reached through `@/` may be imported by them.** Node does not know the alias. `tone.ts` imports `@/lib/color` (`tone.ts:21`), so colour conversion stays in the boards, and generators deal in numbers. `day.ts` takes the zone as a parameter; the app passes `TIME_ZONE`, and the script reads it out of `site.ts` as text, as `add-note.mjs` already reads that file.
-   - Set `"allowImportingTsExtensions": true` in `tsconfig.json`. This is allowed because `noEmit` is already `true`.
+4. **A test runner.** There is none in `package.json`. *Ruled in the summary: one runner, Vitest, with scripts such as `npm run today` run under `tsx`, so the `@/` alias works everywhere. It replaces this review's first plan, `node --test` with no `@/` imports.*
+   - Add `"test": "vitest run"` and `"today": "tsx scripts/today.ts"`. The Vercel build command runs `vitest run` before `next build` (`decisions.md`, Engineering 4).
+   - The games' pure modules (`src/games/*/rules.ts`, `sand.ts`, `crypto.ts`, `solve.ts` and the shared `src/lib/day.ts`) take no DOM and no clock. They stay pure by discipline, not because the runner forces it.
+   - **The `@/` alias is allowed in them.** `tone.ts` imports `@/lib/color` (`tone.ts:21`), and a generator may now use it. `day.ts` imports `TIME_ZONE` from `@/content/site` directly, and the script reads it the same way, rather than reading `site.ts` as text as `add-note.mjs` does.
+   - What this review first checked for the Node route is now moot: Node here is 22.22 and runs an `.mjs` importing a `.ts` by its extension with no flags, and `node --test scripts/` reports a failure where a quoted glob passes. `"allowImportingTsExtensions"` is not needed.
 
 ---
 
@@ -125,72 +126,81 @@ Where each part comes from:
 
 ##### 1.1 Where it lives
 
-- **A sixth pill.**
-  - Add `{ href: "/today", label: "Today", n: 6 }` to `TABS` (`site.ts:29-35`), and `if (path === "/today") return <TodayPanel />;` to `Stage` (`Shell.tsx:29-36`).
-  - Add a new `src/app/today/page.tsx` with an sr-only `h1`, as `src/app/notes/page.tsx` has.
+- **The Desk's first drawer, on a sixth pill placed third.** *Ruled in the summary: one pill, "Desk", third in the row (Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6), with the drawers Today, Tools and Security, each at its own path. This section first proposed a "Today" pill sixth.*
+  - Add `{ href: "/desk", label: "Desk", n: 3, owns: ["/today", "/tools", "/security"] }` to `TABS` (`site.ts:29-35`), third, and renumber Notes, Music and About to 4, 5 and 6. Add `if (path === "/desk") return <DeskPanel />;` to `Stage` (`Shell.tsx:29-36`). The new `DeskPanel` renders the Today drawer, new `TodayDrawer`, and later the Tools and Security drawers (Strategy §5.5).
+  - The new `tabOf` in `src/lib/routes.ts` says the Desk's kept panel renders `/today` and everything under it; `pillOf` lights pill three there. A move between `/today` and `/today/stet/6` is a move inside one tab: Shell calls `arrive` and does not slide.
+  - Add a new `src/app/today/page.tsx` with an sr-only `h1`, as `src/app/notes/page.tsx` has, and the board pages under it (§1.2).
   - Shell then gives it everything the other tabs have: it stays mounted, is hidden and inert off screen, slides in `TAB_ORDER`, and has the stars between tabs (`Between.tsx`). A half-played Stet survives a trip to Music.
-  - `typedRoutes` (`next.config.ts`) is satisfied once the page exists.
+  - `typedRoutes` (`next.config.ts`) is satisfied once the pages exist. The Desk pill's remembered href is typed with `as Route`.
 - **It fits the bar.** Measured at 390×844:
   - the bar is 213px wide;
   - the monogram is 29px;
   - the four digit pills are 18-21px each, 4px apart;
   - the active "Notes" label is 75px.
 
-  A sixth digit pill adds about 24px, and the active "Today" label is about 60px.
-- **Last in the row.** At sixth, Today changes nobody's digit. A song left playing in Music's room is heard on Today two rooms off: `roomsAway` (`sfx.ts:503`) clamps into `AWAY`'s three entries (`sfx.ts:322-326`), so it plays at 420 Hz, -22 dB.
-- **Why a pill and not a link on About** (from A): a daily game depends on being found again tomorrow, and the pill bar is the site's only navigation. One pill holds every game. There will never be one pill per game.
-- **Under a Desk.** If the owner adopts the strategy review's Desk (one pill for Today, Tools and Security), this panel is its first drawer. Nothing below changes except the address. See open question 1.
-- **Urchi stays out.**
-  - `whatsNew` (`visits.ts:167-187`) never learns about `/today`, so Urchi never looks up at the pill to announce a puzzle. This contradicts the strategy review's "Today's is out." caption; the owner asked for the games to be separate.
-  - Urchi still glances at whatever pill the pointer hovers, as the README describes. That is attention, not involvement, and it needs no change.
+  A sixth digit pill adds about 24px. The strategy review measures six pills at 238-252px at 390px, with "Desk" as the shorter active label.
+- **Third in the row.** Notes, Music and About move to 4, 5 and 6. That is free now, because no digit is a key yet and nothing has launched. A song left playing in Music's room (5) is heard on the Desk (3) two rooms off: `roomsAway` (`sfx.ts:503`) clamps into `AWAY`'s three entries (`sfx.ts:322-326`), so it plays at 420 Hz, -22 dB. This needs sfx's own `tabOf` (`sfx.ts:497-500`) to become `pillOf` (summary, "Shared foundations"). Today's version would count `/today/stet/6` as Space, four rooms off, and clamp it to the far sound.
+- **Why a pill and not a link on About** (from A): a daily game depends on being found again tomorrow, and the pill bar is the site's only navigation. One pill, the Desk, holds every game, and the tools and papers beside them. There will never be one pill per game.
+- **The Desk pill remembers.** It links to the last path it showed in this visit (`lastIn(tab)` in `where.ts`, new, Strategy §5.5). Pressing `3` from Music therefore returns to the half-played board, not the shelf. Clicking the lit Desk pill goes up to the shelf; Esc goes up one level.
+- **Urchi stays out.** *Ruled in the summary (reconciliation 4): Urchi never announces the daily puzzle, and never comes to the Desk. This overrules strategy's "Today's is out."*
+  - `whatsNew` (`visits.ts:167-187`) never learns about `/today`, so Urchi never looks up at the pill to announce a puzzle. A "new" every day would make the look mean nothing, and he asked for the games to be separate.
+  - `UPDATED.desk` moves only when a new game, tool or paper lands. Then, and only then, Urchi looks up at the Desk pill once, as it already does for notes. The first days of Same Grey, Stet and Plaintext each count once as a new game. Their daily numbers never do.
+  - The Today drawer's own heading does the daily telling (§1.8).
+  - Urchi still glances at whatever pill the pointer hovers, as the README describes. Coming home from a board, it looks back at the Desk pill (Strategy §5.5, hook 2). That is attention, not involvement, and it needs no change here.
 
-##### 1.2 Addressing: a query, as Notes' `?tag=`
+##### 1.2 Addressing: paths, under the Desk
+
+*Ruled in the summary ("How a puzzle is addressed"): paths such as `/today/stet/6`, not the query this section first proposed (`/today?stet=6`, in the manner of Notes' `?tag=`). Numbers count from each game's own first day.*
 
 | Address | Opens |
 |---|---|
-| `/today` | the shelf |
-| `/today?grey` | today's Same Grey |
-| `/today?stet=6` | Stet No. 6 (today's, or an archive day) |
-| `/today?plaintext=w1` | Plaintext week 1, on today's lock, or its last one if that week is past |
-| `/today?record` | the record |
+| `/desk` | the Desk's shelf: Today, Tools and Security |
+| `/today` | the Today drawer |
+| `/today/grey` | today's Same Grey |
+| `/today/stet/6` | Stet No. 6 (today's, or an archive day, marked "late" if played after its day) |
+| `/today/plaintext/1` | Plaintext week 1, on today's lock, or its last one if that week is past |
+| `/today/record` | the record (`record` is a reserved segment, never a game id) |
 
-- Opening a game writes its query with `history.replaceState`, exactly as `writeTag` does (`NotesPanel.tsx:105-114`). It is never a route change.
-- `usePathname` stays `/today`, so Shell keeps the panel and returns early (`Shell.tsx:121-124`), and the Today pill stays lit (`Nav.tsx:35`).
-- **Coming back by the pill** (whose link has no query), the panel writes the open game back into the URL, as Notes' `onArrive` does (`NotesPanel.tsx:1077-1082`).
+- **Pages.** New `src/app/today/[game]/page.tsx` (today's puzzle of that game) and `src/app/today/[game]/[n]/page.tsx` (a numbered day), each with metadata and a server mirror, rendered inside the Desk panel (`Shell.tsx`'s children go to the panel whose tab owns the path). This splits Strategy §5.3's `[[...n]]` in two, so the card file sits in a plain dynamic segment, which is the form Next's own docs show for `opengraph-image` (§1.9).
+- **Opening a game** is a client navigation inside the Desk (`router.push("/today/stet/25")`). Shell sees that `tabOf(prev)` and `tabOf(pathname)` are both `/desk`, calls `arrive(pathname, prev)` and returns, with no slide. The Desk pill stays lit, because `pillOf` returns `/desk` for anything under `/today`.
+- **Coming back by the pill.** The Desk pill links to the last path it showed (`lastIn`, §1.1), so the open board comes back with its own URL. Nothing has to be written back, as Notes' `onArrive` does (`NotesPanel.tsx:1077-1082`) for its query.
 - **Why not the hash (A):** a hash never reaches the server, so a shared "Stet 6" could not unfurl as Stet 6.
-- **Why not `/today/stet` (B):** see the verdicts.
+- **Why not the query (this review's first draft):** `opengraph-image.tsx` receives `params`, never `searchParams`, so a query needs a workaround route for every card. The objection to sub-routes (an exact-match `isTab`) is gone once the Desk owns `/today`.
 
 ##### 1.3 The day
 
-- **New `src/lib/today/day.ts`:**
-  - `todayKey(now)` returns `"2026-11-26"`, from `Intl.DateTimeFormat("en-CA", { timeZone: ZONE, year: "numeric", month: "2-digit", day: "2-digit" })`. That is the technique of `clock()` (`hours.ts:31-44`), with `ZONE = TIME_ZONE ?? "UTC"`.
+*Ruled in the summary ("Shared foundations"): the day lives in the shared `src/lib/day.ts`, his day falling back to UTC and never to the visitor's, and `notes.ts`'s `localDay` moves there as `visitorDay()` with its own meaning. Numbering is per game, so Engineering §4.2's single `EPOCH` gives way to each game's `since`. The functions below are what the games need from that module.*
+
+- **New `src/lib/day.ts`** (shared with finds, Music and the sky calendar):
+  - `todayKey(now)` returns `"2026-12-10"`, from `Intl.DateTimeFormat("en-CA", { timeZone: ZONE, year: "numeric", month: "2-digit", day: "2-digit" })`. That is the technique of `clock()` (`hours.ts:31-44`), with `ZONE = TIME_ZONE ?? "UTC"`, which is `"Australia/Melbourne"` once `TIME_ZONE` is set (§0). It is Engineering §4.2's `today()` under another name; the shared module keeps Engineering's names (`today()`, `untilTomorrow()`), and this section's names below refer to them.
   - `dayIndex(key)` counts whole days between date strings using `Date.UTC` on the parsed parts, so daylight saving can never produce a 23-hour day.
   - `weekday(key)` is `new Date(key + "T00:00:00Z").getUTCDay()`.
-  - Also `isoWeek(key)` and `msUntilNextDay(now)`.
+  - Also `isoWeek(key)` and `msUntilNextDay(now)` (Engineering's `untilTomorrow()`).
 - **The server says which day it is** (new).
-  - `GET /api/today` returns:
+  - `GET /api/today` returns (on Thursday 10 December, the first Thursday with all three games live):
 
     ```json
-    { "day": "2026-11-26", "weekday": 4, "next": 21600000, "games": { "grey": 46, "stet": 25, "plaintext": { "week": 1, "day": 4 } } }
+    { "day": "2026-12-10", "weekday": 4, "next": 21600000, "games": { "grey": 60, "stet": 32, "plaintext": { "week": 1, "day": 4 } } }
     ```
 
   - The page trusts this over the device clock. A phone set a day ahead sees "Not out yet here." rather than a 404.
   - The countdown runs from `next` against `performance.now()`, so changing the device clock mid-visit changes nothing.
-- **Development knob.** `?day=2026-11-26` works like `?hour=` (`hours.ts:21-28`), honoured by both the page and the API only when `NODE_ENV !== "production"`, so nobody can preview tomorrow on the live site.
+- **Development knob.** `?day=2026-12-10` works like `?hour=` (`hours.ts:21-28`), honoured by both the page and the API only when `NODE_ENV !== "production"`, so nobody can preview tomorrow on the live site.
 - **Numbering.** Each game counts from its own first day (its `since`, §1.6), so "Stet 1" is Stet's first day whatever the shelf did before.
   - A used one epoch for every game, which would make Stet's first puzzle "Stet 29".
   - B used "day one" for the shelf.
-  - The shelf itself is named by its date, not a number: "Thursday 26 November."
+  - The shelf itself is named by its date, not a number: "Thursday 10 December."
 
 ##### 1.4 Seeds (from A)
 
-- `seedFor(game, n, attempt = 0) = subSeed(hashSeed("eigengrau/today/v1"), \`${game}:${n}:${attempt}\`)`. `attempt` lets the build re-roll a day that fails its checks, and the re-roll is still deterministic.
+- `seedFor(game, n, attempt = 0) = subSeed(hashSeed(TODAY_SALT), \`${game}:${n}:${attempt}\`)`, from `src/lib/random.ts`. `attempt` lets the build re-roll a day that fails its checks, and the re-roll is still deterministic.
+- **The root is a build secret.** *Decided (`decisions.md`, Daily games 3):* `TODAY_SALT`, a build secret that is never in either repository and is read only by `npm run today`, replaces the literal `"eigengrau/today/v1"` this review first proposed, so the public generator cannot compute a day. The frozen files (§1.5) mean the salt is needed only when days are written, never at request time.
 - Curated banks (Stet's passages, Plaintext's letters) are walked in a seeded Fisher-Yates permutation, reseeded once per cycle of the bank. Order does not follow file order, and nothing repeats within a cycle.
 
 ##### 1.5 Made ahead, frozen, served on the day (from A)
 
-- **New `scripts/today.mjs`** (`npm run today`), a plain Node script like `scripts/add-note.mjs`.
-  - It generates and validates the next 400 days of every game into `src/content/today/<game>.json`.
+- **New `scripts/today.ts`** (`npm run today`), a script like `scripts/add-note.mjs`, run under `tsx` so it can import the games' `rules.ts` through `@/` (§0).
+  - It generates and validates the next 400 days of every game into `src/content/today/<game>.json`, which is a checkout of the private bank (below), git-ignored in the public repository.
   - It prints a report: rejects and re-rolls, the difficulty spread by weekday, and each game's own figures (par, clue counts, grain counts).
   - **It never rewrites a day that already exists.** A generator changed next spring only affects days not yet written. That is stronger than B's snapshot test, because frozen JSON cannot change at all.
 - **New route handlers:**
@@ -201,13 +211,12 @@ Where each part comes from:
   - They import the JSON **on the server only**, and return 404 for any `n` later than today in `ZONE`.
   - Past days are sent with `Cache-Control: public, max-age=31536000, immutable`.
   - Today is sent with `public, s-maxage=<seconds to his midnight>, stale-while-revalidate=60`. On Vercel's CDN that is about one function run per region per day.
-- **The public repo.** `git remote` is `github.com/dctxv/eigengrau`. If it is public, the frozen JSON is readable by anyone.
-  - **Same Grey and Plate** are procedural. Knowing the answer spoils only your own game, and there is no board to cheat on, so accept it.
-  - **Stet and Plaintext** are curated, and a public letter spoils a week for anyone who looks. Either:
-    - keep `src/content/today/` in a private repository fetched at build by a new `scripts/fetch-today.mjs`, using a read-only token env var (`TODAY_TOKEN`) on Vercel; or
-    - say so on the record page: "The answers are in the repository. So is everything else."
-
-    See open question 3.
+- **The public repo.** `git remote` is `github.com/dctxv/eigengrau`, and it is public, so anything committed there is readable by anyone. *Decided (`decisions.md`, Daily games 3), under the summary's rule that nothing in the public repository holds a puzzle's answer:*
+  - **Every frozen puzzle goes private, Same Grey included.** `src/content/today/` lives in a new private repository, fetched at build by a new `scripts/fetch-today.mjs`. It uses a fine-grained read-only token (`TODAY_TOKEN`) and takes the repository's name from `TODAY_REPO`, both Vercel variables, so the public repository never names it.
+  - **This review first accepted public answers for the procedural games.** Same Grey and Plate are procedural: knowing the answer spoils only your own game, and there is no board to cheat on. The rule covers them anyway, and one bank is simpler than two.
+  - **Stet and Plaintext** are curated, and a public letter would spoil a week for anyone who looks. The private bank settles it, so the record page never needs "The answers are in the repository. So is everything else."
+  - **It is not a project.** The bank repository is left off the thread through the secret `SYNC_EXCLUDE`, and, like every private repository, it is never named anywhere public.
+  - **Changes if** the build cannot reach GitHub reliably. The frozen files then go into a Vercel Blob read only on the server, and the rule still holds.
 
 ##### 1.6 The registry
 
@@ -218,12 +227,14 @@ export type GameId = "grey" | "stet" | "plaintext" | "plate" | "login";
 export type Game = { id: GameId; name: string; since: string; every: "day" | "saturday"; line: string };
 export const GAMES: readonly Game[] = [
   { id: "grey",      name: "Same Grey", since: "2026-10-12", every: "day",      line: "Five greys, each in company." },
-  { id: "stet",      name: "Stet",      since: "2026-11-02", every: "day",      line: "A paragraph with a few things wrong in it." },
-  { id: "plaintext", name: "Plaintext", since: "2026-11-23", every: "day",      line: "One lock a day. A letter a week." },
+  { id: "stet",      name: "Stet",      since: "2026-11-09", every: "day",      line: "A paragraph with a few things wrong in it." },
+  { id: "plaintext", name: "Plaintext", since: "2026-12-07", every: "day",      line: "One lock a day. A letter a week." },
 ];
 ```
 
 - The head counts what exists, and a game's line appears from its `since`.
+- **Where `since` lives.** Each game exports its own `since` from `src/games/<id>/rules.ts`, and the registry imports it, so the generator and the page cannot disagree (`decisions.md`, Daily games 4).
+- **The dates.** *Decided in `decisions.md` (Daily games 4):* Stet from Monday 9 November and Plaintext from Monday 7 December, not 2 and 23 November as first proposed. The summary's own rule, "no new game until the last one has four weeks of archive and the counts show people coming back", forbids the earlier dates. Four weeks after 12 October is 9 November, and four weeks after that is 7 December.
 - All three `since` dates are Mondays (checked), because every game's ladder starts gentle on a Monday.
 - **The shared weekday ladder:**
   - Monday is the gentle day.
@@ -232,7 +243,8 @@ export const GAMES: readonly Game[] = [
 
 ##### 1.7 What the browser keeps
 
-- **One key per game**, `eigengrau:today:<game>` (from A). A corrupt record takes out one game, not the shelf, and it matches the site's one key per concern (the README's list).
+- **One key per game**, `eigengrau:today:<game>` (from A). A corrupt record takes out one game, not the shelf, and it matches the site's one key per concern (the README's list). The summary's list of new keys has exactly this form.
+- **Through the shared `src/lib/store.ts`.** *Ruled in the summary: storage goes through `keep()`, which is versioned, guarded, and kept in step across browser tabs.* Each game calls `keep("today:<game>", { version: 1, … })`. The guards, the memory fallback and the cross-tab listener below are what `keep()` provides, so the games write none of them.
 - **The record:**
 
   ```ts
@@ -249,17 +261,17 @@ export const GAMES: readonly Game[] = [
 - **The streak is computed, never stored** (from B). It is the run of consecutive day numbers ending today or yesterday whose status is `done` and that are not `late`. It cannot drift.
 - **Pruning:** `state` is dropped after fourteen days, and days older than four hundred are pruned. The budget is under 50 KB a game.
 - **Guards:** every read and write is guarded, as in `visits.ts:54-72`. If storage is refused, the record lives in memory for the page, as `sky/seed.ts:37-58` does.
-- **Two browser tabs** (new): the panel listens for `storage` events on its keys and re-reads, so a day finished in one tab reads as finished in the other.
-- **Carry it** (from A, optional, S): the whole record as a short base64url code, pasted into another browser. The copy reads: "It lives in this browser. This takes it with you."
-- Add the new keys to the README's localStorage list.
+- **Two browser tabs** (new): the drawer listens for `storage` events on its keys (through `keep()`'s `subscribe`) and re-reads, so a day finished in one tab reads as finished in the other.
+- **Carry it** (from A, optional, S): the whole record as a short base64url code, pasted into another browser. The copy reads: "It lives in this browser. This takes it with you." It is `store.ts`'s `exportAll()` and `importAll()` (Engineering §4.3), which validate each key through its own `read()`.
+- Add the new keys to the README's localStorage list and to `/kept`, as the summary requires of every new key.
 
 ##### 1.8 The Today page
 
 - **The column.**
-  - A plain DOM panel, new `src/components/pages/TodayPanel.tsx`, dynamically imported as the other panels are (`Shell.tsx:19-23`).
+  - A plain DOM drawer, new `src/components/desk/TodayDrawer.tsx`, rendered by the new `DeskPanel` (itself dynamically imported as the other panels are, `Shell.tsx:19-23`). The drawer is loaded on demand in turn, so the Desk costs nothing until it is opened.
   - It is set on Notes' column: `.notes-column` (`globals.css:664-668`: `min(450px, 100% - 32px)`, 194px top padding) and `.notes-head` (`globals.css:671-676`: a grotesk lead, then one serif sentence, the first line on the 206px line that Projects, Notes and Music share).
   - Copy those rules to `.today-*` rather than sharing the class names, so Notes can change without moving Today.
-- **The head** is written from the day's state, never stale (the count comes from `GAMES`, the way `projectsLine` does at `site.ts:209`):
+- **The head** is written from the day's state, never stale (the count comes from `GAMES`, the way `projectsLine` does at `site.ts:209`). It is the only thing that tells anyone about the day's puzzles: Urchi never does (§1.1). The Desk's shelf carries one line for the drawer, as Strategy §5.6 writes it: "**Today** No. 12, Same Grey. New at midnight here, in five hours."
 
   | State | Head |
   |---|---|
@@ -287,14 +299,14 @@ export const GAMES: readonly Game[] = [
     - Either extract `Folds` (`NotesPanel.tsx:126-563`) into `src/lib/folds.ts` first (half a day, and Notes must be re-tested),
     - or draw simpler hairlines with CSS `scaleY`, which is enough for three entries.
   - The miniature grows into the board with a FLIP (from B), using `EASE.reveal` and `DUR.reveal` (`motion.ts`, 0.9s). Under reduced motion it is a cut.
-  - The URL gains `?stet`.
-  - Esc, or a tap on the lead word, unfolds the shelf again, the way Esc winds Projects back.
+  - The URL becomes `/today/stet/25` (§1.2).
+  - Esc, or a tap on the lead word, unfolds the shelf again, the way Esc winds Projects back. Esc goes up one level at a time, as the summary's key table has it: board, then drawer, then the Desk's shelf.
 - **Boards are `next/dynamic` imports**, so Today costs nothing until a game is opened.
 - **Midnight.**
   - A timer runs to `next`, with a re-check on `visibilitychange`.
   - A board open across midnight is never swapped out under the player. A grotesk line appears above it: "It is a new day here. This one stays until you leave it." (A's and B's lines, merged.)
   - The shelf behind it updates.
-- **`?record`.** One sentence per game, in the manner of the Notes head:
+- **`/today/record`.** One sentence per game, in the manner of the Notes head:
   - "Nine days running. Same Grey every day, Stet most of them. You miss fonts."
   - "Plaintext: two weeks read whole. Fridays take you longest."
 - **Archive.** Each game has one line per day in Notes' form: "No. 3, Wednesday. Forty levels off."
@@ -305,28 +317,28 @@ export const GAMES: readonly Game[] = [
 ##### 1.9 Share
 
 - **One game's share.** New `src/lib/today/share.ts`.
-  - Each game returns two to four lines, and the frame adds the address (`eigengrau.example/today?stet=25`, from `SITE_URL`).
+  - Each game returns two to four lines, and the frame adds the address (`dariustan.dev/today/stet/25`, from `SITE_URL`, which prints the Vercel production URL until the domain resolves; §0).
   - On a touch device it calls `navigator.share({ text })`. Otherwise it copies to the clipboard, and the word swaps to "Copied" exactly as About does (`AboutPanel.tsx:48-57`, including `sfx.play("tab")`).
   - Allowed characters are ASCII plus `· • ● ○ × – [ ]`. No emoji, because they bring colours the site does not have.
   - A test keeps every share under 280 characters.
 - **Share the day** (from B). The head offers it once two or more games are done:
 
   ```
-  eigengrau, Thursday 26 November.
+  eigengrau, Thursday 10 December.
   Same Grey: forty levels off. Stet: five of five, one let stand. Plaintext: Thursday, two peeks.
-  eigengrau.example/today
+  dariustan.dev/today
   ```
 
 - **Link previews.**
-  - `src/app/today/page.tsx` exports `generateMetadata({ searchParams })`. Its title is "Stet No. 25", which becomes "Stet No. 25 - Darius Tan" through the layout's template (`layout.tsx:9`). Its `openGraph.images` points at `/api/today/og?g=stet&n=25`.
-  - A new route handler draws that image with `ImageResponse` from `next/og`.
+  - `src/app/today/[game]/[n]/page.tsx` exports `generateMetadata({ params })`. Its title is "Stet No. 25", which becomes "Stet No. 25 - Darius Tan" through the layout's template (`layout.tsx:9`). The canonical is set on this route, never on the root layout (summary, reconciliation 10).
+  - A new `src/app/today/[game]/[n]/opengraph-image.tsx` draws the card with `ImageResponse` from `next/og`. It receives `params` (`{ game, n }`), which is why the summary chose paths. `src/app/today/[game]/page.tsx`, today's puzzle, points its card at today's numbered one, because every share prints the numbered path.
     - Its fonts come from `public/fonts/grotesk-500.woff` and `serif-400.woff`. The renderer reads WOFF, not WOFF2, and those files are already there for troika.
     - Serif ink on eigengrau, 1200×630, showing the puzzle and never the answer:
       - Stet: "Stet No. 25. Five marks to make."
       - Same Grey: the first company.
       - Plaintext: the first line of cipher.
       - Plate: the card's figure.
-  - It is a route rather than `opengraph-image.tsx`, because that file convention cannot read the query.
+  - This review first drew the card from a route handler (`/api/today/og?g=stet&n=25`), because `opengraph-image.tsx` cannot read a query. With paths, the file convention works, and no card route is needed. A card for a day not yet out is a 404, like the puzzle itself (§1.5). Once out, a card never changes, so it is sent `immutable`.
 
 ##### 1.10 Sound, motion, keys, frames
 
@@ -344,14 +356,15 @@ export const GAMES: readonly Game[] = [
 - **Motion.** Text rises with `notes-rise` (`globals.css:941-946`). Under reduced motion everything is simply placed (`prefersReducedMotion`, `motion.ts:19-22`, and the CSS query at `globals.css:947`).
 - **The keys contract.**
   - Every board's handler returns early unless all of these hold, which are the checks at `NotesPanel.tsx:1012-1016`:
-    - `location.pathname === "/today"`;
+    - the path is the board's own (`location.pathname` starts with `/today/<game>`; `tabOf` gives `/desk`);
     - `!getFlags().transitioning`;
     - no modifier key;
     - nothing typeable has focus.
-  - While a board is open it sets `data-keys="own"` on the panel. If a global digit shortcut is ever added (the README promises one and the engineering review plans one), it must stand aside while that attribute is present, because Plate and Plaintext take digits and letters.
+  - **Claims, not an attribute.** *Ruled in the summary: one capture-phase listener with a claim stack, `src/lib/keys.ts`. The digits `1`-`6` go to the tabs anywhere, unless a text field has focus, or a game board or Notes' search has claimed digits.* While a board is open it registers `claim("/desk", (e) => boolean)` for the keys it uses, and releases the claim when it closes. Plate and Plaintext take digits and letters, so they claim digits; Same Grey, Stet and Last login do not, so `1`-`6` still move between tabs from their boards. This replaces the `data-keys="own"` attribute this review first proposed.
+  - Esc is never claimed by a board: it always goes up one level (board, then drawer, then shelf).
 - **Frames.**
-  - No WebGL: every board is DOM or a 2D canvas (from B). Three contexts already live, and kept panels keep theirs.
-  - Canvas boards stop their frames when `onShown` (`where.ts:64-70`) says `/today` is hidden, exactly as `ProjectsPanel.tsx:177-182` pauses the ball.
+  - No WebGL: every board is DOM or a 2D canvas (from B). Three contexts already live, and kept panels keep theirs. The Desk is a kept panel, so it must never hold a fourth.
+  - Canvas boards stop their frames when `onShown` (`where.ts:64-70`) says the Desk is hidden, or when their drawer is folded, exactly as `ProjectsPanel.tsx:177-182` pauses the ball.
 
 ##### 1.11 What not to do (from B, kept whole)
 
@@ -366,18 +379,19 @@ export const GAMES: readonly Game[] = [
 - No Urchi.
 - No nagging on other tabs.
 
-The pill is the only invitation.
+The Desk pill, and the Today drawer's own heading, are the only invitation. Urchi never points at the Desk for the daily (summary, reconciliation 4).
 
 ##### 1.12 Before each game ships
 
 - `npm run today` passes: four hundred days written, every validator green, no existing day changed.
-- `npm test` covers:
-  - the day's arithmetic across both DST changes in `ZONE`;
+- `npm test` (Vitest, golden tests beside each pure module) covers:
+  - the day's arithmetic across both DST changes in `ZONE`, which for Melbourne are Sunday 4 October 2026 (to +11:00) and Sunday 4 April 2027 (back to +10:00);
   - streak arithmetic, including late days and a gap;
   - share length and character set;
   - seed stability;
   - the game's own normalisation.
-- A Playwright pass at 1440×900 and 390×844, with reduced motion on and off and sound off throughout. The pattern is the existing `shoot2.mjs`, with `waitUntil: "load"`, because the site polls.
+- A Playwright pass at 1440×900, 390×844 and 320px wide (the summary's phone rule), with reduced motion on and off and sound off throughout. The pattern is the existing `shoot2.mjs`, with `waitUntil: "load"`, because the site polls.
+- One Notes log line for the game, in the third person, as the summary asks of every shipped behaviour: "Same Grey begins. A new one arrives at his midnight."
 - A **`?debug=1` panel per game** in development (from B), modelled on `src/engine/space/sky/debug/`:
   - the generator's knobs;
   - a die to re-roll the day;
@@ -385,32 +399,37 @@ The pill is the only invitation.
 
   It is left out of production the way the sky's is (`CreativeSpacePanel.tsx:206`).
 
-##### 1.13 Counting (optional, new)
+##### 1.13 Counting (new, decided)
 
 Zero backend also means he will never know whether anyone plays.
 
-- The lightest honest option: Vercel Web Analytics custom events, with `today_done { game, n, late }` and nothing else. No identifiers, no cookies, one call.
-- Without it, "ship two and see whether anyone comes back" (A's rule) cannot be judged.
+- This review first proposed Vercel Web Analytics custom events, with `today_done { game, n, late }` and nothing else. Custom events need Vercel Pro.
+- *Decided (`decisions.md`, item 7; the summary's "Analytics" ruling):* **Umami Cloud's free tier, cookieless**, with its script and endpoint proxied under `/u/` on the same origin, so `connect-src 'self'` still holds. Automatic page views are off (`data-auto-track="false"`).
+- A finished game sends one named event, and nothing else: `game_finished { game, n, streak: "1" | "2-6" | "7+" }`. The streak bucket answers "does anyone come back" without an identifier or a page view. A late play from the archive sends nothing, since it never counts toward a streak.
+- Nothing is sent while the browser signals Do Not Track or Global Privacy Control. `/kept` prints the event's name and fields exactly as sent.
+- New `EVENTS` in new `src/lib/count.ts` holds the three names the site sends (`game_finished`, `find_taken`, `tool_export`). The boards call it; they never touch Umami directly.
+- Without it, "ship two and see whether anyone comes back" (A's rule) cannot be judged. With it, "the counts show people coming back" has a definition (§7).
 
-See open question 5.
-
-**Effort:** M, three to four days, plus half a day if `Folds` is extracted. Same Grey then ships on top.
+**Effort:** M, three to four days, plus half a day if `Folds` is extracted. Same Grey then ships on top. The shared foundations (`random.ts`, `day.ts`, `store.ts`, `keys.ts`, `tabOf`) and the Desk frame are counted in the summary's priorities 9, 12 and 13, not here twice.
 
 **Where it hooks in:**
 
 - **Changed files:**
-  - `site.ts:29` (`TABS`);
-  - `Shell.tsx:29-36` (`Stage`);
-  - `tune.ts:57-97` and `Between.tsx:103-112` (to `seed.ts`);
-  - `tsconfig.json`, `package.json`, README.
+  - `site.ts:29` (`TABS`: the Desk third, with `owns`; Notes, Music and About renumbered);
+  - `Shell.tsx:29-36` (`Stage`, which returns `DeskPanel` for `/desk`) and Shell's `tabOf` handling (Strategy §5.5);
+  - `src/lib/routes.ts` (`tabOf`, `pillOf`) and `sfx.ts:497-500` (its own `tabOf` becomes `pillOf`);
+  - `tune.ts:57-97` and `Between.tsx:103-113` (to `random.ts`);
+  - `notes.ts:34` (`localDay` moves to `day.ts` as `visitorDay()`);
+  - `package.json` (Vitest, `tsx`, the `test` and `today` scripts), `.gitignore` (`src/content/today/`), README.
 - **New files:**
-  - `src/lib/seed.ts`;
-  - `src/lib/today/{day,games,store,share}.ts`;
-  - `src/app/today/page.tsx`;
-  - `src/app/api/today/route.ts`, `src/app/api/today/[game]/[n]/route.ts`, `src/app/api/today/og/route.tsx`;
-  - `src/components/pages/TodayPanel.tsx`;
-  - `scripts/today.mjs`, `scripts/today.test.mjs`;
-  - `src/content/today/`.
+  - `src/lib/random.ts`, `src/lib/day.ts`, `src/lib/store.ts`, `src/lib/keys.ts` (shared foundations);
+  - `src/lib/today/{games,share}.ts`;
+  - `src/lib/count.ts`;
+  - `src/app/desk/page.tsx`, `src/app/today/page.tsx`, `src/app/today/[game]/page.tsx`, `src/app/today/[game]/[n]/page.tsx`, `src/app/today/[game]/[n]/opengraph-image.tsx`;
+  - `src/app/api/today/route.ts`, `src/app/api/today/[game]/[n]/route.ts`;
+  - `src/components/pages/DeskPanel.tsx`, `src/components/desk/TodayDrawer.tsx`;
+  - `scripts/today.ts`, `scripts/fetch-today.mjs`, and Vitest files beside the pure modules (`src/lib/day.test.ts`, `src/games/<id>/rules.test.ts`);
+  - `src/content/today/`, fetched at build from the private bank and never committed here.
 
 ---
 
@@ -424,7 +443,7 @@ See open question 5.
 
 - It is DOM and CSS only: no canvas, physics or audio to tune, and nothing to write. It proves the frame with the least that can go wrong.
 - **The name.** Eigengrau is the grey the eye makes up in the dark. This game is a small daily proof that the eye makes up greys in the light too.
-- **Two colours.** Every grey is a mix of eigengrau and ink in OKLab, so the palette stays the site's two colours. One round a day borrows a colour, the way Music's room borrows a record's.
+- **Two colours.** Every grey is a mix of eigengrau and ink in OKLab, so the palette stays the site's two colours. One round a day borrows a colour, the way Music's room borrows a record's. *Checked against the summary's colour rule ("colour only where it comes from something"): the Tint round's blue is the illusion under test, it appears in one round a day, and the frame around it stays two colours.*
 - **Self-knowledge.** After ten days it tells you how your own eye leans: the small, true thing that About promises.
 
 ##### Rules
@@ -525,7 +544,7 @@ This example used full ink for the Room. The ladder below caps the Room at 90% i
   - ↑/↓ move one level, and Shift moves five.
   - ←/→ warm or cool.
   - Enter leaves it there.
-  - Esc goes back to Today.
+  - Esc goes back to the Today drawer (up one level).
 - **Touch.** Drag.
 
 ##### Sound
@@ -557,7 +576,7 @@ This example used full ink for the Room. The ladder below caps the Room at 90% i
 ```
 Same Grey 4
 Forty levels off in five. The stripes took twelve.
-eigengrau.example/today?grey=4
+dariustan.dev/today/grey/4
 ```
 
 It names the family that cost the most, which says nothing about which way.
@@ -571,7 +590,7 @@ It names the family that cost the most, which says nothing about which way.
 ##### Accessibility
 
 - **Reduced motion.** The dissolve and the slide are cuts, and the patches are placed side by side at once.
-- **Colour blindness.** Tint stays on the blue–yellow axis. A "Greys only" word in the footer swaps Tint for a second Room, remembered per viewer in localStorage.
+- **Colour blindness.** Tint stays on the blue–yellow axis. A "Greys only" word in the footer swaps Tint for a second Room, remembered per viewer in `eigengrau:today:grey` through `store.ts`, not in a key of its own.
 - **Sound off.** Silent, and fully playable.
 - **Forced colours.** Under `@media (forced-colors: active)` the system repaints the greys and breaks the premise. The game says so plainly: "Your system is choosing the colours. This one needs the page's."
 - **Screen readers.** "A game about seeing greys. It needs the eyes." It is still operable from the keyboard. The shelf's other two games are written for screen readers, which is why this honesty is acceptable here.
@@ -579,7 +598,7 @@ It names the family that cost the most, which says nothing about which way.
 ##### Where it hooks in
 
 - **New:**
-  - `src/games/grey/rules.ts`: the families, the ladder, the step table and the levels. It is pure, and imported by `scripts/today.mjs`.
+  - `src/games/grey/rules.ts`: the families, the ladder, the step table and the levels. It is pure, and imported by `scripts/today.ts`.
   - `src/games/grey/Board.tsx`: DOM with CSS backgrounds. The stripes are a `repeating-linear-gradient`, and the Cornsweet ramps are linear gradients.
   - `src/games/grey/share.ts`.
 - **Reuses:**
@@ -595,8 +614,9 @@ It names the family that cost the most, which says nothing about which way.
 - **Phone:** as laid out above.
 - **Reduced motion:** cuts.
 - **Sound off:** nothing is lost.
-- **Urchi's night hours:** not involved.
+- **Urchi's night hours:** not involved. The day turns at his midnight, an hour before his night (01:00-06:59 in Melbourne) begins, so a board started at 23:50 his time is played to the end as yesterday's, with the new-day line above it (§1.8).
 - **Returning visitor:** a half-played day resumes on its round, with the lone patch where it was left.
+- **Carrying a find:** on the Desk a carried find goes into the pocket at once and never hangs under the pointer (summary, reconciliation 3). That matters most here, because Same Grey is a test of what sits beside a grey.
 - **Screens:** six-bit panels may shimmer at one-level steps, which is harmless. Brightness and calibration differ between screens, but both patches are on the same screen, so most of that cancels out.
 
 **Effort:** S, one day, plus half a day of tuning with the debug panel. It needs the frame first.
@@ -648,9 +668,11 @@ It names the family that cost the most, which says nothing about which way.
 
 Spelling is British throughout, because the site writes "colour". An error is never a spelling variant.
 
-##### A day, worked: Stet No. 6, Saturday 7 November 2026. "Five marks to make."
+##### A day, worked: Stet No. 6, Saturday 14 November 2026. "Five marks to make."
 
-This is A's example. With Stet counting from Monday 2 November, No. 6 is still a Saturday. The word **Berry** is set in the grotesk.
+This is A's example. With Stet counting from Monday 9 November (decided; first proposed as 2 November), No. 6 is still a Saturday. The word **Berry** is set in the grotesk.
+
+*Decided in `decisions.md` (Daily games 4): the bank launches on public-domain passages, which never carry a `qy`. A paragraph like this one, with a sourced modern fact, reaches Stet only as a note he lends (below). The example stands as the shape of such a day.*
 
 > Voyager 1 left Earth on 5 September 1977, sixteen days after it's twin. It carries a gold-plated record: greetings in fifty-five languages, whale song, a kiss, a heartbeat, and ninety minutes of music, from Bach to Chuck **Berry**. In 2004 it crossed the heliopuase, were the Sun's wind gives out, and became the first human-made object in interstellar space. Its signal now takes almost a day to reach us. Nobody expects the record to be found. It was sent anyway.
 
@@ -671,11 +693,13 @@ The clean text reads: "...sixteen days after its twin... In 2012 it crossed the 
 
 Passages are curated and the errors are procedural.
 
-- **The bank.** New `src/content/today/stet.json`. Each passage looks like this:
+- **The bank.** New `src/content/today/stet.json`, in the private bank (§1.5). Each passage looks like this:
 
   ```ts
   type Passage = {
     id: string; topic: NoteCategory; text: string;
+    approved: boolean;                                           // he approves; npm run today refuses a passage without it
+    lent?: string;                                               // the id of the note he lent, if it is his
     source?: { title: string; year: number };                    // public-domain passages only
     facts: { span: string; wrong: string[]; note: string; source: string; asOf?: string }[];
     swaps: { span: string; to: string }[];                       // safe wrong-word slots, chosen by a person
@@ -683,14 +707,17 @@ Passages are curated and the errors are procedural.
   };
   ```
 
-- **The supply** (corrected). As written, "thirty to launch, then three a week, with a passage back after 120 days" cannot work: the bank would not reach 120 until about week thirty. Instead:
-  - **Launch with forty:** twenty of his, and twenty short public-domain paragraphs from pre-1900 non-fiction whose prose still reads well. For example:
+- **The supply** (corrected). As written, "thirty to launch, then three a week, with a passage back after 120 days" cannot work: the bank would not reach 120 until about week thirty. This review then proposed forty to launch (twenty of his, twenty public-domain) and two of his a week. *Decided in `decisions.md` (Daily games 4), to spend none of his weekly hours on it:*
+  - **Launch with forty public-domain passages:** short paragraphs from pre-1900 non-fiction whose prose still reads well, chosen and marked up by a branch with `npm run passage` (the swaps, the `keep` list and the source). For example:
     - Faraday, *The Chemical History of a Candle* (1861);
     - Ada Lovelace's *Notes* (1843);
     - Darwin, *The Voyage of the Beagle* (1839);
     - Babbage, *Passages from the Life of a Philosopher* (1864);
     - Mary Somerville, *On the Connexion of the Physical Sciences* (1834).
-  - **Add two a week** of his: about a hundred a year.
+  - **He approves them in one sitting** of about an hour, by Monday 2 November, a week before Stet No. 1. `npm run today` refuses unapproved passages, and fails from 2 November while fewer than forty are approved. If fewer than forty are approved by then, Stet slips a week at a time.
+  - **Add ten a month,** drafted the same way, for his approval.
+  - **Notes he lends.** `npm run note` asks "Lend this to Stet? [y/N]" for any note of 80 to 120 words. A lent note may carry a `qy`, because its facts are his and sourced. If he writes Stet paragraphs anyway, they go in with `npm run passage` and are chosen before the public-domain ones.
+  - **Nothing asks him for two paragraphs a week.**
   - **Spacing.** A passage never returns sooner than the bank's size in days (forty at first), and returns with different errors. When it does, its `qy` slot moves to a different fact, so remembering the clean text does not give the query away.
   - **Public-domain passages** never carry a `qy`, because old facts are often out of date. That day's `qy` becomes a `/`. They name their source after the day is finished: "Faraday, 1861."
 - **`npm run passage`** (new), built like `scripts/add-note.mjs`. It asks for:
@@ -698,9 +725,9 @@ Passages are curated and the errors are procedural.
   - each fact (its span, two or three wrong values, a one-line note and a source URL);
   - the swaps.
 
-  It then runs the validator and appends to the bank. Writing a Stet paragraph becomes as easy as writing a note.
-- **Where his passages come from.** His own paragraphs on his note topics, with facts taken from cited sources. The facts are not copyrightable, and the sentences are his.
-  - `NOTE_CATEGORIES` (`site.ts:230-240`) has no "space". Add it before the Voyager paragraph needs it.
+  It then runs the validator and appends to the bank, with `approved: false` until he approves it. Marking up a Stet paragraph becomes as easy as writing a note, and a branch can do it for him.
+- **Where his passages come from.** Notes he lends: his own paragraphs on his note topics, with facts taken from cited sources. The facts are not copyrightable, and the sentences are his.
+  - `NOTE_CATEGORIES` (`site.ts:230-240`) has no "space". Add it before a note like the Voyager paragraph needs it.
 - **Each day.**
   - `rng(seedFor("stet", n))` picks the passage from a seeded permutation of the eligible ones.
   - The weekday decides the kinds. The seed picks a slot for each kind, following these rules:
@@ -708,7 +735,7 @@ Passages are curated and the errors are procedural.
     - none falls in the first three words;
     - `tr` goes only on words of six letters or more that are not in `keep`;
     - `wf` goes only on words of four letters or more.
-- **Solvability and uniqueness**, checked in `scripts/today.mjs`:
+- **Solvability and uniqueness**, checked in `scripts/today.ts`:
   - The clean text must pass an en-GB word list (plus `keep`) and a typographic lint: curly quotes, en dashes in ranges, no double spaces.
   - Every `tr` and `del` output must be a non-word or a repeat, so it can only be read as wrong.
   - `/` comes only from `swaps`, which a person chose, and `qy` only from `facts`, which carry a source.
@@ -725,7 +752,7 @@ Passages are curated and the errors are procedural.
   | Saturday | 5 | as Friday |
   | Sunday | 6 | adds the weight `wf` and the typographic marks |
 
-- **Security facts** (new, grafted from the cut Fairly Sure). Cybersec passages can carry computed facts, which are sturdier than looked-up ones. For example: "At ten billion guesses a second, every eight-letter lowercase password falls in about twenty-one seconds" (26⁸ = 208,827,064,576). The `qy` offers "twenty-one minutes" as its wrong value.
+- **Security facts** (new, grafted from the cut Fairly Sure). Cybersec notes he lends can carry computed facts, which are sturdier than looked-up ones (public-domain passages carry no `qy`). For example: "At ten billion guesses a second, every eight-letter lowercase password falls in about twenty-one seconds" (26⁸ = 208,827,064,576). The `qy` offers "twenty-one minutes" as its wrong value.
 
 ##### How it looks
 
@@ -751,7 +778,7 @@ Tap or click a word. With the keyboard, the paragraph is one composite widget wi
 - Enter or Space marks the focused word.
 - Typing letters jumps to the next word starting with them, the same type-anywhere habit as Notes (`NotesPanel.tsx:1012-1034`).
 - Tab leaves for the controls.
-- Esc goes back to Today.
+- Esc goes back to the Today drawer (up one level).
 
 ##### Sound
 
@@ -762,7 +789,7 @@ Tap or click a word. With the keyboard, the paragraph is one composite widget wi
 ##### Feedback and failure
 
 - There are no lives. Stets are counted, never punished, until the margin is full.
-- "That is all I can see." asks once ("Show the rest?" / "Not yet"). Then it writes in the missed errors at 45% ink, with their marks: "Two were still in there."
+- "That is all I can see." asks once ("Show the rest?" / "Not yet"). Then it writes in the missed errors at 60% ink, with their marks: "Two were still in there." (This review first set them at 45%, which is 3.9:1 on eigengrau; the summary's rule is that meaningful text is at least 60% ink, 6.0:1.)
 - The fact note is always kind and worth reading. It gives the true figure and says why the wrong one was tempting.
 
 ##### Share
@@ -771,7 +798,7 @@ Tap or click a word. With the keyboard, the paragraph is one composite widget wi
 Stet 6
 del stet qy tr / wf
 Five of five. One let stand.
-eigengrau.example/today?stet=6
+dariustan.dev/today/stet/6
 ```
 
 The second line is the margin in the order you worked. It reads like a real proofreader's margin, and gives away the kinds, not the words. On Thursday and later, when the head no longer names the kinds, the line shows marks only for the kinds already named that week, and `·` for the rest.
@@ -781,13 +808,14 @@ The second line is the margin in the order you worked. It reads like a real proo
 - **Streak:** counts days finished, whether or not every error was found. It rewards coming back, not perfection.
 - **Record:** days played, clean days (all found, no stets), stets per day, and the kind you miss most: "You miss fonts." "You trust numbers."
 - **Archive:** every past paragraph can be played. Finished ones can be read clean, with their fact notes.
-- **Into Notes** (A's idea, with its mechanics fixed):
-  - The day after, the clean passage can appear in Notes as a `note` tagged with its topic, with a grotesk trailer, "Stet No. 6", linking to `/today?stet=6`.
-  - Notes is compiled from `site.ts` (`NOTES`, `site.ts:251`), so this needs either:
+- **Into Notes** (A's idea, with its mechanics fixed, then turned round by the supply decision):
+  - A lent note is already in Notes, because it began there. The day after its Stet day, its Notes entry gains a grotesk trailer, "Stet No. 6", linking to `/today/stet/6`.
+  - Public-domain passages never go into Notes. Notes is his voice, and Faraday's paragraph is not.
+  - Notes is compiled from `site.ts` (`NOTES`, `site.ts:251`), so the trailer needs either:
     - the daily deploy the strategy review proposes, or
     - `npm run passage -- --publish <id>`, run by hand.
   - Notes must not fetch passages at runtime, because the bank is server-only.
-  - This gives a column that holds two entries today a steady supply of his writing.
+  - A's first idea, that Stet gives a column holding two entries today a steady supply of his writing, becomes the reverse: his notes, when he writes them, give Stet a supply.
 
 ##### Accessibility
 
@@ -802,7 +830,7 @@ The day's JSON, which includes the corrections, is served only on or after its d
 
 ##### Where it hooks in
 
-- `TodayPanel` opens `StetBoard` (new `src/games/stet/Board.tsx`), which fetches `/api/today/stet/6`.
+- `TodayDrawer` opens `StetBoard` (new `src/games/stet/Board.tsx`), which fetches `/api/today/stet/6`.
 - The text is split into word tokens once, on whitespace, keeping punctuation attached.
 - The reveal uses the rise keyframes.
 - The record lives in `eigengrau:today:stet`.
@@ -816,7 +844,7 @@ The day's JSON, which includes the corrections, is served only on or after its d
 - **Urchi's night hours:** not involved.
 - **Returning visitor:** the paragraph comes back with its marks in place.
 
-**Effort:** M, two to three days of code on top of the frame. Content: forty passages to launch, which is a week of evenings, then two a week.
+**Effort:** M, two to three days of code on top of the frame. Content: forty public-domain passages marked up by a branch (about a week of a branch's work), one sitting of about an hour for him to approve them, then ten a month drafted for approval.
 
 **What it shows:** an eye for detail and for type (the site's own two faces are the game's hardest mark), his writing, and what he reads about.
 
@@ -825,13 +853,15 @@ The day's JSON, which includes the corrections, is served only on or after its d
 - **A factual error in the clean text** would be a disaster in a proofreading game. Every fact carries a source and an "as of", and is checked twice.
 - **Ambiguous `/` slots.** A person picks them for that reason.
 - **Pedantry.** Typographic marks appear only on Sunday, and each is explained the first time it comes up.
-- **Writing.** If two paragraphs a week will not happen, Stet waits and Plate goes second (open question 4).
+- **Writing.** Decided: nothing asks him for weekly paragraphs, so Stet no longer depends on them (`decisions.md`, Daily games 4). The one dependency left is his hour of approval. If fewer than forty passages are approved by Monday 2 November, Stet slips a week at a time.
 
 **Why it fits:** About says "Quiet interfaces for people who notice the small things." Stet is that sentence as a game.
 
 ---
 
-#### 4. Plaintext (from A) · third, from Monday 23 November
+#### 4. Plaintext (from A) · third, from Monday 7 December
+
+*Decided in `decisions.md` (Daily games 4): week 1 opens on Monday 7 December, not 23 November, so that Stet has four weeks of archive first, as the summary's one-game-at-a-time rule requires. The dates in the worked week below move with it.*
 
 > The method is on the page. Only the key is not. (Kerckhoffs, 1883.)
 
@@ -859,7 +889,7 @@ The day's JSON, which includes the corrections, is served only on or after its d
 
 ##### A week, worked: week 1, "The name" (all recomputed)
 
-**Monday 23 November.** The hint is "One letter stands alone. It is probably A."
+**Monday 7 December.** The hint is "One letter stands alone. It is probably A."
 
 ```
 JSVZL FVBY LFLZ PU H KHYR YVVT HUK DHPA H TPUBAL. DOHA FVB ZLL PZ UVA ISHJR.
@@ -870,7 +900,7 @@ PA PZ H ZVMA NYLF, HUK PM FVB DHAJO PA SVUN LUVBNO PA TVCLZ.
 - It opens to: *"Close your eyes in a dark room and wait a minute. What you see is not black. It is a soft grey, and if you watch it long enough it moves."*
 - A chi-squared fit over all twenty-five shifts puts 7 at 17.6, against 290 for the next best, so there is no second reading.
 
-**Thursday 26 November.** The hint is "Four letters. You read them on Monday."
+**Thursday 10 December.** The hint is "Four letters. You read them on Monday."
 
 ```
 XFI GPB TZCQMGPMKAWRW FSRMUIB ML ELH YETI AX Y TDEGR YIPQSR LEEI. RLWC BMV RMX
@@ -893,7 +923,7 @@ There are two ways in:
 
 It opens to: *"The old physiologists noticed it and gave it a plain German name. They did not make a fuss. They wrote it down and went back to work."*
 
-**Sunday 29 November.** The hint is "Four lowercase letters. The colour." These are the first sixteen of its 136 bytes:
+**Sunday 13 December.** The hint is "Four lowercase letters. The colour." These are the first sixteen of its 136 bytes:
 
 ```
 22 1b 02 1c 09 15 17 18 12 5c 45 30 13 01 45 16 ...
@@ -939,20 +969,20 @@ After each day opens, the key appears in grotesk, then one serif line about the 
 
 - **Content.** New `src/content/today/plaintext.json`: `[{ title, lines: [7], source? }]`, one entry per week, curated in order.
   - Week one is "The name".
-  - Later weeks are his letters, or seven consecutive sentences from public-domain writing about secrets and signals:
+  - Later weeks are seven consecutive sentences from public-domain writing about secrets and signals, chosen by a branch and approved by him, or his own letters when he writes one (they go first, and are never required):
     - Poe, *The Gold-Bug* (1843);
     - Conan Doyle, *The Adventure of the Dancing Men* (1903);
     - Babbage, *Passages from the Life of a Philosopher* (1864).
 
     On those weeks, Sunday's reveal names the source.
   - Each line runs to about 100-110 letters, which is enough for the statistics to work.
-  - Launch with four letters written.
+  - Launch with four letters: "The name", already written and verified above, and three public-domain weeks drafted for his approval, which takes minutes, not evenings.
 - **Keys** come from `seedFor("plaintext", n)` within each weekday's rules.
   - Shifts are 1-25, never 13.
   - Affine `a` is drawn from the eleven values other than 1 that are coprime to 26.
   - Wednesday's alphabet is keyword-turned, and rejected if any letter stands for itself (the American Cryptogram Association's convention).
   - Thursday's, Friday's and Saturday's keys are drawn from words in Monday's, Tuesday's and Wednesday's plaintext. That is the chain. Friday's must have distinct letters.
-- **Solvability is guaranteed by solving.** `scripts/today.mjs` breaks every day with the page's own tools before anyone sees it:
+- **Solvability is guaranteed by solving.** `scripts/today.ts` breaks every day with the page's own tools before anyone sees it:
   - chi-squared over shifts (Monday, Tuesday, and each column on Thursday and Saturday);
   - the index of coincidence for the key length (Saturday);
   - hill-climbing on a quadgram score (Wednesday);
@@ -972,8 +1002,8 @@ After each day opens, the key appears in grotesk, then one serif line about the 
 
 - **Head.** Grotesk "Plaintext", then serif "Week 1, Thursday. Four letters. You read them on Monday."
 - **The ciphertext.**
-  - Each letter sits in a fixed-width cell (a CSS grid of `0.75em` columns, glyphs centred), because Inter Tight is not monospaced and the columns have to line up.
-  - The cipher letters are grotesk 15px at 45% ink. The current decryption sits under them at full ink.
+  - Each letter sits in a fixed-width cell (a CSS grid of `0.75em` columns, glyphs centred), because the columns have to line up.
+  - The cipher letters are set in the site's new monospace at 15px and 60% ink. The current decryption sits under them at full ink. *Ruled in the summary: monospace only where alignment carries meaning (ciphertext, hex, logs), and only from Plaintext on. `decisions.md` (Style and UX 2) makes it Commit Mono 400, subset to ASCII, arriving with Plaintext on Monday 7 December. This review first set the cipher in the grotesk, because Inter Tight is not monospaced, at 45% ink, which is 3.9:1 and below the summary's 60% floor for meaningful text.* The grid stays, so the decryption, in the grotesk, still sits under its cipher letter.
   - Letters that change when you turn a dial rise 4px into place.
 - **The tools** sit in one glass panel (`.glass`, `globals.css:97`, radius 4, gutter 8):
   - **Strips** (Monday, Tuesday, Thursday). The alphabet A-Z runs across, with the shifted alphabet under it, dragged sideways like an unrolled cipher disk. It snaps letter by letter.
@@ -982,7 +1012,7 @@ After each day opens, the key appears in grotesk, then one serif line about the 
   - **Columns** (Friday). The text stands in vertical strips headed "? ? ? ? ?", and the rows read across as you move them.
   - **Coincidence bars** (Saturday). Eleven bars for lengths 2-12, with two dotted guides: English at 0.066 and random at 0.038.
   - **Hex grid** (Sunday).
-    - Bytes sit in two-character tabular cells, each with its decoded character under it (`·` where it is not printable).
+    - Bytes sit in two-character cells in the monospace, each with its decoded character under it (`·` where it is not printable).
     - Each key byte has a dial showing hex and character, and a per-column "readable" hairline meter.
     - A grotesk 11px tip: "A space under a letter turns it into a capital."
 - **Solved.**
@@ -1001,7 +1031,7 @@ After each day opens, the key appears in grotesk, then one serif line about the 
 - **Wednesday.** ←/→ choose a cipher letter, typing a letter maps it, and Backspace clears it.
 - **Friday.** Tab to a column, Space to pick it up, ←/→ to move it, and Space to put it down. This is the standard keyboard pattern for drag and drop.
 - **Sunday.** ←/→ move between key bytes, ↑/↓ change the byte by one, and typing two hex digits sets it.
-- The board sets `data-keys="own"` while it is open (§1.10).
+- The board claims digits and letters through `keys.ts` while it is open, so `1`-`6` do not change tabs mid-key (§1.10).
 
 ##### Sound
 
@@ -1023,7 +1053,7 @@ After each day opens, the key appears in grotesk, then one serif line about the 
 Plaintext, week 1
 M T W T · · ·
 Thursday, two peeks.
-eigengrau.example/today?plaintext=w1
+dariustan.dev/today/plaintext/1
 ```
 
 A capital letter is a day solved, a lower-case letter a day opened, and `·` a day still locked. On a Sunday with the week complete: "Seven of seven. The week reads."
@@ -1046,8 +1076,8 @@ A capital letter is a day solved, a lower-case letter a day opened, and `·` a d
 
 - Only the ciphertext and the hashes are shipped, and a future day is a 404 from the server.
 - The share shows only which days are done.
-- Peeks can be brute-forced from the console, and the page says so without minding.
-- If the repository is public, the letters are in it: open question 3. For this game above all, a private bank is worth the small build step.
+- Peeks can be brute-forced from the console. The page does not pretend otherwise, and never invites it: the site's security work is defensive only.
+- The repository is public, so the letters live in the private bank fetched at build (§1.5; `decisions.md`, Daily games 3). The public repository holds only the generator and `crypto.ts`, which is the method, and the method is meant to be on the page. For this game above all, the private bank is worth the small build step.
 
 ##### Where it hooks in
 
@@ -1065,14 +1095,14 @@ A capital letter is a day solved, a lower-case letter a day opened, and `·` a d
 - **Returning visitor:** the dials are where they were left.
 - **Starting on a Thursday:** the hint links to Monday in the archive.
 
-**Effort:** L, one to two weeks, for seven tools, the validators, the hash checks and the first four letters. Build it in November while Stet runs, and launch it on a Monday.
+**Effort:** L, one to two weeks, for seven tools, the validators, the hash checks and the first four letters. Build it in the first half of November while Stet starts, and finish it in the week after the public launch (30 November to 6 December), leaving the launch weeks (16-29 November) free, as `decisions.md` (Daily games 4) asks. Launch it on Monday 7 December, with the monospace.
 
 **What it shows:** real cryptanalysis (frequency fits, the index of coincidence, the XOR case trick), presented quietly. It is the security piece a technical reviewer can actually play, and the first week turns the site's own name into the answer.
 
 **Risks:**
 
 - **The Saturday and Sunday cliff.** Peeks and the tip lines are there for it.
-- **Writing a letter every week.** Public-domain weeks ease this: alternate his and theirs.
+- **Writing a letter every week.** Decided: nothing asks him to. Public-domain weeks carry the game, drafted for his approval, and his own letters go first whenever he writes one.
 - **Normalisation bugs in the hash check.** The example week is the test.
 
 **Why it fits:** eigengrau is the signal with no sender, and a good cipher should look like it. Saturday's line says so.
@@ -1181,7 +1211,7 @@ The result is "Held on the fourth bow, with 5,732 grains." A player who counted 
   - every mode at that note has |φ_k(b)| < 0.3, so the bow sits near a node of everything and the sand would barely move;
   - the figure's 64×64 nodal mask overlaps another note's figure, at any bow point, by an IoU above 0.6, because the figure must name its note;
   - its lines fall closer than 14 CSS px on the 342px phone plate.
-- **Solvability**, checked in `scripts/today.mjs`. The sand simulation is pure TypeScript, so the script can run it headless:
+- **Solvability**, checked in `scripts/today.ts`. The sand simulation is pure TypeScript, so the script can run it headless:
   - from a uniform start, at the answer's note and bow, it must hold within six seconds;
   - after the two neighbouring resonances have each been bowed for two seconds, it must still hold within ten.
 - **Determinism.** The day's seeded `rng` drives a fixed 60 Hz step, and the cosines come from per-axis tables rather than per-grain `Math.cos`. A replay then draws the same picture in every engine. The archive only needs the same picture, not the same bits.
@@ -1210,14 +1240,14 @@ The result is "Held on the fourth bow, with 5,732 grains." A player who counted 
 - **Mouse.**
   - Drag the dial's dot. It scrubs: the further above the line the pointer goes, the finer it moves, down to a quarter speed at 80px above.
   - Click the line to jump.
-  - Type digits and press Enter to set the note exactly (the board owns the keys, §1.10).
+  - Type digits and press Enter to set the note exactly (the board claims digits through `keys.ts` while it is open, §1.10).
   - Press and hold the edge band to bow, and slide along it to move the bow.
 - **Touch:** the same, with two thumbs.
 - **Keyboard.**
   - ←/→ move the note by 10 cents, Shift by a semitone, and Alt by 2 cents.
   - `[` and `]` walk the bow 1% round the perimeter, and Shift makes it 5%.
   - Hold Space to bow.
-  - Esc goes back to Today.
+  - Esc goes back to the Today drawer (up one level).
 
 ##### Sound
 
@@ -1250,7 +1280,7 @@ The result is "Held on the fourth bow, with 5,732 grains." A player who counted 
 ```
 Plate 9
 Held on the fourth bow, with 5,732 grains.
-eigengrau.example/today?plate=9
+dariustan.dev/today/plate/9
 ```
 
 ##### Record and archive
@@ -1330,8 +1360,8 @@ Plan on a week and a half. B's "four days" leaves out the tuning.
 
 - **One incident a week.** It appears on the shelf on Saturdays as a fourth entry ("Saturday's incident.") and stays open all week in the archive.
 - **Why not daily.** A good incident takes about an hour to write and check, and A's own risk list admits that generated clues read mechanically.
-- **Written by hand first.** Thirty incidents, which is thirty weeks, each checked by A's solver. The generator (world, attacks, clue selection, grading) is year-two work.
-- **The Security drawer.** If one exists, its "Casebook" links here.
+- **Written by hand first.** Thirty incidents, which is thirty weeks, each checked by A's solver. The generator (world, attacks, clue selection, grading) is year-two work. "By hand" means curated, not generated: a branch drafts each incident from the pattern catalogue, the solver proves it, and he approves it in a few minutes. His own hours are not spent writing them.
+- **The Security drawer.** It exists (the Desk's third drawer), and it lists Plaintext and Last login's casebook under "to play" (summary, reconciliation 1). Its "Casebook" row links here.
 
 ##### Rules
 
@@ -1439,13 +1469,13 @@ The normal-looking lines are the guilty ones, and every odd-looking line is inno
 
 ##### How it looks
 
-- **The log** is a real `<table>` in grotesk 500, 12px/2, with tabular numbers.
+- **The log** is a real `<table>` in the site's monospace at 12px/2. *Ruled in the summary: monospace where alignment carries meaning, logs included, from Plaintext on; Last login ships after Plaintext. This review first set it in grotesk 500 with tabular numbers.*
   - There are no borders. Rows are separated by 8px, and each row is one button at least 32px tall.
   - Marked "theirs": a 1px ink rule down the left edge, and "theirs" in the last column.
-  - "Explained": struck through at 35% ink.
+  - "Explained": struck through at 60% ink, the summary's floor for meaningful text (this review first set 35%, which is 2.9:1). The strike carries the state.
 - **The notes** are serif 16px in a list, and each can be struck through as used.
   - On desktop (1024px and up), the log sits on the left at 560px and the notes on the right at 320px, 8px apart.
-  - On a phone, the notes come first, collapsed to their first line until tapped, then the log, one line per row. `04 08:58 cleo office mac failed` is about 205px of grotesk at 12px. Late weeks wrap each row to two lines.
+  - On a phone, the notes come first, collapsed to their first line until tapped, then the log, one line per row. `04 08:58 cleo office mac failed` is about 205px of grotesk at 12px, and about 225px in a monospace at 12px, where each of its 31 characters is about 0.6em wide. Late weeks wrap each row to two lines.
 - **"Close the incident"** is a glass chip in grotesk 12px, like a tab pill.
 
 ##### Hands and keys
@@ -1455,7 +1485,7 @@ The normal-looking lines are the guilty ones, and every odd-looking line is inno
   - ↑/↓ move between rows;
   - M marks theirs, X marks explained, and 0 clears;
   - Enter closes the incident;
-  - Esc goes back to Today.
+  - Esc goes back to the Today drawer (up one level).
 
 ##### Sound
 
@@ -1474,14 +1504,14 @@ The normal-looking lines are the guilty ones, and every odd-looking line is inno
 ```
 Last login, week 3
 Thirteen lines. Closed on the first report.
-eigengrau.example/today?login=3
+dariustan.dev/today/login/3
 ```
 
 The pattern is left out on purpose: naming it gives the game away.
 
 ##### The casebook
 
-Each pattern you have met gets two sentences in his voice and its ID, so the collection doubles as a small glossary of attacks:
+Each pattern you have met gets two sentences in his voice and its ID, so the collection doubles as a small glossary of attacks. The sentences are drafted for his approval, as below:
 
 - *Impossible travel* (T1078): "Two places, too little time between them."
 - *Password spraying* (T1110.003): "One password tried against every account, quietly, from one place."
@@ -1503,7 +1533,7 @@ The record reads, for example: "Closed on the first report nine times. Spraying 
 - **Night hours:** the game borrows the definition of night from `hoursOf` (`hours.ts:15-19`), not Urchi.
 - **Returning visitor:** marks and strikes are kept in `state`.
 
-**Effort:** M, three days for the board and the solver, plus thirty incidents at about an hour each.
+**Effort:** M, three days for the board and the solver, plus thirty incidents at about an hour each of a branch's time, and a few minutes each of his to approve them.
 
 **What it shows:** how someone in security thinks. Anomalies are weighed against their explanations, harmless oddities have a base rate, and the dangerous line usually looks ordinary.
 
@@ -1521,17 +1551,20 @@ The record reads, for example: "Closed on the first report nine times. Spraying 
 
 | When | What | Size |
 |---|---|---|
-| 29 Sep - 9 Oct | §0 prerequisites and the §1 frame | M |
-| **Mon 12 Oct** | **Same Grey No. 1.** The head reads "One small thing, new at midnight here." | S |
-| October | Write Stet's forty passages (`npm run passage`); build Stet | M + writing |
-| **Mon 2 Nov** | **Stet No. 1** | |
-| November | Build Plaintext's tools; write four letters | L |
-| **Mon 23 Nov** | **Plaintext, week 1: "The name"** | |
-| From January, by the counts | Plate, then Last login's first Saturday, or the other way round if the security pages need something playable first | M+ · M |
+| 29 Sep - 9 Oct | §0 prerequisites and the §1 frame: the digits with 3 reserved in week 1, the Desk frame and the Today drawer in week 2, and Same Grey's 400 days frozen and validated | M |
+| **Mon 12 Oct** | **Same Grey No. 1**, at his midnight (13:00 UTC on Sunday 11 October). The head reads "One small thing, new at midnight here." If the frozen days fail their checks, it moves to Monday 19 October. | S |
+| October | A branch chooses and marks up Stet's forty public-domain passages (`npm run passage`); build Stet | M + a branch's markup |
+| **Mon 2 Nov** | He approves the forty passages, in one sitting of about an hour | |
+| **Mon 9 Nov** | **Stet No. 1**, after Same Grey's four weeks of archive | |
+| 2-15 Nov, then 30 Nov-6 Dec | Build Plaintext's tools; "The name" is written, and three public-domain letters are drafted for approval. The launch weeks (16-29 November) are left free. | L |
+| **Mon 7 Dec** | **Plaintext, week 1: "The name"**, with the monospace, after Stet's four weeks of archive | |
+| From Monday 4 January 2027, by the counts | Plate, then Last login's first Saturday, or the other way round if the security pages need something playable first | M+ · M |
 
-**The rule:** no new game until the last one has four weeks of archive and the counts show returning players. Three games done well is the ceiling for year one, and the Saturday incident is a weekly, not a fourth daily.
+**The rule:** no new game until the last one has four weeks of archive and the counts show returning players. "The counts show returning players" means finishes with a streak of two or more (`game_finished`'s `streak` of `"2-6"` or `"7+"`) on most days of the previous game's fourth week. If they do not, the next game waits a week at a time (`decisions.md`, Daily games 4). Three games done well is the ceiling for year one, and the Saturday incident is a weekly, not a fourth daily.
 
-These dates match the strategy review's calendar (weeks 3, 6 and 9) and all fall on Mondays.
+**The launch.** The launch gate in the week of 23 November asks for "one game with four weeks of archive". That is Same Grey, whose No. 1 is six weeks earlier. Security at launch is carried by the headers, `/kept`, three papers and Phosphenes, not by Plaintext.
+
+These dates follow `decisions.md` (Daily games 4). They move Stet a week and Plaintext two weeks later than the summary's roadmap (weeks 3, 6 and 9), which broke the summary's own four-week rule. All of them fall on Mondays.
 
 #### 8. Parked, with what to keep
 
@@ -1544,26 +1577,33 @@ These dates match the strategy review's calendar (weeks 3, 6 and 9) and all fall
     - `detune` in cents, smoothed over 20ms.
 - **Overhead (B).** Revisit once the Tools proposal's "That night" ships the Yale Bright Star Catalogue. Its data, B−V colours and star sprites are the hard half. Draw his own 88 stick figures rather than licensing a set.
 - **Eight Lamps (A).** The spare game that needs no writing, if Same Grey is ever retired. The par DP and the rejection figures are already done (`scratchpad/daily/lamps3.mjs`).
-- **Timing Attack (A).** A one-off toy for the security pages, not a daily.
+- **Timing Attack (A).** Cut, not parked. It was a poor daily, and as a toy for the security pages it would ask the visitor to exploit a timing leak, which the site's security work, defensive only, never does. Constant-time comparison can be a paragraph in a paper instead, if his own code ever needs one.
 
 ---
 
-### Open questions for the owner
+### Decisions
 
-1. **One pill called Today**, last in the row, **or the strategy review's single Desk pill** holding Today, Tools and Security? Only the address and the row change; the panel is the same.
-2. **Where is "here"?** `TIME_ZONE` decides when every puzzle turns over, and nothing should ship until it is set. Are you happy for the Today head to say "It is already Friday here." to visitors?
-3. **Is `github.com/dctxv/eigengrau` public, and do you mind Stet's passages and Plaintext's letters sitting in it?** If you do, the banks move to a private repository fetched at build.
-4. **Will you write two Stet paragraphs a week**, about a hundred words each with sourced facts, plus forty before launch? If not, Stet waits and Plate goes second.
-5. **May the site count one thing:** a game finished, with no identifiers (a Vercel Web Analytics custom event)? Without it there is no way to know whether anyone comes back.
+*The owner is asked nothing. The five questions this section first put to him are decided in `decisions.md` ("By section", Daily games 1-5), and what else it depended on is decided there under "The eight". Each line gives the decision and its reason, and what would change it.*
+
+1. **Where the games live.** Today is the first drawer of the Desk, the sixth pill placed third (Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6), with puzzles at paths such as `/today/stet/6`. *Why:* one pill holds games, tools and papers, and renumbering is free only until the digits work. *Changes if:* all three drawers are cut (`decisions.md`, item 4 and Daily games 1; the summary's IA ruling).
+2. **Where "here" is.** `TIME_ZONE = "Australia/Melbourne"`, `HEMISPHERE = "south"`. Every puzzle turns over at his midnight, falling back to UTC and never to the visitor's day. The head says "It is already Friday here." when his date is ahead of the visitor's, and "It is still Thursday here." when it is behind. *Why:* his commits carry +10:00 and his public coursework is a Swinburne unit, and one zone gives one "No. 12" for everyone. *Changes if:* he moves city (`decisions.md`, item 1 and Daily games 2).
+3. **The public repository, and the banks.** The repository is public, so every frozen puzzle, Same Grey included, lives in a private bank fetched at build by `scripts/fetch-today.mjs` (`TODAY_TOKEN`, `TODAY_REPO`), the seed root is the secret `TODAY_SALT`, and the bank is kept off the thread through `SYNC_EXCLUDE` and never named. *Why:* nothing in the public repository may hold a puzzle's answer. *Changes if:* the build cannot reach GitHub reliably; the files then go into a Vercel Blob read only on the server (`decisions.md`, Daily games 3).
+4. **Stet's supply, and the order of the games.** Stet launches on forty public-domain passages, marked up by a branch and approved by him in one sitting by Monday 2 November, with ten more a month and any note he lends. Same Grey No. 1 is Monday 12 October, Stet No. 1 Monday 9 November, and Plaintext's week 1 Monday 7 December. *Why:* public-domain prose costs him an hour instead of forty paragraphs, and the dates keep the summary's four-weeks-of-archive rule. *Changes if:* he writes Stet paragraphs anyway (they go first), or fewer than forty are approved by 2 November (Stet slips a week at a time) (`decisions.md`, Daily games 4).
+5. **Counting a finished game.** Yes: Umami, cookieless and proxied same-origin under `/u/`, one event, `game_finished { game, n, streak: "1" | "2-6" | "7+" }`, nothing under Do Not Track or Global Privacy Control, and disclosed on `/kept`. *Why:* the streak bucket answers "does anyone come back" without an identifier, and Vercel's custom events need Pro. *Changes if:* Umami's free tier ends (self-hosted Umami behind the same `/u/`), or he is on Vercel Pro and prefers its events under the same name (`decisions.md`, item 7 and Daily games 5).
+6. **The host the shares print.** `SITE_URL` comes from `NEXT_PUBLIC_SITE_URL`, the Vercel production URL until `dariustan.dev` is bought and live, and a production build fails while it is unset or `.example`. *Why:* every share and card prints it, and a printed CV cannot be relinked. *Changes if:* he already owns a domain, or none of the four candidates is free (`decisions.md`, item 2).
+7. **Urchi and the daily.** Urchi never announces the day's puzzle and never comes to the Desk; it looks up at the Desk pill once only when a new game lands (`UPDATED.desk`). *Why:* a daily look would mean nothing, and the games stay Urchi-free (summary, reconciliation 4).
+8. **The monospace.** Commit Mono 400, subset to ASCII, arrives with Plaintext on Monday 7 December and sets its ciphertext and hex, and later Last login's log. *Why:* alignment carries meaning there, and nowhere else yet. *Changes if:* it smears at 11px in troika; then JetBrains Mono (`decisions.md`, Style and UX 2).
+9. **The tooling.** The shared `src/lib/random.ts`, `day.ts` and `store.ts`; Vitest as the one runner, with `npm run today` under `tsx`. *Why:* the summary's shared foundations and testing rule; one alias-aware runner for games, finds and tools.
+10. **Timing Attack.** Cut, not handed to Security. *Why:* security here is defensive only, and it would ask the visitor to exploit a timing leak.
 
 ### If you only do one thing here
 
 Build the frame and put Same Grey on it:
 
-- a sixth pill;
-- the day in your own zone;
+- the Desk's pill, third in the row, with Today as its first drawer;
+- the day in your own zone, Melbourne's;
 - puzzles made ahead, frozen, and served only on their day;
 - one record per game;
 - plain-text shares with a preview image.
 
-Then launch on a Monday and let it run a month before adding anything. It is about a week of work. It needs no writing and no WebGL, and it is the site's own thesis as a game: the eye inventing greys, on a site named for the grey the eye invents. Everything after it is cheaper because it exists: Stet, Plaintext, Plate and the Saturday incident all plug into the same day, seed, store, share and shelf. Write Stet's forty paragraphs during that month; they are the difference between a clever page and a place people come back to.
+Then launch on a Monday (No. 1 at your midnight into Monday 12 October) and let it run a month before adding anything. It is about a week of work. It needs no writing and no WebGL, and it is the site's own thesis as a game: the eye inventing greys, on a site named for the grey the eye invents. Everything after it is cheaper because it exists: Stet, Plaintext, Plate and the Saturday incident all plug into the same day, seed, store, share and shelf. During that month a branch marks up Stet's forty public-domain passages, and you approve them in one sitting by 2 November; that bank, and the notes you lend it, are the difference between a clever page and a place people come back to.

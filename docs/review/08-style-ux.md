@@ -1,6 +1,6 @@
 ## Style and UX
 
-I checked this against the repo at `9b8c07c` without changing anything. `npm run typecheck` and `npm run lint` both pass. I opened every cited file and line I could, drove the dev server in Chromium to test the accessible names and the digit keys, and parsed the font files. Most of the proposal's evidence holds, and its contrast numbers match mine to the hundredth. Where it was wrong, or where a fix would not work as written, the text says **Correction**. Where something was missing, it says **Added**.
+I checked this against the repo at `9b8c07c` without changing anything. `npm run typecheck` and `npm run lint` both pass. I opened every cited file and line I could, drove the dev server in Chromium to test the accessible names and the digit keys, and parsed the font files. Most of the proposal's evidence holds, and its contrast numbers match mine to the hundredth. Where it was wrong, or where a fix would not work as written, the text says **Correction**. Where something was missing, it says **Added**. Where the lead's summary or `decisions.md` has since settled a point, the text now follows it, and the less obvious changes carry an italic *Ruled in the summary* or *Decided* note. The owner is asked nothing; the questions this section once ended with are answered under "Decisions".
 
 Screenshot folders:
 - `S/` is `/tmp/claude-0/-home-user-eigengrau/a10b9ada-2576-598d-bc82-bdf87b8a6a28/scratchpad/review/shots-style/`
@@ -17,12 +17,12 @@ Screenshot folders:
 | F-H2 Digits navigate | KEEP WITH CHANGES | Confirmed: no handler exists. Three problems with the fix as written. The Notes guard fails because Nav's listener runs first. Hiding the `<sup>` would break Label in Name on inactive pills. Single-key shortcuts need an off switch (WCAG 2.1.4). |
 | F-H3 Sound on phones, chip in the group | KEEP WITH CHANGES | Confirmed, and Music's phone preview path (`MusicPanel.tsx:1254`) is unreachable today. Give the toggle a fixed name. Fix the iPhone silent switch with `navigator.audioSession`, not with an apology. |
 | F-H4 The keyboard drives the ball | KEEP WITH CHANGES | Confirmed. The `sr-only` override CSS would be clipped by its `sr-only` parent, so render a separate DOM chip. `choose(slug)` is new, but it copies what `step()` already does (`ThreadScene.ts:2485-2514`). |
-| F-H5 Phone nav at the bottom | KEEP WITH CHANGES (split) | The 2.5.8 failure is a one-line S fix at the top. The bottom bar is a design change with eight knock-ons, including Safari's bottom toolbar. Prototype it behind a flag first. |
+| F-H5 Phone nav at the bottom | KEEP WITH CHANGES (split) | The 2.5.8 failure is a one-line S fix at the top. The bottom bar is a design change with eight knock-ons, including Safari's bottom toolbar. Decided: the nav stays at the top with bigger targets, and the bottom bar stays a prototype behind `?nav=bottom` in development builds only. |
 | F-H6 Social cards | KEEP WITH CHANGES | Confirmed: there are no `og:`, `twitter:` or canonical tags, and the domain is a placeholder. **Correction:** `alternates: { canonical: '/' }` in the root layout would mark every page as a copy of the home page. Canonicals go per route. |
 | F-M1 Contrast values | KEEP WITH CHANGES | The numbers are exact. But the zoom track's ink is set at runtime from the tether (`CreativeSpacePanel.tsx:236`, `Tether.ts:19`), so the CSS edit does nothing. The proposed hover floor of 0.35 still fails (2.87:1). |
 | F-M2 Glass cursor label over colour | KEEP WITH CHANGES | The 1.17:1 failure is real. Use glass whenever the label belongs to Urchi or says "Open", with no per-pixel switching. |
 | F-M3 Focus ring as Urchi's own rim | KEEP WITH CHANGES | The best idea in the section. The `rim` option is fixed at construction (`Urchi.ts:151,165`), so it needs a new setter. "Look at you" needs a new attention target built on the existing `ahead()`. |
-| F-M4 Case pages as a page of Projects | KEEP WITH CHANGES | Confirmed. A case page should get `aria-current="true"`, not `"page"`. Focus needs a client island because the page is a server component. **Added:** `numberWord` switches to digits after twelve, so real projects will read "13 projects". Coordinate with the GitHub-projects branch. |
+| F-M4 Case pages as a page of Projects | KEEP WITH CHANGES | Confirmed. A case page should get `aria-current="true"`, not `"page"`. Focus needs a client island because the page is a server component. **Added:** `numberWord` switches to digits after twelve, so real projects will read "13 projects". The GitHub-projects branch has merged (`0d9641d`) without `countWord`, so the week-1 months branch carries it. |
 | F-M5 Rims only when something passes under them | KEEP | Confirmed: the band is glass over ground, `#1f1f26`, and it shows at rest on Notes and Music only. S. |
 | F-M6 One heading line | KEEP WITH CHANGES | **Correction:** a pure `headLine(w, h)` cannot exist. The balance depends on measured caption text, the project count and the ball's fit (`ThreadScene.ts:1850-1898`). The scene should publish its line instead. |
 | F-M7 A 404 in one piece | KEEP WITH CHANGES | Echoing the raw path lets anyone make the site say their sentence, which is text injection on a site meant to show security skill. Sanitise and cap it. Set the title by React 19 `<title>` hoisting. |
@@ -37,13 +37,13 @@ Screenshot folders:
 | F-L6 Static favicon | KEEP | Folded into R1. |
 | F-L7 About footer | KEEP WITH CHANGES | Email already copies and says "Copied" (`AboutPanel.tsx:49-60`). What is new is showing the address and giving the links bigger targets. |
 | F-L8 Urchi looks at a pill reached with Tab | KEEP | S, and it is exactly the brief: something for people who notice. |
-| F-L9 Set `TIME_ZONE` | KEEP | One line, and the owner's call. |
+| F-L9 Set `TIME_ZONE` | KEEP | One line, now decided: `"Australia/Melbourne"`, with a new `HEMISPHERE = "south"`. |
 | A. Eigengrau as grain | KEEP WITH CHANGES (experiment) | The concept is right and the maths is wrong. White-only noise at 0-6% lifts the mean to about `#1d1d24`, not `#15151c`. Reuse `tone.ts` `dither()`, which is symmetric and keeps the mean, behind `?grain=1`. |
 | B. The visit's eyes as the one accent | KEEP WITH CHANGES | The most personal of the three. Drop the Music progress dot, because the room already has its own colour. Write the rule down. |
-| C. Three voices and log-from-git | KEEP WITH CHANGES (staged) | Use mono only where alignment carries meaning: hashes, hex, tool output. Not the intro counter or note dates. The git script must run locally, because Vercel builds from a shallow clone. |
+| C. Three voices and log-from-git | KEEP WITH CHANGES (staged) | Use mono only where alignment carries meaning: hashes, hex, tool output. Not the intro counter or note dates. The git script must run locally, because Vercel builds from a shallow clone. Decided: Commit Mono, arriving with Plaintext. |
 | §5 `/colophon` | KEEP WITH CHANGES | A good systems showcase. Cut the live faces row: it is L effort and gives away hidden behaviours. It becomes the home of the keys and sound switches. |
 | §6 Order of work | REPLACED | Re-ranked by what a visitor meets first, and by what the incoming GitHub projects need. |
-| **Added:** Desk, a sixth room for the tools, the daily game and the security work | ADD | The owner's new features need a home that keeps five-pills-one-app intact. `TABS` is generic enough that the room itself is S. |
+| **Added:** Desk, a sixth room for the tools, the daily game and the security work | ADD | The owner's new features need a home that keeps the tabs one app. `TABS` is generic enough that the room itself is S. Ruled in the summary: the Desk is the third pill, with the drawers Today, Tools and Security at their own paths. |
 
 ### Refined proposal
 
@@ -89,9 +89,10 @@ None of the fixes may make the site more like other sites. What follows is what 
 - Most people meet a portfolio as a link in iMessage, Slack, Discord or LinkedIn, and today that link is a bare grey title.
 
 **How it works**
-1. Set `SITE_URL` to the real domain (the Vercel domain until a custom one exists). Every absolute URL follows it: the cards, the JSON-LD and the canonicals.
+1. `SITE_URL` (`site.ts:10`) reads `NEXT_PUBLIC_SITE_URL`, and a production build fails while it is unset or still `.example`. Until `dariustan.dev` is bought and live (by Friday 9 October, before the soft launch), it is the Vercel production URL. Every absolute URL follows it: the cards, the JSON-LD, the canonicals, `security.txt` and the sitemap.
 2. In `layout.tsx` add:
-   - `openGraph: { type: "website", siteName: "eigengrau", title: NAME, description: TAGLINE }`
+   - `openGraph: { type: "website", siteName: "eigengrau", title: NAME, description: WORK_LINE }`
+   - *Ruled in the summary: the cards use `WORK_LINE`, not `TAGLINE` or "Basic Human"; `title.default` becomes "Darius Tan", and the description and JSON-LD `jobTitle` take `WORK_LINE` (decisions.md, item 3).*
    - `twitter: { card: "summary_large_image" }`
 3. **Correction:** don't put `alternates: { canonical: "/" }` in the root layout. Child routes inherit it, so every page would declare itself a copy of the home page and search engines would drop the deep pages. Set canonicals per route:
    - `export const metadata = { title: "Notes", alternates: { canonical: "/notes" } }` in each page file
@@ -99,22 +100,23 @@ None of the fixes may make the site more like other sites. What follows is what 
 4. **New** `src/app/opengraph-image.tsx`, using `ImageResponse` from `next/og`, 1200x630:
    - the eigengrau ground
    - "Darius Tan" in Grotesk 500 at 44px at x96 y96
-   - "Basic Human" in Newsreader 400 at 44px beneath it
+   - `WORK_LINE` ("Student developer in Melbourne. Interfaces, AI tools and security.") in Newsreader 400 beneath it, at 40px so the draft line wraps to two lines within the left 640px. The first draft had "Basic Human" here; *ruled in the summary: the card's line is `WORK_LINE`, and "Basic Human" stays on screen as the joke beside it, not in what a search result or an applicant tracking system shows.*
    - bottom-left, "eigengrau" at 20px and 60% ink (`#959593`, 6.0:1)
    - right, a 360px Urchi head from a **new** `public/og/urchi.png`. Render it once from `urchi/index.html` with Playwright, the way `scripts/gen-assets.mjs` already drives a browser, in the "denim" colourway, so the card has one fixed eye colour.
    - Fonts: read `public/fonts/grotesk-500.woff` and `serif-400.woff` with `fs` on the Node runtime. Satori reads WOFF, TTF and OTF, not WOFF2.
 5. Per route:
-   - **New** `src/app/projects/[slug]/opengraph-image.tsx`: the cover on the left at 630x630, object-fit cover. On the right: the title in serif 64px, `statusWord(p)` ("alive since 2024") in grotesk 22px at 60%, and the why-line in serif 28px.
+   - **New** `src/app/projects/[slug]/opengraph-image.tsx`: the cover on the left at 630x630, object-fit cover. On the right: the title in serif 64px, `statusWord(p)` ("alive since 2024" in the first draft; with the months branch it names a month, since every project began in 2026) in grotesk 22px at 60%, and the why-line in serif 28px.
      - The covers in `public/work` are `.webp`, and Satori may not decode WebP. Have `gen-assets` write a `.jpg` sibling for card use.
-     - A GitHub project with no cover gets its title alone, large, with its status word. One hairline crosses the card at the height its year sits on the thread: a nod to the ball, not a render.
+     - A GitHub project with no cover gets its title alone, large, with its status word. One hairline crosses the card at the height its month sits on the thread: a nod to the ball, not a render. *Decided since: marks are placed by `start`/`end` month (the week-1 months branch), and `statusWord` writes months.*
+     - Private repositories are closed marks with no case page, so they get no card, and nothing of theirs (name, description, language or image) is rendered anywhere public.
    - **New** `src/app/notes/opengraph-image.tsx`: the newest note in serif 56px with its date in grotesk 20px at 60%. ("i got a free burrito heh" is honestly a great card.)
    - `/music` gets a static card: "**Music** What he is playing, from Last.fm." A live card would call Last.fm on every crawl.
 6. Icons:
    - **New** `src/app/apple-icon.png` at 180px: Urchi on eigengrau with 24px padding.
    - Replace `src/app/icon.svg` with a 32px pixel Urchi in denim (`#6C92F8` / `#102A6E`), painted once from `paintFrames` in `LiveIcon.tsx:74` by a small script. Keep the file name, which the README names as the fallback.
-7. JSON-LD: add `sameAs: ELSEWHERE.filter(l => !("copy" in l)).map(l => l.href)` (GitHub and Instagram) and `description: TAGLINE`.
+7. JSON-LD: add `sameAs: ELSEWHERE.filter(l => !("copy" in l)).map(l => l.href)` (GitHub and Instagram; there is no LinkedIn, `LINKEDIN = null`), set `jobTitle: WORK_LINE` in place of `ROLE`, and add `description: WORK_LINE`. Escape the JSON before any GitHub text reaches it (the summary's proof layer).
 
-**Looks and reads:** the root card reads "Darius Tan / Basic Human", with Urchi looking out of the right third and "eigengrau" small in the corner. A project card reads "Nocturne / paused since 2025 / *its why-line*".
+**Looks and reads:** the root card reads "Darius Tan / Student developer in Melbourne. Interfaces, AI tools and security.", with Urchi looking out of the right third and "eigengrau" small in the corner. A project card reads "Nocturne / paused since 2025 / *its why-line*" (a placeholder project, gone on `main`; see R5).
 
 **Where:** link previews, bookmarks, home screens. Nothing changes on screen.
 
@@ -125,11 +127,11 @@ None of the fixes may make the site more like other sites. What follows is what 
 - each `page.tsx`'s `metadata`
 - three **new** `opengraph-image.tsx` files
 - a **new** `scripts/og-urchi.mjs` (or a step in `gen-assets.mjs`)
-- `site.ts:10`
+- `site.ts:10` (`SITE_URL` from `NEXT_PUBLIC_SITE_URL`), and a **new** `WORK_LINE` beside `ROLE` (`site.ts:8`)
 
 **Edge cases:**
-- Slack and LinkedIn cache cards for days, so ship after the domain is final. LinkedIn's Post Inspector refreshes a card.
-- The placeholder projects' cards regenerate from `PROJECTS` when the real ones land.
+- Slack and LinkedIn cache cards for days. The cards are built in week 1 on the Vercel URL, and the domain is live before the soft launch on Sunday 11 October, when links are first shared. LinkedIn's Post Inspector refreshes a card that was cached before the switch.
+- The placeholder projects are gone on `main` (`0d9641d`), so the cards are generated from the real `PROJECTS` from the start.
 - Night hours, sound and reduced motion do not apply.
 
 **Effort:** M. The metadata and root card take a day; the per-project card adds a day.
@@ -179,10 +181,10 @@ c) **About gets a byline.**
 - The statement and status line are troika text in the canvas (`AboutScene.ts:167`). A DOM line can't just be stacked above them.
 - **New** `onLayout(top, bottom)` option on `AboutScene`, called after it lays out its lines. `AboutPanel` writes `--statement-top` and `--status-bottom`.
 - Above the statement, 48px over its first line: a DOM `<p class="about-byline">` in 12px grotesk at full ink. It reads "Darius Tan, basic human." (`` `${NAME}, ${ROLE.toLowerCase()}.` ``). The lowercase form in `S/mock-b2-about-name-eyes-ring.png` reads as a sentence, which is the house rule.
-- Below the status line: `TAGLINE` in 12px grotesk at 60% ink (6.0:1).
-- Keep today's tagline until the security work exists on the site. Then: "Interfaces, small tools, and the security underneath them."
+- Below the status line: `WORK_LINE` in 12px grotesk at 60% ink (6.0:1): "Student developer in Melbourne. Interfaces, AI tools and security."
+- *Ruled in the summary (reconciliation 8): the status line gets its full stop and `WORK_LINE` sits under it, so the first draft's plan to keep today's `TAGLINE` here and rewrite it once the security work exists is dropped. The byline keeps "basic human" on screen as the joke beside the true line.*
 
-**Looks and reads:** hovering the monogram gives "Darius Tan", tight, in the same 14px grotesk. The About page opens with "Darius Tan, basic human." above "Quiet interfaces for".
+**Looks and reads:** hovering the monogram gives "Darius Tan", tight, in the same 14px grotesk. The About page opens with "Darius Tan, basic human." above "Quiet interfaces for", and the status line, "Busy putting a hole in spacetime.", has the work line under it.
 
 **Where:** `FloatingLogo.tsx`, `IntroRing.ts`, `globals.css:350-366`, `AboutPanel.tsx`, `AboutScene.ts`, `visits.ts`.
 
@@ -204,7 +206,7 @@ c) **About gets a byline.**
 
 #### R3. "The digits work" (F-H2)
 
-**Pitch:** the numbers on the pills are a promise. Keep it: 1 to 5 change rooms from anywhere.
+**Pitch:** the numbers on the pills are a promise. Keep it: 1 to 6 change rooms from anywhere, in the decided order Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6.
 
 **Evidence (confirmed):**
 - `grep keydown` finds handlers only in Notes, Space's control, Projects, Music, `sfx`'s wake and the sky debug panel. There is no digit handler anywhere.
@@ -215,8 +217,9 @@ c) **About gets a byline.**
    - Register the tab-keys listener in the **capture** phase on `window`. That makes the order fixed.
    - Give it a **new** `finding` flag in `src/lib/flags.ts` that Notes sets from its existing `finding` (`NotesPanel.tsx:732`).
    - When the handler navigates it calls `e.preventDefault()`. Notes already returns on `e.defaultPrevented` (`NotesPanel.tsx:1013`), so no Notes guard is needed.
+   - *Ruled in the summary: `src/lib/keys.ts` is one capture-phase listener with a claim stack. Notes' search claims the digits while `finding` is true, and later a game board claims them while it is open; the `finding` flag below is Notes' claim, pushed and popped through that stack.*
 2. **Keep the digit in the name.** Chromium names the pills "Space 1", "Projects 2" and so on (checked). The proposal's "Projects2" is wrong. An inactive pill's only visible label is its digit, so `aria-hidden` on the `<sup>` would fail 2.5.3. Add `aria-keyshortcuts={String(n)}` to the link and keep the digit.
-3. **Added: WCAG 2.1.4 Character Key Shortcuts (Level A).** Single-character shortcuts need a way to turn them off. Otherwise speech-input users who say "two" get sent to Projects. The switch lives in the Colophon (R17) and is kept in `localStorage['eigengrau:keys']`.
+3. **Added: WCAG 2.1.4 Character Key Shortcuts (Level A).** Single-character shortcuts need a way to turn them off. Otherwise speech-input users who say "two" get sent to Projects. The switch lives in the Colophon (R17) and is kept in `eigengrau:keys`, through the new `keep()` in `src/lib/store.ts`.
 
 **How it works, step by step**
 1. **New** `src/lib/keys.ts` exports `installTabKeys(push: (href: string) => void)`. It adds `window.addEventListener("keydown", h, { capture: true })`.
@@ -227,23 +230,26 @@ c) **About gets a byline.**
    - `getFlags().finding && location.pathname === "/notes"`. The query persists on a kept Notes tab, so check the path too.
    - the keys are switched off in storage
    - the intro is running
-3. If `/^[1-9]$/` matches and `n <= TABS.length`, and `TABS[n-1].href !== location.pathname`, then `e.preventDefault()` and `push(href)`.
-4. Pressing the current tab's digit does nothing.
+3. If `/^[1-9]$/` matches, find the tab whose own `n` equals the digit (`TABS.find(t => t.n === n)`), not the tab at that index. If there is one and `pillOf(location.pathname)` is not it, then `e.preventDefault()` and `push(href)`.
+   - *Decided (decisions.md, item 4): the digit keys land in week 1 with 3 reserved. Notes, Music and About answer to 4, 5 and 6 from the first day any digit works, so nobody learns the old numbers, and 3 does nothing until the Desk pill appears with its frame in week 2. That is why the lookup is by `n`, not by position.*
+4. Pressing the current tab's digit does nothing. On a Desk drawer (`/today`, `/tools`, `/security`) the current tab is the Desk, through `pillOf`, so 3 does nothing there either.
 5. Install it in Shell next to `installViewportVars()` (`Shell.tsx:79`), with `useRouter().push`.
 6. NotesPanel: `useEffect(() => setFlag("finding", finding), [finding])`, and clear it on unmount.
 7. To search for "2026" on Notes, open the field by tapping "Notes", or type any letter first. Inside the field, digits type as normal.
+8. *Ruled in the summary:* the same listener opens the `?` key sheet anywhere unless typing, and takes Esc inside the Desk as up one level (board, then drawer, then shelf).
 
 **Looks, sounds, reads:**
 - The slide is the one you get from clicking a pill, and so is its sound (`Shell.tsx` decides whether to slide).
 - On keyboard focus, the pill's tip (R11) reads "Notes" and nothing more.
-- The Colophon row reads: "Keys. One to five change rooms, from anywhere. *Turn them off.*"
+- The Colophon row reads: "Keys. One to six change rooms, from anywhere. *Turn them off.*"
 
-**Where:** global. Keys 1 to 5 (1 to 6 if Desk lands, R16).
+**Where:** global. Keys 1 to 6, with Desk on 3 (R16); 3 is reserved from week 1 and answers from week 2.
 
-**Data:** `localStorage['eigengrau:keys'] = "off"`, read in try/catch.
+**Data:** `eigengrau:keys = "off"`, through `keep()` in the new `src/lib/store.ts`, which guards every read and write as the site's try/catch does today. The key goes into the README's list and onto `/kept`.
 
 **Implementation sketch:**
 - **new** `src/lib/keys.ts`
+- `src/lib/routes.ts` (**new** `pillOf` beside the existing `tabIndex`)
 - `src/lib/flags.ts` (the `finding` flag)
 - `Shell.tsx:79`
 - `NotesPanel.tsx:732`
@@ -261,7 +267,7 @@ c) **About gets a byline.**
 
 **What it shows:** the chrome keeps its promises.
 
-**Risks:** speech input, which the off switch covers, and muscle memory if tabs are ever reordered.
+**Risks:** speech input, which the off switch covers, and muscle memory if tabs are ever reordered. The order is fixed before any digit works (Desk third), so no visitor ever learns the old numbers.
 
 ---
 
@@ -278,6 +284,7 @@ c) **About gets a byline.**
 **How it works**
 1. Delete the `display: none` at `globals.css:237-241`.
 2. Move `<SoundChip/>` from `Shell.tsx:199` into `Nav.tsx`, after `.tabs` inside `.nav-inner`. It then mirrors the monogram, 14px from the tabs on each side.
+   - *Ruled in the summary: the top-right corner the chip gives up becomes the finds' pocket, on every screen size, and the pocket exists only after a visitor's first take (Space finds). Nothing else may claim that corner.*
 3. Chip geometry: `position: static; pointer-events: auto; height: auto; align-self: stretch; min-width: 28px;`. It becomes as tall as the pills (27.4px) and shares their baseline.
 4. Name: a static `aria-label="Sound"`, with state carried only by `aria-pressed`.
 5. It morphs like a pill:
@@ -291,7 +298,7 @@ c) **About gets a byline.**
    - Where it is missing, the first iOS tap reads "Sound on. If the phone is on silent, so is this."
 7. `chipAt()` (`attention.ts:125`) queries `.sound-chip` wherever it is, so Urchi's startle still finds it. On a bottom bar (R9) it would look down, which is nice.
 
-**Looks and reads:** "D . T  [1][Notes 3][4][5]  [•]" on one line. Hovering the dot reveals "Sound •"; a click says "Sound on." for a beat.
+**Looks and reads:** "D . T  [1][2][3][Notes 4][5][6]  [•]" on one line. Hovering the dot reveals "Sound •"; a click says "Sound on." for a beat.
 
 **Where:** the nav group, on every screen.
 
@@ -307,7 +314,7 @@ c) **About gets a byline.**
 **Edge cases:**
 - Reduced motion swaps the word without a slide.
 - At night an asleep Urchi does not startle. Confirmed: `Attention.play` refuses non-sleeping acts unless awake (`attention.ts:349-351`).
-- The nav's width at 390px with the chip is about 300px, and it fits. Test at 320px.
+- The nav's width at 390px with the chip is about 300px with five pills, and about 330px with the Desk's sixth (R16), and it fits. Test at 320px.
 - Sound stays off by default.
 
 **Effort:** S-M.
@@ -329,7 +336,8 @@ c) **About gets a byline.**
 - `.case h1` is 12px grotesk (`globals.css:534-537`), while the ball sets the name in serif at 22px (`ThreadScene.ts:264`). The status is 12px here and 11px there.
 - The only "Back" is at the very end (`[slug]/page.tsx`).
 - `body` is `overflow: hidden` and `.case` is never focused, so PageDown does nothing.
-- **Added:** `projectsLine()` (`site.ts:209-213`) and the case page's piece count use `numberWord`, which returns digits after twelve (`site.ts:189-191`). Past twelve real projects, the heading will read "14 projects since 2021.", breaking the words-to-ninety-nine rule. Use `countWord` (`site.ts:201`).
+- **Added:** `projectsLine()` (`site.ts:209-213`) and the case page's piece count use `numberWord`, which returns digits after twelve (`site.ts:189-191`). Past twelve real projects, the heading will read "14 projects since 2026.", breaking the words-to-ninety-nine rule. Use `countWord` (`site.ts:201`).
+- *Decided since (decisions.md, fact 1 and item 5): the GitHub-projects branch merged as `0d9641d`. It removes every placeholder (Nocturne, Sundial and Halo below are the old names; the rules hold for the real ones) and brings four public projects: VECTOR, Digital Career Hub, NextBranch and Atelier. With eight closed marks and eigengrau and Urchi as projects themselves, the count is fourteen, so `countWord` is needed now. All fifteen repositories were created in 2026, so every "since" reads 2026 or a month.*
 
 **How it works**
 1. **The pill.** `Nav.tsx:35` passes both `exact` and `within` (`pathname.startsWith(t.href + "/")` for any tab but `/`).
@@ -337,6 +345,7 @@ c) **About gets a byline.**
    - It sets `aria-current="page"` only when exact, and `aria-current="true"` on a case page. A case page is inside Projects, not Projects itself.
    - Change the CSS selectors that key on `[aria-current="page"]` (`globals.css:163-170`) to `[aria-current]`.
    - `ProjectsPanel`'s `ballTakesEnter` matches `[aria-current="page"]` only on `/projects` itself, so it is unaffected.
+   - *Ruled in the summary: the `within` test is not a prefix match in `Nav.tsx`. It is the new `pillOf(pathname)` in `src/lib/routes.ts`, which lights Projects on `/projects/<slug>` and the Desk pill on `/today`, `/tools` and `/security` and their sub-paths, none of which start with `/desk`. `tabOf` beside it names the kept panel that renders a path, and sfx's own private `tabOf` (`sfx.ts:498`) becomes `pillOf`.*
 2. **The ball's type.**
    - `h1 { font: 400 22px/1.2 var(--font-serif) }`
    - `.case-status { font: 500 11px/1.4 var(--font-grotesk) }`
@@ -346,9 +355,11 @@ c) **About gets a byline.**
    - right: "Source   Live" as links, underlined on hover like the tags
    - under it, 11px grotesk at 60%: "TypeScript. Last touched three days ago."
    - Leave star counts out: small numbers read as small.
-   - Data: whatever fields the GitHub branch adds to `Project`. If it adds none, suggest `repo?: string; live?: string; span?: [number, number | null]`, plus a **new** `src/content/github.json` (`{ [slug]: { language, pushedAt } }`) written by a local script.
+   - Data: the merged branch added no dates, so the week-1 months branch adds `start`/`end` months to `Project`, and a `did` line (drafted, `draft: true` until he clears it). The GitHub fields come from a **new** `scripts/sync-github.mjs` and its daily Action (week 3), which write `archived`, `pushedAt`, `release`, `language` and `lastCommit` into a **new** `src/content/github.json`, for public repositories only.
    - The row is omitted when there is no data.
-4. **Foot of the page:** "Next: Sundial, paused since 2025." in serif 14px, with the next project in thread order (by year) and `statusWord()`. Then "Back to the thread" in grotesk 12px. The same "Back to the thread" also goes above the cover. Both link to `/projects#slug`, as "Back" does now.
+   - *Ruled in the summary (case page layout): Strategy §3.10's order and sentences, in this section's type. The span and language read as sentences, not a facts row: "Mostly TypeScript. A little Python." and "From April to July. Eighty-one commits, most of them in May." They keep the 11px grotesk and the note's date-line layout above; the lit pill, the focus handling and the "Next:" link below are this section's.*
+   - *Decided (decisions.md, item 5 and Engineering 4): a "Source" link appears only for a public repository that has secret scanning with push protection, one clean `gitleaks detect` over its history, and a real README. The Digital Career Hub is coursework and shows no Source link (`source: true` turns it on once the unit's rules allow it). A private repository has no case page and is never named.*
+4. **Foot of the page:** "Next: Sundial, paused since 2025." in serif 14px, with the next project in thread order (by month, now that marks are placed by date) and `statusWord()`, which writes months. Closed marks are skipped, since they have no page. Then "Back to the thread" in grotesk 12px. The same "Back to the thread" also goes above the cover. Both link to `/projects#slug`, as "Back" does now.
 5. **Scroll and keys:**
    - `.case { align-content: start }` (the 404 overrides it, R8).
    - A **new** client island `CaseFocus.tsx` inside the server page: `tabIndex={-1}` on `main.case`, and `main.focus({ preventScroll: true })` on mount. PageDown, Space and the arrow keys then work.
@@ -364,9 +375,10 @@ c) **About gets a byline.**
 **Implementation sketch:**
 - `src/app/projects/[slug]/page.tsx`
 - **new** `CaseFocus.tsx`
-- `Nav.tsx:35`, `Tab.tsx`
+- `Nav.tsx:35`, `Tab.tsx`, `src/lib/routes.ts` (`pillOf`)
 - `globals.css:519-560`
 - `site.ts` (`countWord`)
+- **new** `scripts/sync-github.mjs` and `src/content/github.json` (week 3)
 
 **Edge cases:**
 - Phones: one column, with the facts row wrapping onto two lines.
@@ -378,7 +390,7 @@ c) **About gets a byline.**
 
 **What it shows:** real work is presented as real work, with its source, its span and when it was last touched.
 
-**Risks:** the GitHub-projects session is changing `site.ts` and probably this page right now. Land this after that merges, or hand that session these rules.
+**Risks:** collisions with the projects work. That branch has merged (`0d9641d`). On Wednesday 30 September `site.ts` is split into identity, projects and notes as a pure move that keeps every export, and then one week-1 branch, "Projects: months on the thread", owns `ThreadScene.ts`. This page lands in week 1 as case page v2, after the split, and touches `ThreadScene.ts` only through that branch.
 
 ---
 
@@ -420,6 +432,7 @@ c) **About gets a byline.**
 - Phones have no Tab key, so nothing changes.
 - In the supernova, focus steps through the covers like the arrows.
 - Studies have no links, so they are not stops.
+- Closed marks (private repositories) have no case page, so they are not stops either. The mirror gives them one unlinked line with the count only ("Eight closed. Ask and I will show you."), never a name.
 
 **Effort:** S for the chip, S-M for `choose`.
 
@@ -444,9 +457,10 @@ c) **About gets a byline.**
 | Zoom track afloat | runtime: `Tether.ts:19` `ROPE.alpha` via `CreativeSpacePanel.tsx:236` | 0.35 (2.87:1) | 0.4 | 3.34:1 |
 | Secondary 60% text | `globals.css:1223, 1262` | 0.6 (6.0:1) | keep | 6.0:1 |
 
-- **Correction:** `--zoom-ink` at `globals.css:458` is only a default. The panel overwrites it from the tether's alpha, so editing the CSS changes nothing. Raising `ROPE.alpha` to 0.4 keeps the line and its track one ink, which is the stated intent in `globals.css:447-449`, and passes 3:1. Decoupling them is the alternative, if he wants the line fainter.
+- **Correction:** `--zoom-ink` at `globals.css:458` is only a default. The panel overwrites it from the tether's alpha, so editing the CSS changes nothing. Raising `ROPE.alpha` to 0.4 keeps the line and its track one ink, which is the stated intent in `globals.css:447-449`, and passes 3:1. Decided: raise `ROPE.alpha` to 0.4. The reason is that one ink for the line and its track is what the CSS comment asks for. It would change only if the line reads heavier than the thread afloat in the before-and-after screenshots; then the track is decoupled at 0.4 and the line stays at 0.35.
 - **Correction:** the proposal's hover floor of 0.35 still fails (2.87:1). With `max(0.5, level * 0.6)`, the chosen song goes to 1 and the rest sit between 0.5 and 0.6, which still reads as a spotlight.
 - The type size, 16px to 64px, carries the volume.
+- *Ruled in the summary: meaningful text is at least 60% ink (6.0:1), and nothing falls below AA. The floors above at 0.5 and 0.55 are only for text that is quiet on purpose (the Music stack's volume, a year on the contact sheet, a month the filter has emptied), so they sit at AA. Every other secondary line stays at 60%.*
 - Extend `@media (prefers-contrast: more)` (`globals.css:1058`) to set all of the above to 1, with `--glass-bg: rgb(40 40 47 / .92)` and `:focus-visible { outline-width: 2px }`.
 - **Added:** `@media (prefers-reduced-transparency: reduce) { :root { --glass-bg: #1f1f26; --glass-blur: 0px } }`. `#1f1f26` is exactly what the glass looks like over the ground, so nothing changes at rest. Chromium honours it; other browsers ignore it harmlessly.
 
@@ -469,8 +483,10 @@ c) **About gets a byline.**
   - serif 16px: "Nothing at /nope."
   - grotesk 11px at 60%, by day: "Urchi looked twice."
   - the same, at night (`clock().hours === "night"`, `hours.ts:31`): "Urchi is asleep. It will look in the morning."
-  - then the five tabs as words in grotesk 12px, 24px apart: "Space  Projects  Notes  Music  About"
-  - Mock: `S/mock-c-404.png`.
+  - then the six tabs as words, plus "Colophon", in grotesk 12px, 24px apart: "Space  Projects  Desk  Notes  Music  About  Colophon"
+  - when the visitor is carrying a find, the serif line takes the finds' clause instead: "Nothing here. Except a bolt." (the find's own name)
+  - Mock: `S/mock-c-404.png` (drawn before the Desk, with five words).
+  - *Ruled in the summary (reconciliation 9): this layout and the sanitised path, with the six tabs as words plus "Colophon", and the finds' clause when something is carried. At 390px the seven words wrap onto two lines, with centres still 24px or more apart.*
 - **Correction, a security one.**
   - Echoing the raw path lets anyone mint a link that makes the site say their sentence (`/your-account-is-locked-call-...`). That is text injection, and he would flag it on someone else's site.
   - A small client island reads `usePathname()` and runs `decodeURIComponent` in a try.
@@ -488,7 +504,7 @@ c) **About gets a byline.**
 - **Correction:** the quiet-week half needs nothing. `last` comes from `user.getrecenttracks` with no date bound (`route.ts:166`), so in a quiet week the page already shows "Last played, three days ago." with its sleeve (`MusicPanel.tsx:1157`). The empty sleeve with "Quiet" appears only on failure, or on a brand-new account. Keep it for that case: it reads as an empty sleeve.
 - The fix:
   1. `NowResponse` gains `down?: true | "unset"`. On failure the route sends `{ ...EMPTY_NOW, down: true }`; on a missing key, `down: "unset"`. `fetchNow` does the same on `!res.ok` or a throw.
-  2. On every good answer, the panel keeps `{ at, data }` in `localStorage['eigengrau:week']`.
+  2. On every good answer, the panel keeps `{ at, data }` in `eigengrau:week`, through `keep()` in the new `src/lib/store.ts` (the summary's list of new keys, disclosed on `/kept`).
   3. When `down` arrives, it shows the kept week at 60% ink, headed "**Music** Last.fm is not answering. This was the week as of Tuesday.". With nothing kept: "**Music** Last.fm is not answering. The room will fill when it does.".
   4. With `"unset"` (dev only): "**Music** Last.fm is not set up here."
 - Where: `route.ts`, `now.ts`, `MusicPanel.tsx`.
@@ -525,7 +541,7 @@ c) **About gets a byline.**
 - Pills become at least 24 x 27.4 with centres at least 30px apart, which passes 2.5.8 outright, without the exception.
 - `Tab.tsx:28` animates padding only, so `min-width` doesn't fight it.
 
-**Later (M), a prototype behind `?nav=bottom`: the nav at the thumb.** The proposal's CSS stands:
+**Later (M), a prototype behind `?nav=bottom`: the nav at the thumb.** *Decided (decisions.md, Style and UX 4): the nav stays at the top with the bigger targets above. This prototype is a flagged experiment in development builds only, and it is not tried in production before the launch in the week of 23 November. That would change only if the 320px test fails the 24px centre spacing at the top.* The proposal's CSS stands:
 ```css
 @media (max-width: 640px) {
   :root { --nav-h: 48px; --bottom-ui: calc(2rem + env(safe-area-inset-bottom) + var(--nav-h)); }
@@ -545,10 +561,11 @@ c) **About gets a byline.**
   - `measureLogoSlot()` falls back to `{ left: 0, top: 8 }`. On phones make it `{ left: 16, top: 14 }`.
   - `Tab.tsx:28` paddings go from 12/7 to 12/10.
   - Centre the digit: `.tab-num`'s `translateY(2px)` assumes a bottom-aligned 27px pill, and the mock shows the digit riding high.
-  - The intro's breath blows the work "toward the 2" (`intro.ts:45`), so it would fall down into the bar. That is a decision to make; "the work goes into the 2" still holds.
+  - The intro's breath blows the work "toward the 2" (`intro.ts:45`), so it would fall down into the bar. Decided for the prototype: let it fall. "The work goes into the 2" still holds, and Projects stays the 2 with the Desk third.
   - Safari's bottom toolbar: a tap near the bottom edge can summon it. Test on a real iPhone.
   - The landscape rules (`globals.css:1425-1464`) need a pass.
-- The test: if it feels like an app's tab bar rather than this site, keep the top.
+- The test, if it is ever tried after launch: if it feels like an app's tab bar rather than this site, the top stays.
+- With six pills (R16), the bar's 36px pills with 6px gaps come to about 246px before the current pill opens its label, plus the chip. Test it at 320px.
 
 **What it shows:** phones considered as first-class, not as a narrow desktop.
 
@@ -587,7 +604,7 @@ c) **About gets a byline.**
 - The only mismatch left is a first visit to Notes before Projects has ever laid out. The fallback is 206 there, and Projects' heading appears after its load, never mid-slide.
 - Phones keep `lineHeadingY`, which the published value reflects anyway.
 
-**What it shows:** the five rooms are one building.
+**What it shows:** the six rooms are one building. The Desk's shelf heads at the same published line (R16).
 
 ---
 
@@ -599,7 +616,7 @@ c) **About gets a byline.**
 
 **How it works**
 1. Hover background: `@media (hover: hover) { .tab:not([aria-current]):hover { background: rgb(233 233 226 / .08); } }`.
-2. One shared **new** `.tab-tip` element in `.nav-inner`: a glass chip 6px under the hovered or focused pill, holding its label in serif 15px/110% with `5px 8px 6px` padding (mock: `S/mock-b-nav-name-chip-tip.png`, "Notes" under the 3).
+2. One shared **new** `.tab-tip` element in `.nav-inner`: a glass chip 6px under the hovered or focused pill, holding its label in serif 15px/110% with `5px 8px 6px` padding (mock: `S/mock-b-nav-name-chip-tip.png`, "Notes" under the 3; the mock predates the Desk, and Notes is now the 4).
 3. Timing:
    - It appears after 250ms of hover, or at once on keyboard focus.
    - Moving between pills within 600ms of a tip moves it at once.
@@ -671,7 +688,7 @@ c) **About gets a byline.**
 3. **The box goes only when the ring is drawn.** The panel sets `data-ring` on `.space-panel` once the scene confirms it can draw the rim. `.space-panel[data-ring] .space-urchi:focus-visible { outline: none }`. If WebGL failed, the box stays.
 4. **Mouse, then a key.** On `pointerdown` on the control, set `data-pointer`, and clear it on the next Tab keydown. `.space-urchi[data-pointer]:focus-visible { outline: none }`.
 5. **Every other ring:** `:focus-visible { outline: 1.5px solid var(--ink); outline-offset: 3px; border-radius: var(--r); }`. For the About links, `.elsewhere a { padding: 8px 6px; margin: -8px -6px; }` gives the ring room and makes the targets about 33px tall.
-6. **Urchi watches the keyboard (F-L8).** Next to `over` and `out` in `attention.ts:548-567`, add `focusin` and `focusout` twins. If the focused element is a `.tabs .tab` that `matches(":focus-visible")` and isn't the current page, add the same `pill:` target. Tabbing along the bar, it looks up at each pill in turn.
+6. **Urchi watches the keyboard (F-L8).** Next to `over` and `out` in `attention.ts:548-567`, add `focusin` and `focusout` twins. If the focused element is a `.tabs .tab` that `matches(":focus-visible")` and isn't the current page, add the same `pill:` target. Tabbing along the bar, it looks up at each pill in turn. The Desk pill is followed like any other, because the visitor chose it; what the summary rules out is Urchi pointing at the Desk of its own accord for the daily puzzle.
 7. **The cursor label over colour (F-M2).**
    - A **new** `CursorLabel.set(text, { glass: true })` (`src/components/CursorLabel.ts:38`) toggles `data-glass`.
    - Pass it for Urchi's words (`CreativeSpacePanel.tsx:219-224,378`) and for Projects' "Open" (`ProjectsPanel.tsx:54`).
@@ -732,7 +749,7 @@ c) **About gets a byline.**
 
 **"Projects", not "Work" (F-L3, S)**
 - `ProjectsPanel.tsx:53` changes to `lead: "Projects"`.
-- `projectsLine()` drops its "projects" to read "Six since 2021. Two alive.", with `countWord` (R5). That mirrors "**Notes** Two since September".
+- `projectsLine()` drops its "projects" to read "Six since 2021. Two alive.", with `countWord` (R5). That mirrors "**Notes** Two since September". (Those are the placeholder numbers; on `main` the line counts the real fourteen, all since 2026, and the months branch writes the "since" as a month.)
 - The `sr-only` mirror under its `<h2>Projects</h2>` reads fine either way.
 
 **Fonts (F-L4, S-M)**
@@ -745,13 +762,14 @@ c) **About gets a byline.**
 - **Added, performance:** `grotesk-500.woff`, which troika loads on Projects and About, is 140KB, against 22KB for the WOFF2 of the same face. It looks unsubset. Subset it to the WOFF2's character set, which should save around 100KB on those tabs' first load.
 
 **About footer (F-L7, S)**
-- The status gets its full stop: "Busy putting a hole in spacetime." (`site.ts:27`). It is the one sentence on the site without one.
+- The status gets its full stop: "Busy putting a hole in spacetime." (`site.ts:27`). It is the one sentence on the site without one. `WORK_LINE` sits under it (R2).
 - The Email link already copies on pointer-up and says "Copied" (`AboutPanel.tsx:49-60`). What is new: on hover or focus, the word "Email" rises out and the address rises in through the same mask, so the address is finally visible.
-- Confirm the address first (`site.ts:43` is marked TODO).
+- The address is `dctxvv@gmail.com`, confirmed by his own commits (all seven are authored `dctxv <dctxvv@gmail.com>`), so the `TODO(darius)` at `site.ts:43` goes. The GitHub link, `github.com/dctxv`, is his real profile, so its TODO at `site.ts:41` goes too.
 - Target size comes from R13's padding.
+- *Ruled in the summary (reconciliation 8): the foot is two lines. First, Elsewhere: GitHub, Instagram, Email, off-site only. Second, quieter, in grotesk at 60%: "Plainly. How it is kept. How it is made." "Small tools" stays unlinked, since those words are not in `WORK_LINE`; the statement's "the small things" leads to the Tools drawer once Sky ships in week 4 (decisions.md, Music, About and Notes 4).*
 
 **Urchi keeps his hours (F-L9, S)**
-- Set `TIME_ZONE` (`site.ts:16`). "It is 3:12 here. It is asleep." should be about his night, not the visitor's.
+- Set `TIME_ZONE = "Australia/Melbourne"` (`site.ts:16`), with a **new** `HEMISPHERE = "south"` on the line after it. His commits carry +10:00, and his public coursework is a Swinburne unit. "It is 3:12 here. It is asleep." is then about his night, not the visitor's. Melbourne moves to +11:00 on Sunday 4 October, which the IANA zone handles.
 
 **Skip link (F-L5)**
 - "Skip to the page" as the first stop: a glass chip top-left while focused.
@@ -782,7 +800,9 @@ c) **About gets a byline.**
 
 **Where:** tokens in `globals.css`; the draw in `eyes.ts`.
 
-**Data:** none. Optionally `localStorage['eigengrau:eyes-seen']` for the Colophon.
+**Data:** none for the accent. The Colophon's seen eyes are kept in `eigengrau:eyes-seen`, through `keep()` in the new `src/lib/store.ts`; it is one of the summary's new keys and is listed on `/kept`.
+
+*Decided (decisions.md, Style and UX 2): yes, in exactly these three places, and no others. The colourway stays drawn per page load (the persona fixes Urchi's temperament only), because this accent, the Colophon's hundred eyes and the finds' labels ("Its eyes were denim.") all lean on that draw.*
 
 **Edge cases:**
 - Forced colours: system colours win.
@@ -800,50 +820,58 @@ c) **About gets a byline.**
 
 #### R16. **Added:** "Desk", a sixth room for the tools, the daily game and the security work
 
-**Pitch:** one room for things a visitor can use rather than look at: today's puzzle at the top, the free tools beneath it, the security work among them. Nothing anyone types there leaves the page.
+**Pitch:** one room for things a visitor can use rather than look at, with three drawers: Today (the daily puzzles), Tools, and Security (the papers, and pointers to `/kept` and the games). Nothing anyone types there leaves the page.
+
+*Ruled in the summary (the IA decision): the Desk is the sixth pill, placed third, so the row reads Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6. Its drawers live at their own paths, `/today`, `/tools` and `/security`, rendered inside the kept Desk panel. Urchi never comes to the Desk. The first draft below placed it fifth, with tools at `/desk/[tool]`; the steps are corrected to the ruling.*
 
 **Why here:** the owner wants daily games, free tools and a cybersecurity showcase. Scattering them under About or as unlinked routes would hide them. Five more tabs would wreck the chrome. The tab system is generic:
 - `TABS` in `site.ts:29-35` feeds `routes.ts`, `Between.tsx:130`, `visits.ts:178` and `Nav.tsx:34`.
 - Adding a room is a `TABS` entry plus a `Stage` case in `Shell.tsx:29-35`.
-- `intro.ts`'s `workPill()` uses index 1 (Projects), so it is unaffected.
+- `intro.ts`'s `workPill()` uses index 1 (Projects), so it is unaffected. Desk third leaves Projects at index 1.
+- *Ruled in the summary (Strategy §5.5, Engineering §4.5): the room also needs `tabOf` (the kept panel that renders a path, with an opt-in `owns`, so the Desk panel renders `/today`, `/tools` and `/security`) and `pillOf` (the pill that lights) in `src/lib/routes.ts`, and four hooks the first draft missed: sfx's room sound, Space's look back at the tab you left, `pillAt` by `data-tab`, and a Desk pill that remembers the last drawer.*
 
 **How it works**
-1. `TABS` gains `{ href: "/desk", label: "Desk", n: 5 }`, and About becomes 6, since About conventionally comes last. Key 5 now opens Desk (R3).
+1. `TABS` gains `{ href: "/desk", label: "Desk", n: 3 }`, inserted after Projects, and Notes, Music and About become 4, 5 and 6. About still comes last. Key 3 opens the Desk (R3), and returns to the last drawer the visitor had open.
 2. **New** `DeskPanel.tsx`, loaded with `dynamic(..., { ssr: false })` like the others. It is a plain DOM column in Notes' language, on the shared heading line (R10).
-   - The heading is written from the list: "**Desk** Today's puzzle, and four small tools. Nothing you put in them leaves this page."
-3. First row, the day's game (the daily-game area defines which game): its number and state in the log voice, 12px grotesk:
+   - The heading is written from the list: "**Desk** Today's puzzle, and four small tools. Nothing you put in them leaves this page." The counts come from the registry through `countWord`, so the line names only what exists: on the Desk's first day in week 2 there is Today's puzzle and no tool yet, and Sky, the first tool, arrives in week 4.
+3. First row, the Today drawer: the day's game (Same Grey first, No. 1 at his midnight into Monday 12 October), its number and state in the log voice, 12px grotesk:
    - "No. 41. Not yet played."
    - "No. 41. Solved in four. The next one at midnight."
-   - The row opens in place, as a note unfolds.
-4. Then one row per tool:
+   - The row opens its drawer at `/today`, and the board at `/today/<game>/<n>`, inside the kept Desk panel. Up and down is the same tab; Esc goes back up one level (board, then drawer, then shelf).
+   - *Ruled in the summary: puzzles are addressed by paths such as `/today/grey/41` or `/today/stet/6`, not queries, so each has its own card. Numbers count from each game's own first day. The day is his, in Melbourne, falling back to UTC and never to the visitor's day, so "midnight" is his midnight, and the Today drawer's heading says so to a visitor on another date ("It is already Friday here."). Each puzzle is made ahead, frozen, and served by `/api/today/[game]/[n]` only from its day on.*
+4. Then one row per tool, in the Tools drawer:
    - name in serif 16px
    - one line in serif 14px at 60%
-   - a tag word in grotesk 11px ("security", "text", "colour"), filterable like Notes' tags
-   - Each row opens in place, and each tool also has its own address, `/desk/[tool]`. That is a plain DOM page on the case template (R5) with Desk's pill current (`aria-current="true"`) and its own link card (R1).
-5. Machine output (hashes, hex, headers) is set in the machine voice (R18).
-6. `whatsNew()` (`visits.ts:167`) leaves `/desk` out. A daily puzzle is new every day, so Urchi would look up at the Desk pill on every visit and the gesture would stop meaning anything. It also keeps Urchi out of the games, as the owner asked.
+   - the rows grouped under two headings, "To make" and "To check", with the security tools under "To check". The first draft's tag words ("security", "text", "colour"), filterable like Notes' tags, are replaced by the two groups.
+   - Each tool has its own address, `/tools/<slug>`, rendered by the Desk panel as a drawer with the Desk pill lit (through `pillOf`) and its own link card (R1). The settings go in the query; anything personal goes after the `#`.
+   - *Ruled in the summary (reconciliation 2): one registry (`src/tools/index.ts`), one frame and one privacy line for all tools. `/security` is for reading: papers at `/security/<paper>`, and pointers to `/kept`, Plaintext, Last login's casebook and, last, Phosphenes. No cipher appears in Tools.*
+5. Machine output (hashes, hex, headers) is set in the machine voice (R18), from Plaintext on. Before then it is grotesk with tabular figures (R18, stage one).
+6. *Ruled in the summary (reconciliation 4):* `whatsNew()` (`visits.ts:167`) learns a **new** `UPDATED.desk` (beside `UPDATED.projects` and `UPDATED.about`, `site.ts:99`), which moves only when a new game, tool or paper lands, never for the daily puzzle. Then Urchi looks up at the Desk pill once, as it already does for notes. A daily look would be new every day and would stop meaning anything; the Today drawer's own heading does the daily telling. Urchi never comes to the Desk, and the games stay Urchi-free, as the owner asked.
 
 **Looks, sounds, reads:** a column like Notes, with the day's line first. With sound on, a tool row opening gives Notes' quiet tick. There is no new colour: the eyes accent (R15) marks focus only.
 
 **Where:**
-- Tab 5, `/desk`, and `/desk/[tool]`.
+- Pill 3: `/desk` (the shelf), `/today`, `/today/<game>`, `/today/<game>/<n>`, `/tools`, `/tools/<slug>`, `/security` and `/security/<paper>`.
 - **New** `src/app/desk/page.tsx`: an `sr-only` mirror, like the other tabs.
-- **New** `src/app/desk/[tool]/page.tsx`.
+- **New** page files under `src/app/today/`, `src/app/tools/` and `src/app/security/`, each an `sr-only` mirror plus its metadata and card, rendered on screen by the kept Desk panel.
 
-**Data:** `localStorage['eigengrau:desk:*']` for game state and tool preferences. No backend. Tools run in the browser, which is a promise, and also a security stance that can be stated.
+**Data:** zero backend first. Game records in `eigengrau:today:<game>` (one record per game, streaks computed and never stored) and tool preferences in `eigengrau:bench:<slug>`, both through `keep()` in the new `src/lib/store.ts`, and both listed on `/kept`. The one server route is `/api/today` and `/api/today/[game]/[n]`, which serve each frozen puzzle only from its day on, because a puzzle's answer never ships in the public bundle. Tools run in the browser, which is a promise, and also a security stance that can be stated.
 
 **Implementation sketch:**
 - `site.ts` `TABS`
+- `src/lib/routes.ts` (**new** `tabOf` with `owns`, and `pillOf`)
 - `Shell.tsx:29-35` (`Stage`)
 - **new** `DeskPanel.tsx`
 - **new** routes
+- `src/games/<id>/{rules,Board,share}` and `src/tools/<slug>/{meta,logic,Tool}`, in their own sections
 - reuse `.notes-*` styles in `globals.css`
 
 **Edge cases:**
 - Phones: six pills at 24px minimum (R9) plus the chip come to about 330px at 390 wide. Test at 320px.
 - Reduced motion: rows open without the fold animation, as Notes does.
-- Night: nothing changes, since there is no Urchi here.
+- Night: nothing changes, since there is no Urchi here. The day turns over at his midnight, which is 09:00 in New York from Sunday 4 October (08:00 after 1 November).
 - A returning visitor finds their game state kept.
+- A carried find goes into the pocket at once on the Desk and never hangs under the pointer there, because the boards own the pointer (the summary's reconciliation 3).
 
 **Effort:** S for the room. The games and tools are M-L each, in their own areas.
 
@@ -861,11 +889,12 @@ c) **About gets a byline.**
 
 **Pitch:** the design system, shown working. It lists the materials, never the secrets, and it is where the visitor's switches live.
 
-**How it works, section by section.** It is plain DOM like a case page, on the head line.
+**How it works, section by section.** It is plain DOM like a case page, on the head line. It ships in week 5, with the switches.
 1. **Head:** "**Colophon** Set in Inter Tight and Newsreader, on eigengrau."
+   - **Then the page's first sentence, before the materials,** in the house heading pattern, a grotesk lead and his serif sentence: "**Claude Code** I wrote what each branch should do, and read every merge." *Decided (decisions.md, item 8): Claude Code is acknowledged once, plainly and first, here and nowhere else (not in the `did` lines, not on Plainly, not in the cards). Said first by him it reads as a way of working; found later by someone else it reads as a secret. The same paragraph says that the papers were drafted from the real diffs and approved by him.*
 2. **Ground:** a band 240px tall that is simply the page, with: "#16161d. Eigengrau, the grey the eye sees in total darkness. The page is not black because the eye never is."
 3. **Ink:** "#e9e9e2. Its inverse, so a white word in difference mode lands on it exactly. Fourteen point eight to one."
-4. **Glass:** a live glass panel over a few drifting one-pixel DOM dots, with its recipe in `--t-data`: `rgba(40, 40, 47, 0.5) · blur 40px · radius 4px`.
+4. **Glass:** a live glass panel over a few drifting one-pixel DOM dots, with its recipe in `--t-data`: `rgba(40, 40, 47, 0.5) · blur 40px · radius 4px`. The Colophon ships in week 5, before the monospace arrives with Plaintext on Monday 7 December, so until then `--t-data` is R18's stage one (grotesk 11px, tabular figures) and the recipe switches face with no other change.
 5. **Today's eyes:**
    - a small live Urchi (the About mark at 64px)
    - "Today: petunia. One visit in fifty-three. A reload draws again." The odds are computed from the colourway's weight (52.7 in total), with `countWord`.
@@ -875,7 +904,7 @@ c) **About gets a byline.**
    - label: "Take with you"
    - small: "Still on air, so the dot still moves."
    - body: "Typing anywhere finds."
-   - title: "Nocturne"
+   - title: "VECTOR" (a real project on `main`; the first draft's "Nocturne" was a placeholder)
    - display: "Quiet interfaces for"
 7. **Motion:** five curves drawn as 1px SVG paths, 160x80:
    - the reveal (`power4.out`, 0.9s)
@@ -888,18 +917,18 @@ c) **About gets a byline.**
 8. **Sound:** one row per cue from `src/audio/sfx.ts`, named as materials, not as what sets them off: "A pat. A tug. A snap. A pluck, D4 down to F3. A bloom. A riffle." With sound off, a row answers "Sound is off." as Music does.
 9. **Switches (added):**
    - "Sound. Off until asked. *Turn it on.*"
-   - "Keys. One to five change rooms, from anywhere. *Turn them off.*" (R3, WCAG 2.1.4)
+   - "Keys. One to six change rooms, from anywhere. *Turn them off.*" (R3, WCAG 2.1.4)
 10. **Numbers:** "One hundred and thirty-six commits in six days. Twenty-five thousand lines. Two colours." Hundreds are written out here by hand, since `countWord` stops at ninety-nine.
 11. **Rules,** in serif 16px, numbered in words: "One. Two colours, and whatever a record brings. Two. One glass, one radius. Three. Sound waits to be asked. Four. Nothing moves for anyone who asked it not to. Five. Every sentence ends."
-12. **Served with (added, if the security area ships it):** the response headers in `--t-data` (a content security policy, `Referrer-Policy`, `Permissions-Policy`), with "Check them." and a link to `/.well-known/security.txt`. `next.config.ts` sets no headers today.
+12. **Served with (added):** the headers ship with the security work's first slice in week 2 (`next.config.ts` sets none today). This row is one line with two links: "How it is kept." to `/kept`, which reads back the headers this browser was just given (a content security policy, `Referrer-Policy`, `Permissions-Policy`) one sentence each, and "Check them." to `/.well-known/security.txt`. The `Permissions-Policy` denies by default, and the microphone stays `()`. *Ruled in the summary: two short pages, `/colophon` and `/kept`, linked to each other, so the security reader has one URL that is all threat model. `/kept` also lists every storage key and the three counted events.*
 
 - **Cut:** the "Urchi's faces" row, where hovering made the big Urchi pull each face. It is L effort, and it teaches the faces to people who haven't found them, which works against "for people who notice".
 
-**Where:** `/colophon`, not a tab. It is the fourth word under About ("GitHub  Instagram  Email  Colophon") and a word on the 404.
+**Where:** `/colophon`, not a tab. It is "How it is made." in the second, quieter line of About's foot ("Plainly. How it is kept. How it is made."), and "Colophon" on the 404 (R8). *Ruled in the summary (reconciliation 8): the first line of About's foot, Elsewhere (GitHub, Instagram, Email), stays off-site only, so "Colophon" is not a fourth word there as the first draft had it.*
 
 **Data:**
 - Values from code: `src/lib/color.ts`, `src/lib/motion.ts` (`DUR`, `EASE`), the R14 tokens, and `COLOURWAYS` from `eyes.ts` (R15).
-- Seen eyes in `localStorage['eigengrau:eyes-seen']`.
+- Seen eyes in `eigengrau:eyes-seen`, through `keep()` in the new `src/lib/store.ts`.
 - **Correction:** the git numbers can't be computed at build on Vercel, because it builds from a shallow clone. A local script writes a **new** `src/content/build.json` before each commit, as `scripts/add-note.mjs` already edits and commits content.
 
 **Implementation sketch:**
@@ -929,23 +958,25 @@ c) **About gets a byline.**
 
 **How it works**
 1. **Stage one (S, now): no new font.**
-   - Machine data (commit hashes on log lines, the GitHub facts row's hash) uses grotesk 11px at 60% with `font-variant-numeric: tabular-nums slashed-zero`.
+   - Machine data (commit hashes on log lines, the case page's hash) uses grotesk 11px at 60% with `font-variant-numeric: tabular-nums slashed-zero`.
    - Check that the grotesk subset kept the `zero` feature. If not, use tabular only.
-2. **Stage two (S, when Desk and the security tools land):**
+2. **Stage two (S, with Plaintext, on Monday 7 December):**
    - A monospace at 400 only, subset to ASCII, as WOFF2 plus a WOFF for troika. JetBrains Mono or Commit Mono are both OFL.
+   - *Decided (decisions.md, Style and UX 2): Commit Mono 400. It is drawn to be neutral, so machine text reads as a third voice and not as a brand. It arrives with Plaintext's week 1, "The name", and not before, as the summary's rule says ("monospace only ... from Plaintext on"); the first draft's trigger, "when Desk and the security tools land", is replaced. It changes to JetBrains Mono only if Commit Mono smears at 11px in troika.*
    - Token `--t-data: 400 11px/1.4 var(--font-mono)`.
-   - Use it only where alignment carries meaning: hashes, hex, headers, tool output, and diffs.
+   - Use it only where alignment carries meaning: hashes, hex, headers, ciphertext, logs, tool output, and diffs.
    - **Corrections:** not the intro counter, which is serif and part of the intro's look (`globals.css:377-386`). Not note dates, which are the notes' furniture. Not the supernova years, which stay grotesk. Add `FONT.mono` in `text.ts` only if a canvas ever needs it.
 3. **The log from git.**
    - A **new** `scripts/log-from-git.mjs`, run locally like `add-note.mjs`, turns merge commits into `kind: "log", tags: ["site"]` entries in `NOTES`.
    - It strips "Merge p2/x: ", so a line reads "Space: a sky behind Urchi afloat, starting with the stars".
    - At most one line a day, which `NOTES_FOLD_AFTER` handles later.
    - **Correction:** it can't run at build, because Vercel's checkout is shallow.
+   - *Decided (decisions.md, Style and UX 5): approved commit lines become Notes log lines. `npm run log` offers the week's merge subjects once a week, one keypress per line, with yes as the default, and never offers a commit whose message carries `[quiet]`. A subject he would not publish gets `[quiet]`, or no at the prompt. The summary's rule that every sentence ends applies, so the script adds the full stop a commit subject leaves off.*
 
 **How it reads (mock):**
 ```
 2026.09.29  9b8c07c                                            site
-Space: a sky behind Urchi afloat, starting with the stars
+Space: a sky behind Urchi afloat, starting with the stars.
 ```
 The date is grotesk 11px, the hash is the machine voice at 60%, the line is grotesk 12px (the site speaking), and the tag is grotesk 11px.
 
@@ -959,7 +990,7 @@ The date is grotesk 11px, the hash is the machine voice at 60%, the line is grot
 
 **Risks:**
 - A third face tips toward the developer-portfolio cliché; the 11px, alignment-only rule is the guard.
-- Commit lines are public, so the owner must be comfortable with that.
+- Commit lines are public already, because `dctxv/eigengrau` is a public repository. Showing them on the site is decided (above), with `[quiet]` and the prompt's "no" as the two ways out.
 
 ---
 
@@ -976,7 +1007,7 @@ The date is grotesk 11px, the hash is the machine voice at 60%, the line is grot
 4. The pill glass frosts real texture, because `backdrop-filter` blurs the layer beneath it.
 5. At ±1.5% it is invisible on covers and sleeves, and the Music room's own 1% grain becomes the house texture instead of a local fix.
 
-**Where:** `Shell.tsx`, next to `Between`; CSS in `globals.css`. It runs only behind `?grain=1` for a week.
+**Where:** `Shell.tsx`, next to `Between`; CSS in `globals.css`. It runs only behind `?grain=1` for a week. *Ruled in the summary: it is one of the two experiments behind flags, with the bottom nav, in the Later list (December onwards), after the launch.*
 
 **Data:** none.
 
@@ -1000,36 +1031,49 @@ The date is grotesk 11px, the hash is the machine voice at 60%, the line is grot
 
 | # | What | Severity | Effort | Main files |
 |---|---|---|---|---|
-| 1 | R1 link cards, real `SITE_URL`, per-route canonicals, icons, `sameAs` | High | M | `layout.tsx`, new `opengraph-image.tsx` ×3, `apple-icon.png`, `icon.svg`, `site.ts:10` |
-| 2 | R3 digits, with the capture listener, `finding` flag and off switch | High | S | new `src/lib/keys.ts`, `flags.ts`, `Shell.tsx:79`, `NotesPanel.tsx:732`, `Tab.tsx` |
-| 3 | R2 the name: monogram, intro on phones, About byline | High | S | `FloatingLogo.tsx`, `IntroRing.ts`, `AboutPanel.tsx`, `AboutScene.ts`, `visits.ts`, `globals.css:350-366` |
-| 4 | R4 sound on every screen, chip in the group, `audioSession` | High | S-M | `SoundChip.tsx`, `Nav.tsx`, `Shell.tsx:199`, `sfx.ts`, `globals.css:201-241` |
+| 1 | R1 link cards with `WORK_LINE`, `SITE_URL` from `NEXT_PUBLIC_SITE_URL`, per-route canonicals, icons, `sameAs` | High | M | `layout.tsx`, new `opengraph-image.tsx` ×3, `apple-icon.png`, `icon.svg`, `site.ts:8,10` |
+| 2 | R3 digits 1-6 (3 reserved until the Desk), with the capture listener and its claim stack, `pillOf`, the `?` sheet and off switch | High | S | new `src/lib/keys.ts`, `routes.ts`, `flags.ts`, `Shell.tsx:79`, `NotesPanel.tsx:732`, `Tab.tsx` |
+| 3 | R2 the name: monogram, intro on phones, About byline and `WORK_LINE` | High | S | `FloatingLogo.tsx`, `IntroRing.ts`, `AboutPanel.tsx`, `AboutScene.ts`, `visits.ts`, `globals.css:350-366` |
+| 4 | R4 sound on every screen, chip in the nav (the pocket gets its corner), `audioSession` | High | S-M | `SoundChip.tsx`, `Nav.tsx`, `Shell.tsx:199`, `sfx.ts`, `globals.css:201-241` |
 | 5 | R9 phone targets at the top | High | S | `globals.css` |
 | 6 | R6 Projects answers Tab | High | S / S-M | `ProjectsPanel.tsx:121`, `ThreadScene.ts`, `projects/page.tsx` |
-| 7 | R5 case page as the GitHub template, `countWord` (after that branch lands) | Medium | S | `[slug]/page.tsx`, new `CaseFocus.tsx`, `Nav.tsx:35`, `Tab.tsx`, `site.ts:209` |
+| 7 | R5 case page v2 as the GitHub template, `countWord` (that branch has landed; after the `site.ts` split) | Medium | S | `[slug]/page.tsx`, new `CaseFocus.tsx`, `Nav.tsx:35`, `Tab.tsx`, `routes.ts`, `site.ts:209` |
 | 8 | R7 contrast, reduced transparency | Medium | S | `MusicPanel.tsx:14`, `globals.css`, `ThreadScene.ts:627`, `Tether.ts:19` |
 | 9 | R8 404, honest outage, loading | Medium | S-M | `not-found.tsx`, `api/now/route.ts`, `now.ts`, `MusicPanel.tsx`, `ThreadScene.ts:1369` |
 | 10 | R10 rims on scroll, the published heading line | Medium | S / S-M | `globals.css:956-981`, `NotesPanel.tsx:1186`, `MusicPanel.tsx:1274`, `ThreadScene.ts:1898`, new `headline.ts` |
 | 11 | R11 pill tips, R12 intro hurry and short form | Medium | S | `Nav.tsx`, `intro.ts:59`, `CreativeSpacePanel.tsx`, `visits.ts` |
 | 12 | R13 focus as Urchi's rim, glass label, Urchi watches Tab | Medium | M | `Urchi.ts`, `attention.ts`, `CreativeSpacePanel.tsx`, `CursorLabel.ts` |
-| 13 | R14 tokens, "Projects", fonts, subset WOFF, About footer, `TIME_ZONE` | Low | S-M | `globals.css`, new `type.ts`, `text.ts`, `Nav.tsx:18`, `public/fonts` |
+| 13 | R14 tokens, "Projects", fonts, subset WOFF, About footer, `TIME_ZONE = "Australia/Melbourne"` and `HEMISPHERE` | Low | S-M | `globals.css`, new `type.ts`, `text.ts`, `Nav.tsx:18`, `public/fonts` |
 | 14 | R15 the visit's eyes | Bold | S | new `eyes.ts`, `character.ts`, `globals.css` |
-| 15 | R16 Desk, the room itself | New | S (content M-L elsewhere) | `site.ts` `TABS`, `Shell.tsx:29-35`, new `DeskPanel.tsx`, new `app/desk/` |
+| 15 | R16 Desk, the room itself, third, with its three drawers | New | S (content M-L elsewhere) | `site.ts` `TABS`, `routes.ts` (`tabOf`, `pillOf`), `Shell.tsx:29-35`, new `DeskPanel.tsx`, new `app/desk/`, `app/today/`, `app/tools/`, `app/security/` |
 | 16 | R17 Colophon | Idea | M | new `app/colophon/`, new `build.json` script |
-| 17 | R18 three voices, staged; log-from-git | Bold | S each | `globals.css`, new `scripts/log-from-git.mjs` |
-| 18 | R9 bottom-bar prototype | Experiment | M | `globals.css`, `Shell.tsx:94-95`, `ThreadScene.ts:191,1905`, `FloatingLogo.tsx`, `Tab.tsx:28` |
+| 17 | R18 three voices, staged (Commit Mono with Plaintext); log-from-git | Bold | S each | `globals.css`, new `scripts/log-from-git.mjs` |
+| 18 | R9 bottom-bar prototype (development builds only) | Experiment | M | `globals.css`, `Shell.tsx:94-95`, `ThreadScene.ts:191,1905`, `FloatingLogo.tsx`, `Tab.tsx:28` |
 | 19 | R19 grain | Experiment | S | `Shell.tsx`, `globals.css`, `tone.ts` |
+
+*Ruled in the summary (Roadmap): this order folds into the weeks. R1 (link cards v1), R2, R3 (digits with 3 reserved), R4, R5 (case page v2) and R9's bigger targets land in week 1, 30 September to 4 October. The Desk frame (R16), with the Today drawer and Same Grey, lands in week 2. R17 lands in week 5, and R18's stage two with Plaintext on Monday 7 December. R9's bottom bar and R19 stay flagged experiments, from December. The rest fits between them, and no two branches touch `ThreadScene.ts` at the same time.*
 
 **Appendix: the screenshots that carry the claims.** These are unchanged from the proposal. The mocks are `S/mock-a-phone-bottom-nav-notes.png`, `S/mock-b-nav-name-chip-tip.png`, `S/mock-b2-about-name-eyes-ring.png`, `S/mock-c-404.png` and `S/mock-d-music-quiet.png`. The quiet-week mock is now moot (see R8). The evidence shots are `S/a-first-*`, `S/b-*`, `S/e-about-focus-link.png`, `S/f-phone-*`, `S/g-1024-music-no-chip.png`, `S/h-rm-*`, `S/i-*`, `S/j-*`, `S/k-*`, `O/desk-02-space-hover.png`, `O/desk-5-about.png`, `O/desk-direct-projects.png`, `O/desk-direct-music.png` and `O/desk-direct-404.png`.
 
-### Open questions for the owner
+### Decisions
 
-1. What is the real domain, and what is your time zone? The link cards, canonicals and JSON-LD (R1) all wait on the domain. Urchi's night (R14) waits on the zone.
-2. Does "two colours only" stretch to Urchi's eye colour in three small places (R15)? And, once the security tools exist, to a third face for machine text (R18)?
-3. Where should the tools, the daily game and the security work live: a sixth tab, "Desk" (key 5, with About moving to 6), or pages off About (R16)?
-4. On phones, do you want to try the nav at the bottom (R9, prototype), or keep it at the top with bigger targets?
-5. Is the repo public, and are you comfortable with commit lines appearing as Notes log lines and as Colophon numbers (R17, R18)?
+*The owner is asked nothing. The five questions this section first put to him are decided in `decisions.md` ("By section", Style and UX 1-5, and the eight they point to), which wins where this section disagrees; the rest are summary rulings or decided here. Each line gives the decision, its reason, and what would change it.*
+
+1. **The domain.** `SITE_URL` (`site.ts:10`) reads `NEXT_PUBLIC_SITE_URL`, and a production build fails while it is unset or still `.example`. It is the Vercel production URL until `dariustan.dev` is bought, by Friday 9 October (else the first free one of `dariustan.com`, `darius-tan.dev` and `dctxv.dev`). HSTS `preload` goes on Monday 9 November, a month after the domain is live. *Why:* the soft launch on Sunday 11 October prints the address on his CV, which cannot be relinked, and the link cards, canonicals, JSON-LD and `security.txt` (R1) all follow that one variable. *Changes if:* he already owns a domain (use it), or none of the four is free (the site stays on the Vercel URL, and the build still passes). (decisions.md, item 2; Style and UX 1.)
+2. **The time zone.** `TIME_ZONE = "Australia/Melbourne"` (`site.ts:16`), with a new `HEMISPHERE = "south"` on the line after it. Urchi's night (R14), the 404's night line (R8) and the Colophon's asleep line (R17) all use his hours, 01:00 to 06:59, and the Desk's day turns at his midnight, falling back to UTC. *Why:* his commits carry +10:00, and his public coursework is a Swinburne unit. *Changes if:* he moves city, or spends a season somewhere else. (decisions.md, item 1; Style and UX 1.)
+3. **The card's line.** `WORK_LINE = "Student developer in Melbourne. Interfaces, AI tools and security."`, as a working draft, goes on the link cards, in `title.default` ("Darius Tan"), in the description and in the JSON-LD `jobTitle` (R1), and under About's status line (R2). "Basic Human" stays on screen as the joke beside it: the intro's role and About's byline, "Darius Tan, basic human." *Why:* a search result and an applicant tracking system should show the truth, and the joke still lands on screen. *Changes if:* he rewrites the line, which is welcome at any time. (decisions.md, item 3; summary reconciliation 10.)
+4. **The eye colour.** Yes, in exactly three places: the keyboard focus ring, `::selection`, and the Notes "new" dot (R15). It drops to 40% chroma at his night, reds fall back to ink, and the colourway stays drawn per page load. *Why:* colour here comes from something, the creature's own eyes, and a contrast guard keeps every use at AA or better. *Changes if:* in testing a hue outside the reds still reads as a state (a warning, a link) rather than as the eyes; that hue range then joins the reds and falls back to ink. (decisions.md, Style and UX 2; summary reconciliation 6.)
+5. **The third face.** Commit Mono 400, subset to ASCII, as WOFF2 plus a WOFF for troika, arriving with Plaintext on Monday 7 December, and not before (R18). *Why:* it is drawn to be neutral, so machine text reads as a third voice and not as a brand, and it is OFL. *Changes if:* it smears at 11px in troika; then JetBrains Mono, also OFL. (decisions.md, Style and UX 2.)
+6. **Where the tools, the daily game and the security work live.** The Desk, the sixth pill placed third: Space 1, Projects 2, Desk 3, Notes 4, Music 5, About 6, with the drawers Today, Tools and Security at `/today`, `/tools` and `/security` (R16). The digit keys land in week 1 with 3 reserved, and 3 answers once the Desk pill appears in week 2 (R3). *Why:* renumbering is free only until the digits do something, and a pill is the only thing a daily player finds again without thinking. *Changes if:* all three drawers are cut. Nothing less. (decisions.md, item 4; Style and UX 3.)
+7. **The nav on phones.** It stays at the top with the bigger targets (R9). The bottom bar stays behind `?nav=bottom` in development builds only, and is not tried in production before launch. *Why:* the top fix passes WCAG 2.5.8 outright, and six pills at 320px still leave room for 24px targets. *Changes if:* the 320px test fails the 24px centre spacing. (decisions.md, Style and UX 4.)
+8. **The public repository, and commit lines on the site.** `dctxv/eigengrau` is public, so its commit subjects are public already. Approved merge subjects become Notes log lines through `npm run log` (new `scripts/log-from-git.mjs`), once a week, one keypress per line, with yes as the default and `[quiet]` commits never offered (R18). The Colophon's numbers come from a local `src/content/build.json`, written before each commit, because Vercel's shallow clone cannot count (R17). *Why:* the lines are already public and already in the house voice; showing them costs one keypress each. *Changes if:* a subject says something he would not publish; then `[quiet]`, or no at the prompt. (decisions.md, Style and UX 5.)
+9. **The email and GitHub links.** The address stays `dctxvv@gmail.com`, confirmed by all seven of his own commits, and GitHub is `github.com/dctxv`; both `TODO(darius)` marks (`site.ts:41`, `site.ts:43`) go. There is no LinkedIn, so `sameAs` lists GitHub and Instagram only. *Why:* both are verified from his own repositories, and a guessed LinkedIn is worse than none. *Changes if:* he gives the site a forwarding address, or a LinkedIn profile he wants listed. (decisions.md, fact 3, items 2 and 3.)
+10. **Claude Code on the Colophon.** Once, plainly and first, on `/colophon`: "I wrote what each branch should do, and read every merge." (R17), and nowhere else. *Why:* said first by him it reads as a way of working; found later by someone else it reads as a secret. *Changes if:* an application asks directly; he answers there, in the same words. (decisions.md, item 8.)
+11. **Urchi and the Desk.** Urchi is never on the Desk and never points at it for the daily; it looks up at the Desk pill once only when `UPDATED.desk` moves for a new game, tool or paper (R16). Following a pill the visitor hovers or tabs to stays, since the visitor chose it (R13). *Why:* a daily look would mean nothing, and the games stay Urchi-free. *Changes if:* nothing; it is a summary ruling (reconciliation 4).
+12. **The top-right corner, and About's foot.** The sound chip moves into the nav on every screen (R4), and the finds' pocket takes the corner it leaves. About's foot is two lines, Elsewhere and then "Plainly. How it is kept. How it is made." (R14, R17). The 404 lists the six tabs plus "Colophon" (R8). *Why:* one place per thing, and Elsewhere stays off-site only. *Changes if:* nothing; these are summary rulings (reconciliations 3, 8 and 9).
+13. **Storage.** Every key this section adds (`eigengrau:keys`, `eigengrau:week`, `eigengrau:eyes-seen`, `eigengrau:today:<game>`, `eigengrau:bench:<slug>`) goes through `keep()` in the new `src/lib/store.ts`, into the README's list, and onto `/kept`, where "Forget me" clears them. *Why:* one guarded, versioned door to storage, and one honest list of what the site keeps. *Changes if:* nothing; it is a summary rule ("Data").
+14. **The zoom track afloat.** `ROPE.alpha` goes to 0.4, so the line and its track stay one ink and pass 3:1 (R7). *Why:* one ink is what `globals.css:447-449` asks for. *Changes if:* the line reads heavier than the thread in the before-and-after screenshots; then the track is decoupled at 0.4 and the line stays at 0.35.
 
 ### If you only do one thing here
 
-Do R1: set the real domain, add the root link card with "Darius Tan / Basic Human" and Urchi looking out of it, and give each project page its own card from the cover and status word. Most people will meet this site as a link in a message or on LinkedIn, not by typing the address. Today that link is a bare grey title on a placeholder domain that never says whose work it is. A card is one day's work and needs no change to anything on screen. It carries the name, the voice and the character into every place the site gets shared. It also pays off again as each real GitHub project lands, because every case page becomes its own well-dressed link.
+Do R1: point `SITE_URL` at `NEXT_PUBLIC_SITE_URL` (the Vercel URL now, `dariustan.dev` once it is bought by Friday 9 October), add the root link card with "Darius Tan" above "Student developer in Melbourne. Interfaces, AI tools and security." and Urchi looking out of it in denim, and give each project page its own card from the cover and status word. Most people will meet this site as a link in a message or on LinkedIn, not by typing the address. Today that link is a bare grey title on a placeholder domain that never says whose work it is. A card is one day's work and needs no change to anything on screen. It carries the name, the voice and the character into every place the site gets shared. It also pays off again with each real GitHub project, the four public ones on `main` first, because every case page becomes its own well-dressed link. It goes in week 1, so the cards are right before the soft launch on Sunday 11 October.
