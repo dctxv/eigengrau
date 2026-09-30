@@ -280,7 +280,6 @@ export type ItemText = { id: string; name: string; caption: string };
 export const ITEMS: Record<ItemTier, ItemText[]> = {
   common: [
     { id: "lost-glove", name: "Lost glove", caption: "Someone out here is waving with one hand." },
-    { id: "static-puff", name: "Static puff", caption: "A channel nobody is broadcasting on." },
     { id: "micrometeorite", name: "Micrometeorite", caption: "You'll have to take Urchi's word for it." },
   ],
   uncommon: [

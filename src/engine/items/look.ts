@@ -131,3 +131,37 @@ export function fit(group: THREE.Object3D, r = 1) {
   group.scale.multiplyScalar(k);
   group.position.sub(sphere.center.multiplyScalar(k));
 }
+
+/**
+ * A small four-point white glint, as crystals and glass catch the light: a billboard in the host's
+ * view, `size` across, drawn as light added to what is under it. Set its `strength` (0 .. 1) to
+ * make it appear and fade.
+ */
+export function glint(size = 0.4, colour = "#ffffff") {
+  const uniforms = { uColour: { value: rawColor(colour) }, uStrength: { value: 1 } };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform vec3 uColour; uniform float uStrength; varying vec2 vUv;
+      // two thin arms tapering to nothing at the square's edges, and a soft core where they cross
+      float arm(float along, float across) { float t = 1.0 - min(abs(along), 1.0); return t * t * t * exp(-across * across / (0.0025 + 0.004 * t)); }
+      void main() {
+        vec2 q = (vUv - 0.5) * 2.0;
+        float a = arm(q.x, q.y) + arm(q.y, q.x) + 0.6 * exp(-dot(q, q) * 40.0);
+        a *= uStrength;
+        gl_FragColor = vec4(uColour, min(a, 1.0));
+      }`,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), material);
+  mesh.renderOrder = 2;
+  return {
+    mesh,
+    set strength(v: number) {
+      uniforms.uStrength.value = v;
+    },
+  };
+}

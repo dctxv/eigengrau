@@ -1,83 +1,59 @@
 import * as THREE from "three";
+import SUIT from "@/engine/urchi/suit.json";
 import { facets, fit, haze, part, release, type Item } from "./look";
 
+/** What of the suit's model the glove is made from (see urchi/tools/build-suit.mjs). */
+type SuitModel = { v: number[]; f: number[]; vp: number[]; hidden: number[]; parts: { name: string; material: number }[]; materials: string[] };
+
+/** Urchi's right glove as its suit has it: the glove, its thumb, its dark palm and the grey cuff at its wrist. */
+const PARTS = ["glove.R", "thumb.R", "palm.R", "cuff.R"];
+/** The suit's own colours for them (character.ts SUIT_COLOUR), lit to shade. */
+const COLOURS: Record<string, [string, string]> = { grey: ["#acaba6", "#5c5c5a"], dark: ["#58585c", "#222225"] };
+
 /**
- * Lost glove (common): a chunky white astronaut glove, a grey ring at its cuff and a small orange
- * patch on its back, its fingers a little curled as a hand at rest is, tumbling slowly. White and
- * grey, the orange its accent.
+ * The glove's triangles by material, out of the suit's model: every face of its parts that is ever
+ * seen, in three.js's frame (the model's y runs down, so it is turned up, and each face's winding
+ * turned with it so it still faces out).
+ */
+function gloveGeometry(): Map<string, THREE.BufferGeometry> {
+  const S = SUIT as unknown as SuitModel;
+  const wanted = new Set(PARTS.map((n) => S.parts.findIndex((p) => p.name === n)).filter((i) => i >= 0));
+  const hidden = new Set(S.hidden);
+  const byMaterial = new Map<string, number[]>();
+  for (let face = 0; face < S.f.length / 3; face++) {
+    const [a, b, c] = [S.f[face * 3], S.f[face * 3 + 1], S.f[face * 3 + 2]];
+    const p = S.vp[a];
+    if (!wanted.has(p) || hidden.has(face)) continue;
+    const name = S.materials[S.parts[p].material];
+    const out = byMaterial.get(name) ?? byMaterial.set(name, []).get(name)!;
+    for (const i of [a, c, b]) out.push(S.v[i * 3], -S.v[i * 3 + 1], S.v[i * 3 + 2]);
+  }
+  const geos = new Map<string, THREE.BufferGeometry>();
+  for (const [name, xyz] of byMaterial) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(xyz, 3));
+    geos.set(name, g);
+  }
+  return geos;
+}
+
+/**
+ * Lost glove (common): one of Urchi's own gloves, the very model its suit wears (grey, a dark
+ * palm, a grey cuff at the wrist), tumbling slowly on its own.
  */
 export function makeGlove(): Item {
-  const white = facets("#f8f6f0", "#8b90b4");
-  const grey = facets("#b8bcc8", "#4a4e62");
-  const orange = facets("#ffa446", "#c8421c");
   const hand = new THREE.Group();
-
-  // the back of the hand and the palm: a chunky, flattened ball
-  const palm = part(new THREE.IcosahedronGeometry(1, 1), white);
-  palm.scale.set(0.56, 0.52, 0.33);
-  hand.add(palm);
-
-  // four fingers, each two stubby pieces bent toward the palm, the middle ones longest
-  // (fat and pressed together, as a stiff suit glove's are)
-  const fingers = [
-    { x: -0.33, len: 0.14, lean: 0.08 },
-    { x: -0.11, len: 0.21, lean: 0.02 },
-    { x: 0.11, len: 0.19, lean: -0.02 },
-    { x: 0.33, len: 0.12, lean: -0.08 },
-  ];
-  for (const f of fingers) {
-    const base = new THREE.Group();
-    base.position.set(f.x, 0.34, 0);
-    base.rotation.set(-0.3, 0, f.lean);
-    const near = part(new THREE.CapsuleGeometry(0.155, f.len, 2, 7), white);
-    near.position.y = f.len / 2 + 0.08;
-    base.add(near);
-    const joint = new THREE.Group();
-    joint.position.y = f.len + 0.13;
-    joint.rotation.x = -0.55;
-    const tip = part(new THREE.CapsuleGeometry(0.145, f.len * 0.5, 2, 7), white);
-    tip.position.y = (f.len * 0.5) / 2 + 0.07;
-    joint.add(tip);
-    base.add(joint);
-    hand.add(base);
+  for (const [name, g] of gloveGeometry()) {
+    const [lit, shade] = COLOURS[name] ?? COLOURS.grey, material = facets(lit, shade);
+    // the palm lies on the glove's own surface, as a decal does: drawn a hair nearer, so it is never lost in it
+    if (name === "dark") Object.assign(material, { polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    hand.add(part(g, material, 26, name === "dark" ? 0.25 : 0.4));
   }
-
-  // the thumb, out to the side and up, curled in a little
-  const thumb = new THREE.Group();
-  thumb.position.set(0.47, -0.04, -0.04);
-  thumb.rotation.set(-0.35, 0.2, -1.0);
-  const thumbPart = part(new THREE.CapsuleGeometry(0.17, 0.2, 2, 7), white);
-  thumbPart.position.y = 0.19;
-  thumb.add(thumbPart);
-  hand.add(thumb);
-
-  // the cuff: a flared, oval gauntlet, and the grey ring where it meets the hand
-  const cuff = part(new THREE.CylinderGeometry(0.5, 0.6, 0.44, 10, 1), white);
-  cuff.position.y = -0.62;
-  cuff.scale.z = 0.72;
-  hand.add(cuff);
-  const ring = part(new THREE.TorusGeometry(0.5, 0.075, 5, 12), grey, 30, 0.3);
-  ring.position.y = -0.4;
-  ring.rotation.x = Math.PI / 2;
-  ring.scale.set(1, 0.72, 1);
-  hand.add(ring);
-  const band = part(new THREE.TorusGeometry(0.59, 0.05, 4, 12), grey, 30, 0.3);
-  band.position.y = -0.84;
-  band.rotation.x = Math.PI / 2;
-  band.scale.set(1, 0.72, 1);
-  hand.add(band);
-
-  // the small orange patch on the back of the hand
-  const patch = part(new THREE.BoxGeometry(0.3, 0.22, 0.06), orange, 20, 0.5);
-  patch.position.set(-0.06, 0.02, 0.325);
-  patch.rotation.set(0.05, -0.1, 0.08);
-  hand.add(patch);
-
   const body = new THREE.Group();
   body.add(hand);
   fit(hand, 0.95);
   const root = new THREE.Group();
-  const under = haze("#dfe8ff", 1.9, 0.09);
+  const under = haze("#d6dae6", 1.8, 0.06);
   under.position.set(0, -1.05, -0.5);
   root.add(under, body);
   // a slow tumble, the pose a function of its clock (so a held clock holds it, and any moment can be shown)

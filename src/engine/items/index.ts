@@ -6,7 +6,7 @@ import type { Item } from "./look";
  */
 export const ITEM_MAKERS: Record<string, () => Promise<() => Item>> = {
   "lost-glove": () => import("./glove").then((m) => m.makeGlove),
-  "static-puff": () => import("./static").then((m) => m.makeStatic),
+  micrometeorite: () => import("./micrometeorite").then((m) => m.makeMicrometeorite),
 };
 
 export type { Item } from "./look";
