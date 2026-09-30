@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { rawColor } from "@/engine/common/color";
 import { facets, halo, haze, part, release, type Item } from "./look";
 import { glowLines, type GlowLine } from "./lines";
+import { facing, swim, type Swim } from "./swim";
 
 /**
  * The school, swimming about inside an invisible ball: all through it, toward you and away as much
@@ -45,88 +46,16 @@ function progress(t: number) {
   return u * SCHOOL.pace + far * (n + f * f * f * (f * (f * 6 - 15) + 10));
 }
 
-/** A small seeded generator (mulberry32), so it is the same swim every time. */
-function seeded(seed: number) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/**
- * The leader's path, swum a step of `STEP` at a time from a seed and kept, as far as it has been
- * asked for (it starts a little before where the school starts, for those behind): where it is,
- * how far along, and its way on and its turn there (the turn: toward the middle of the turn, as
- * big as the turn is tight).
- */
-const STEP = 0.01, BEFORE = 2;
-function swim() {
-  const rand = seeded(20261001), kick = () => rand() + rand() + rand() - 1.5;
-  const pts: number[] = [];
-  const p = new THREE.Vector3(0.1, 0, 0), heading = new THREE.Vector3(-0.3, 0.2, 1).normalize(), spin = new THREE.Vector3();
-  const most = 2 / SCHOOL.turn, n = new THREE.Vector3(), steer = new THREE.Vector3(), want = new THREE.Vector3(), turning = new THREE.Vector3();
-  const extend = (to: number) => {
-    while (pts.length / 3 <= to) {
-      pts.push(p.x, p.y, p.z);
-      // its turning drifts, and is kicked about
-      spin.multiplyScalar(1 - STEP / SCHOOL.wander.settle).add(n.set(kick(), kick(), kick()).multiplyScalar(SCHOOL.wander.kick * Math.sqrt(STEP)));
-      // (it only ever turns, never rolls along its way: and never tighter than it can)
-      spin.addScaledVector(heading, -spin.dot(heading));
-      if (spin.length() > most) spin.setLength(most);
-      // near the edge, turning back in takes over: toward the inside, slanted the way it was
-      // wandering, the harder the further it points from there
-      const r = p.length(), f = Math.min(1, Math.max(0, (r - SCHOOL.edge.from) / (SCHOOL.edge.ball - SCHOOL.edge.from))), w = f * f * (3 - 2 * f);
-      turning.copy(spin);
-      if (w > 0) {
-        want.copy(p).multiplyScalar(-1 / r).addScaledVector(steer.crossVectors(spin, heading), SCHOOL.edge.slant).normalize();
-        const off = Math.acos(Math.min(1, Math.max(-1, heading.dot(want))));
-        steer.crossVectors(heading, want);
-        if (steer.lengthSq() < 1e-12) steer.set(0, 1, 0);
-        turning.multiplyScalar(1 - w).addScaledVector(steer.normalize(), most * w * Math.min(1, off / 0.8));
-        if (turning.length() > most) turning.setLength(most);
-      }
-      heading.addScaledVector(n.crossVectors(turning, heading), STEP).normalize();
-      p.addScaledVector(heading, STEP);
-    }
-  };
-  const at = (i: number) => new THREE.Vector3(pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2]);
-  // (the way on and the turn at a kept point, from its neighbours a few steps off, so they are smooth)
-  const way = (i: number) => at(i + 2).sub(at(i - 2)).divideScalar(4 * STEP);
-  const bend = (i: number) => at(i + 3).add(at(i - 3)).addScaledVector(at(i), -2).divideScalar(9 * STEP * STEP);
-  return (gone: number) => {
-    const f = (gone + BEFORE) / STEP, i = Math.max(3, Math.floor(f)), k = f - Math.floor(f);
-    extend(i + 5);
-    return {
-      at: at(i).lerp(at(i + 1), k),
-      on: way(i).lerp(way(i + 1), k).normalize(),
-      turn: bend(i).lerp(bend(i + 1), k),
-    };
-  };
-}
-
-const UP = new THREE.Vector3(0, 1, 0), TOWARD = new THREE.Vector3(0, 0, 1);
 
 /**
  * Fish `i` at `t`, along `path`: where it is, which way it faces (x its nose, y its back, z its
  * side), and how fast it is going against its glide. It banks into its turns, its back leaning
  * toward the turn's middle, as nothing holds it upright out here.
  */
-function pose(path: ReturnType<typeof swim>, i: number, t: number) {
+function pose(path: Swim, i: number, t: number) {
   const [back, side, up] = PLACES[i], gone = progress(t) - back;
-  const { at, on: nose, turn } = path(gone);
-  const inward = turn.clone().addScaledVector(nose, -turn.dot(nose));
-  // its back toward up, or (as it heads up or down, where up is no guide) toward you, eased
-  // between; and leaning into the turn, the tighter the turn the more (so as a turn one way
-  // becomes a turn the other, it comes upright and leans the other way, never flips)
-  const vertical = Math.min(1, Math.max(0, (Math.abs(nose.y) - 0.6) / 0.35));
-  const hint = UP.clone().lerp(TOWARD, vertical * vertical * (3 - 2 * vertical)).normalize();
-  const tight = inward.length();
-  if (tight > 1e-6) hint.addScaledVector(inward.normalize(), Math.min(0.8, 0.15 * tight));
-  const flank = new THREE.Vector3().crossVectors(nose, hint).normalize(), topside = new THREE.Vector3().crossVectors(flank, nose);
+  const { at, on, turn } = path(gone);
+  const { nose, topside, flank } = facing(on, turn);
   // its place in the school, and a little way of its own
   at.addScaledVector(flank, side + 0.012 * Math.sin(t * 2.3 + i * 1.7)).addScaledVector(topside, up + 0.012 * Math.sin(t * 1.9 + i * 2.9));
   const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(nose, topside, flank));
@@ -145,7 +74,8 @@ function bodyGeometry() {
     [0.017, -0.095],
     [0, -0.1],
   ].map(([r, y]) => new THREE.Vector2(r, y));
-  const g = new THREE.LatheGeometry(profile, 6);
+  // (a lathe's profile from its bottom up, so its faces face out)
+  const g = new THREE.LatheGeometry(profile.reverse(), 6);
   g.rotateZ(-Math.PI / 2);
   g.scale(1, 1, 0.66);
   return g;
@@ -200,7 +130,7 @@ function minnow() {
  */
 export function makeMinnows(): Item {
   const school = new THREE.Group();
-  const path = swim();
+  const path = swim({ ...SCHOOL, seed: 20261001, from: [0.1, 0, 0], heading: [-0.3, 0.2, 1] });
   const fishes = PLACES.map(() => minnow());
   fishes.forEach((f) => {
     f.fish.scale.setScalar(FISH);
