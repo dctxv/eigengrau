@@ -161,6 +161,8 @@ export function haze(colour: string, size = 1.8, strength = 0.1) {
   });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size * 0.4), material);
   mesh.renderOrder = -1;
+  // (marked, so a host that wants none, Space, can leave it out: see sprite.ts)
+  mesh.userData.haze = true;
   return mesh;
 }
 

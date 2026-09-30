@@ -1562,12 +1562,12 @@ button {
   align-self: start;
 }
 .found-big {
-  width: min(340px, 36vw);
+  width: min(510px, 40vw);
   aspect-ratio: 1;
 }
 .found-words {
   text-align: center;
-  max-width: 340px;
+  max-width: 420px;
 }
 .found-words h3 {
   font: 500 12px/140% var(--font-grotesk);
@@ -1593,7 +1593,7 @@ button {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(174px, 1fr));
   gap: 20px 12px;
   align-content: start;
 }
@@ -1611,7 +1611,7 @@ button {
 }
 .found-place {
   width: 100%;
-  max-width: 116px;
+  max-width: 174px;
   aspect-ratio: 1;
   border-radius: 50%;
   outline: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
@@ -1643,9 +1643,9 @@ button {
     gap: 20px;
   }
   .found-big {
-    width: min(220px, 56vw);
+    width: min(330px, 80vw);
   }
   .found-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

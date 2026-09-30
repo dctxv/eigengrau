@@ -96,6 +96,10 @@ export class ItemSprite {
       this.item.dispose();
     }
     this.item = item;
+    // no haze under it on Space (look.ts haze): it reads as a shadow there
+    item.object.traverse((o) => {
+      if (o.userData.haze) o.visible = false;
+    });
     this.scene.add(item.object);
     item.update(0, this.t, true);
   }

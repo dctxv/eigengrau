@@ -28,8 +28,8 @@ import { rng, subSeed } from "./tune";
  */
 const FOUND = {
   order: -98.5,
-  size: [0.24, 0.3] as [number, number],
-  minPx: 60,
+  size: [0.36, 0.45] as [number, number],
+  minPx: 90,
   far: { zoomResponse: 0.3, pixelFrom: 0.6, pixelMost: 5 },
   near: { zoomResponse: 0.55, pixelFrom: 0.5, pixelMost: 4 },
   forged: { cells: 12 },

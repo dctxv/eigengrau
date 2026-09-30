@@ -57,13 +57,13 @@ let hinted = false;
  * was caught is there where the glint was (coming up over `grow`), and over `carry` the hands bring
  * it in front of Urchi, growing as it comes, to be held in both of them, as wide as they are apart
  * (`between` times that: it sits in front of the mittens either side of it), never under `min` or
- * over `max` CSS px (zoomed as Urchi is), turning; Urchi looks at it for `hold` (by how rare it is, or what it is)
+ * over `max` CSS px (zoomed as Urchi is), and all of that `bigger` again, so it is seen, turning; Urchi looks at it for `hold` (by how rare it is, or what it is)
  * while the caption says what it is; then it goes up into the sky over `toSky`, or, one it has
  * already, it lets it go: it drifts off at `drift` of Urchi's height a second, fading over `fade`.
  * Under reduced motion nothing swims: the glint goes, and what it was is there in front of Urchi at
  * once.
  */
-const CATCH = { flare: 0.3, grow: 0.25, carry: 0.9, size: 0.45, between: 1.5, min: 84, max: 170, toSky: 2.6, drift: 0.28, fade: 2.6 };
+const CATCH = { bigger: 1.5, flare: 0.3, grow: 0.25, carry: 0.9, size: 0.45, between: 1.5, min: 84, max: 170, toSky: 2.6, drift: 0.28, fade: 2.6 };
 const HOLD: Record<ItemTier | "again" | "forged", number> = { common: 2.4, uncommon: 3, rare: 3.6, top: 4.4, again: 2.4, forged: 3.8 };
 /** How rare each tier is, as the sky's own variants are (by weight): only tiers with something made in them are drawn. */
 const ODDS: Record<ItemTier, number> = { common: 70, uncommon: 20, rare: 8, top: 2 };
@@ -574,7 +574,7 @@ export class Catch {
       // between its hands (under reduced motion, which has no hands to move, in front of its middle)
       const hand: Point & { apart?: number } = o.float.handAt() ?? (p ? room.onFigure(0, 780) : { x: 0, y: 0 });
       const wide = hand.apart ? hand.apart * CATCH.between : CATCH.size * tall;
-      const size = Math.min(CATCH.max * Math.max(zoom, 0.4), Math.max(CATCH.min * Math.min(1, zoom), wide));
+      const size = CATCH.bigger * Math.min(CATCH.max * Math.max(zoom, 0.4), Math.max(CATCH.min * Math.min(1, zoom), wide));
       // the glint is what it caught: it grows out of where the glint was, and the hands bring it in
       const carry = o.reducedMotion ? 1 : smooth((this.t - h.caughtAt) / CATCH.carry);
       const shown = h.shown ? (o.reducedMotion ? 1 : smooth((this.t - h.t0) / CATCH.grow)) : 0;
