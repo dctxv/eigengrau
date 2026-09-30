@@ -177,34 +177,80 @@ const glassFragment = /* glsl */ `
 uniform vec3 uTint;
 uniform vec3 uKey;
 uniform float uClear;
+uniform vec3 uInnerColour;
+uniform float uInner;
 varying vec3 vN;
 varying vec3 vP;
 void main() {
   vec3 n = normalize(vN), v = normalize(-vP);
   if (!gl_FrontFacing) n = -n;
-  // clear in the middle of a face, brighter and whiter toward its grazing edges, and a highlight where the key catches it
-  float fres = pow(1.0 - abs(dot(n, v)), 2.2);
-  float spec = pow(max(dot(reflect(-uKey, n), v), 0.0), 24.0);
-  float a = uClear + 0.5 * fres + 0.6 * spec;
-  vec3 c = mix(uTint, vec3(1.0), clamp(fres + spec, 0.0, 1.0));
-  gl_FragColor = vec4(c * a, a);
+  float nv = clamp(dot(n, v), 0.0, 1.0);
+  // clear face on, whiter the more of a slant a face is seen at
+  float fres = 0.5 * pow(1.0 - nv, 4.0);
+  // the studio round it, as glass reflects it: a big soft panel up by the key, a thin strip low on
+  // the far side, dark between (flat faces, so each face catches all of one or none of it); and a
+  // sharp highlight where the key itself is caught
+  vec3 r = reflect(-v, n);
+  float panel = smoothstep(0.75, 0.92, dot(r, uKey));
+  float strip = 0.5 * smoothstep(0.9, 0.97, dot(r, normalize(vec3(0.7, -0.35, 0.6))));
+  float spec = pow(max(dot(r, uKey), 0.0), 90.0);
+  float shine = clamp(fres + 0.55 * panel + 0.35 * strip + 1.2 * spec, 0.0, 1.0);
+  float a = uClear + 0.6 * shine;
+  // and lit from inside by what is in it, most where it is seen through at a slant
+  vec3 c = mix(uTint, vec3(1.0), shine) * a + uInnerColour * uInner * (0.35 + 0.65 * (1.0 - nv));
+  gl_FragColor = vec4(c, a);
 }`;
 
 /**
- * Clear glass, faceted: a faint tint of `tint` face on, brighter and whiter toward the edges it is
- * seen at a slant, with a highlight where the key light catches a face. One side of it (`side`):
- * a glass thing is drawn back faces first, what is inside it, then its front faces.
+ * Clear glass, faceted: a faint tint of `tint` face on, brighter and whiter toward the faces it is
+ * seen at a slant, reflecting a soft studio light (so a face or two flashes bright as it turns) with
+ * a sharp highlight where the key light catches a face. One side of it (`side`): a glass thing is
+ * drawn back faces first, what is inside it, then its front faces. Light it from inside (a glow in
+ * it) with `uniforms.uInner` (0 unlit) in `uniforms.uInnerColour`.
  */
-export function glass(tint: string, side: THREE.Side, clear = 0.06) {
+export function glass(tint: string, side: THREE.Side, clear = 0.06, inner = "#ffffff") {
   return new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader: glassFragment,
-    uniforms: { uTint: { value: rawColor(tint) }, uKey: { value: KEY }, uClear: { value: clear } },
+    uniforms: { uTint: { value: rawColor(tint) }, uKey: { value: KEY }, uClear: { value: clear }, uInnerColour: { value: rawColor(inner) }, uInner: { value: 0 } },
     transparent: true,
     premultipliedAlpha: true,
     depthWrite: false,
     side,
   });
+}
+
+/**
+ * The thin light lines along a glass thing's edges: bright on the side toward you, faint on the far
+ * side seen through it (so it reads as a clear solid, not a wire frame); `reach` is how far its
+ * edges lie from its middle, near and far. Flare them (a light in it) with `flare`, 0 not at all.
+ */
+export function glassEdges(geometry: THREE.BufferGeometry, reach: number, flareColour = "#ffffff", angle = 20, near = 0.55, far = 0.07) {
+  const uniforms = { uReach: { value: reach }, uNear: { value: near }, uFar: { value: far }, uFlareColour: { value: rawColor(flareColour) }, uFlare: { value: 0 } };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `uniform float uReach; varying float vNear;
+      void main() {
+        vec4 p = modelViewMatrix * vec4(position, 1.0), o = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        vNear = clamp((p.z - o.z) / (uReach * length(modelViewMatrix[0].xyz)) * 0.5 + 0.5, 0.0, 1.0);
+        gl_Position = projectionMatrix * p;
+      }`,
+    fragmentShader: `uniform float uNear; uniform float uFar; uniform vec3 uFlareColour; uniform float uFlare; varying float vNear;
+      void main() {
+        float a = mix(uFar, uNear, smoothstep(0.3, 0.7, vNear));
+        gl_FragColor = vec4(vec3(a) + uFlareColour * uFlare * (0.35 + 0.65 * vNear), a);
+      }`,
+    transparent: true,
+    premultipliedAlpha: true,
+    depthWrite: false,
+  });
+  const lines = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, angle), material);
+  return {
+    lines,
+    set flare(v: number) {
+      uniforms.uFlare.value = v;
+    },
+  };
 }
 
 /** A soft halo round what glows, in the host's view, `size` across: light added round it. Set its `strength` as it glows. */

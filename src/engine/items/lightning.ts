@@ -1,18 +1,18 @@
 import * as THREE from "three";
 import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
 import { rawColor } from "@/engine/common/color";
-import { faceted, glass, glint, halo, haze, release, type Item } from "./look";
+import { faceted, glass, glassEdges, glint, halo, haze, release, type Item } from "./look";
 
 /**
  * How it strikes, as lightning does, in seconds: a faint leader forks its way down from the top over
  * `leader`; the return stroke lights the whole bolt at `flash` for `stroke`; it flickers with a
- * restrike at each of `restrikes` (after the stroke), each gone in about `flicker`, and fades over
+ * restrike (at `restrike`) at each of `restrikes` after the stroke, each gone in about `flicker`, and fades over
  * `fade`, its branches first; all of it over in under half a second, as lightning is. A
  * dark pause of `gap[0]` to `gap[1]`, and the next strike takes a new path. The whole time it
  * crackles: its forks jump a little `crackle` times a second, by up to `jitter` of the shard's
  * height. Its glass turns once in `turn` seconds.
  */
-const STRIKE = { leader: 0.06, flash: 1.8, stroke: 0.04, restrikes: [0.05, 0.11, 0.17], flicker: 0.025, fade: 0.16, gap: [0.3, 1.3] as [number, number], crackle: 30, jitter: 0.012, turn: 26 };
+const STRIKE = { leader: 0.06, flash: 2.6, stroke: 0.04, restrikes: [0.05, 0.11, 0.17], restrike: 1.9, flicker: 0.025, fade: 0.16, gap: [0.3, 1.3] as [number, number], crackle: 30, jitter: 0.012, turn: 26 };
 
 /** A small seeded generator (mulberry32), so it is the same bolt every time. */
 function seeded(seed: number) {
@@ -79,7 +79,7 @@ function bolt(rand: () => number): { chains: Chain[]; length: number } {
       if (q.y < -0.85) break;
     }
   };
-  grow(new THREE.Vector3((rand() - 0.5) * 0.1, 0.84, (rand() - 0.5) * 0.1), new THREE.Vector3(0, -1, 0), 1.62, 0.045, 0, 0);
+  grow(new THREE.Vector3((rand() - 0.5) * 0.1, 0.84, (rand() - 0.5) * 0.1), new THREE.Vector3(0, -1, 0), 1.62, 0.052, 0, 0);
   const most = Math.max(...chains.flatMap((c) => c.dist));
   for (const c of chains) c.dist = c.dist.map((d) => d / most);
   return { chains, length: most };
@@ -297,7 +297,7 @@ function strikes() {
     const k = after - STRIKE.stroke;
     // the restrikes: sharp flares on a dying glow, and an afterglow under them that the fade takes
     let bright = Math.max(0.9 * Math.exp(-k / 0.06), 0.32 * Math.exp(-k / 0.2));
-    for (const r of STRIKE.restrikes) if (k >= r) bright = Math.max(bright, 1.4 * Math.exp(-(k - r) / STRIKE.flicker));
+    for (const r of STRIKE.restrikes) if (k >= r) bright = Math.max(bright, STRIKE.restrike * Math.exp(-(k - r) / STRIKE.flicker));
     if (k < last + 0.03) return { reveal: 2, bright, branch: Math.exp(-k / 0.1) };
     const f = (k - last - 0.03) / STRIKE.fade;
     return f < 1 ? { reveal: 2, bright: bright * (1 - f), branch: Math.max(0, 0.4 * (1 - 2 * f)) } : dark;
@@ -309,21 +309,24 @@ function strikes() {
  * Frozen lightning (uncommon): lightning in pale violet and white, trapped inside a clear glass
  * shard, striking over and over as lightning does (see STRIKE): a leader forking down from the top,
  * the flash of the return stroke, a flicker of restrikes, a fade, a dark pause, and a new path. It
- * blooms, with a faint violet halo that flares with each strike, crackles while it is lit, and the
- * glass catches a small four-point glint at its corners now and then. It turns slowly.
+ * blooms and crackles while it is lit, and each strike lights everything round it: the glass from
+ * inside and along its edges, a violet halo, a burst of light at its brightest and the haze beneath;
+ * and the stroke jolts the shard. The glass, clear between strikes, catches the light on a face or
+ * two as it turns slowly, and a small four-point glint at its corners now and then.
  */
 export function makeLightning(): Item {
   const rand = seeded(20260930);
   const { geometry, corners } = shardGeometry(rand);
   const shard = new THREE.Group();
-  const back = new THREE.Mesh(geometry, glass("#c9d2ff", THREE.BackSide, 0.05));
-  const front = new THREE.Mesh(geometry, glass("#c9d2ff", THREE.FrontSide, 0.07));
+  const backGlass = glass("#c9d2ff", THREE.BackSide, 0.03, "#b59cff"), frontGlass = glass("#c9d2ff", THREE.FrontSide, 0.04, "#d9ccff");
+  const back = new THREE.Mesh(geometry, backGlass);
+  const front = new THREE.Mesh(geometry, frontGlass);
   back.renderOrder = 0;
   front.renderOrder = 2;
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 20), new THREE.LineBasicMaterial({ color: rawColor("#ffffff"), transparent: true, opacity: 0.35, depthWrite: false }));
-  edges.renderOrder = 2;
+  const edges = glassEdges(geometry, 0.45, "#e2d8ff", 20, 0.65, 0.07);
+  edges.lines.renderOrder = 2;
   const light = boltMesh();
-  shard.add(back, light.mesh, front, edges);
+  shard.add(back, light.mesh, front, edges.lines);
   // glints on three of its corners, each on a beat of its own
   const glints = [1, 8, 14].map((i, k) => {
     const g = glint(0.34);
@@ -334,11 +337,14 @@ export function makeLightning(): Item {
   const body = new THREE.Group();
   body.add(shard);
   body.rotation.z = -0.38;
+  // a faint violet halo that flares with each strike, and a wider burst of light only at its brightest
   const glow = halo("#9d7dff", 2.1, 0.05);
+  const burst = halo("#cdbfff", 2.3, 0);
   const under = haze("#b9a6ff", 1.7, 0.08);
+  const underStrength = (under.material as THREE.ShaderMaterial).uniforms.uStrength;
   under.position.set(0, -1.02, -0.5);
   const root = new THREE.Group();
-  root.add(under, glow.mesh, body);
+  root.add(under, burst.mesh, glow.mesh, body);
   const { which, look, dark } = strikes();
   let shown = -2;
 
@@ -363,8 +369,19 @@ export function makeLightning(): Item {
       u.uBranch.value = l.branch;
       u.uCrackle.value = Math.floor(t * STRIKE.crackle) % 1000;
       light.mesh.visible = l.bright > 0;
-      // the halo flares with the strike; between strikes only a trace of it is left
-      glow.strength = 0.05 + 0.16 * Math.min(1.5, l.bright);
+      // it lights everything round it: the glass from inside and its edges, the halo, a burst of
+      // light at its brightest, and the haze beneath; between strikes only a trace of the halo is left
+      const lit = Math.min(2.6, l.bright);
+      backGlass.uniforms.uInner.value = 0.05 * lit;
+      frontGlass.uniforms.uInner.value = 0.02 * lit;
+      edges.flare = 0.22 * lit;
+      glow.strength = 0.05 + 0.2 * lit;
+      burst.strength = 0.14 * Math.max(0, l.bright - 1.2);
+      underStrength.value = 0.08 + 0.1 * lit;
+      // and the stroke jolts the shard, a quick shake that dies away
+      const after = n < 0 ? -1 : s - STRIKE.leader, jolt = after < 0 ? 0 : Math.exp(-after / 0.08);
+      body.position.set(0.018 * jolt * Math.sin(after * 97), 0.012 * jolt * Math.sin(after * 71 + 1.3), 0);
+      body.rotation.z = -0.38 + 0.03 * jolt * Math.sin(after * 83 + 0.6);
       for (const { g, rate, phase } of glints) g.strength = Math.max(0, Math.sin(t * rate + phase)) ** 16;
     },
     dispose() {
