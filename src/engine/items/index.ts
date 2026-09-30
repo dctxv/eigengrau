@@ -8,7 +8,6 @@ export const ITEM_MAKERS: Record<string, () => Promise<() => Item>> = {
   "lost-glove": () => import("./glove").then((m) => m.makeGlove),
   micrometeorite: () => import("./micrometeorite").then((m) => m.makeMicrometeorite),
   "frozen-lightning": () => import("./lightning").then((m) => m.makeLightning),
-  // (a first pass, set aside unreviewed: to come back to)
   "magnet-stone": () => import("./magnet").then((m) => m.makeMagnet),
   "comet-minnows": () => import("./minnows").then((m) => m.makeMinnows),
 };
