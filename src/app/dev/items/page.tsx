@@ -10,7 +10,8 @@ const ItemSheet = process.env.NODE_ENV === "production" ? null : dynamic(() => i
  * big (?big= px) and at 96px, the size it must read at, with its name and caption, turning; ?t=
  * holds its clock at that many seconds (for stills), ?still stops it. The cursor over either view
  * is the item's (for those that answer it); ?px= &py= hold it there instead, in the item's units (it
- * fits radius 1, a view spans 1.15 either way). window.__t and window.__point do the same for a
+ * fits radius 1, a view spans 1.15 either way). Focus on the sheet (Tab to it) is focus on the item,
+ * and ?focus holds it. window.__t and window.__point do the same for a
  * script filming it, a frame at a time. An item is pixelated at its own pixel level (level 1, the
  * new zero, unless it asks for more); ?pixel= a level shows it at that level instead (0 smooth).
  */

@@ -53,6 +53,11 @@ export function ItemSheet() {
     const pixels = new Pixelated(), forced = q.has("pixel") ? Number(q.get("pixel")) : null;
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerleave", leave);
+    // focus on the sheet is focus on the item (Item.focus), or ?focus holds it
+    let focused = q.has("focus");
+    const onFocus = () => (focused = true), onBlur = () => (focused = q.has("focus"));
+    el.addEventListener("focus", onFocus);
+    el.addEventListener("blur", onBlur);
     // (held: ?t= is the moment shown, ?still the first)
     make().then((maker) => {
       if (!alive) return;
@@ -78,6 +83,7 @@ export function ItemSheet() {
       // (a script filming it sets window.__t, seconds, a frame at a time, and window.__point for the cursor)
       const script = window as unknown as { __t?: number; __point?: { x: number; y: number } | null };
       item.point?.(script.__point !== undefined ? script.__point : (fixed ?? pointer));
+      item.focus?.(focused);
       const held = script.__t;
       if (held !== undefined) {
         item.update(held > lastHeld && held - lastHeld < 0.1 ? held - lastHeld : 1 / 30, held, false);
@@ -99,6 +105,8 @@ export function ItemSheet() {
       cancelAnimationFrame(raf);
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerleave", leave);
+      el.removeEventListener("focus", onFocus);
+      el.removeEventListener("blur", onBlur);
       item?.dispose();
       pixels.dispose();
       renderer.dispose();
@@ -107,7 +115,7 @@ export function ItemSheet() {
 
   return (
     <main style={{ position: "fixed", inset: 0, background: "#16161d", color: "#e9e9e2", font: "13px/1.4 ui-monospace, monospace" }}>
-      <canvas ref={canvas} style={{ width: "100%", height: "100%", display: "block" }} />
+      <canvas ref={canvas} tabIndex={0} aria-label={shown && text ? `${text.name}, up close` : "An item up close"} style={{ width: "100%", height: "100%", display: "block", outline: "none" }} />
       {shown && text && (
         <div style={{ position: "absolute", left: 80 + big, top: 60 + SMALL + 24, maxWidth: 360 }}>
           <div style={{ opacity: 0.5 }}>{text.tier}</div>
