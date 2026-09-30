@@ -41,15 +41,17 @@ function shardGeometry(rand: () => number) {
   return { geometry: faceted(new ConvexGeometry(pts)), corners: pts };
 }
 
-type Seg = { a: THREE.Vector3; b: THREE.Vector3; da: number; db: number; w: number; depth: number };
+/** One run of the bolt, the trunk or a branch: its points, how far along the bolt each is from where it struck, and how wide it is there. */
+type Chain = { pts: THREE.Vector3[]; dist: number[]; width: number[]; depth: number };
 
 /**
  * A bolt: a trunk down the shard's length from its top and branches off it, and branches off those,
- * each a run of short pieces whose direction wanders, kept inside the glass. Each end knows how far
- * along the bolt it is from where it struck, for the leader's way down.
+ * each a run of short pieces whose direction wanders, kept inside the glass. Each point knows how
+ * far along the bolt it is from where it struck (a share of `length`, the longest way along it), for
+ * the leader's way down.
  */
-function bolt(rand: () => number): Seg[] {
-  const segs: Seg[] = [];
+function bolt(rand: () => number): { chains: Chain[]; length: number } {
+  const chains: Chain[] = [];
   const wander = () => new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5);
   const keep = (p: THREE.Vector3) => {
     p.y = Math.min(0.88, Math.max(-0.86, p.y));
@@ -59,72 +61,107 @@ function bolt(rand: () => number): Seg[] {
   };
   const grow = (from: THREE.Vector3, dir: THREE.Vector3, length: number, width: number, dist: number, depth: number) => {
     const n = depth === 0 ? 10 : 6 - depth * 2, step = length / n;
+    const chain: Chain = { pts: [from.clone()], dist: [dist], width: [width], depth };
+    chains.push(chain);
     let p = from.clone(), d = dist;
     for (let i = 0; i < n; i++) {
       const q = keep(p.clone().addScaledVector(dir, step).addScaledVector(wander(), step * (depth === 0 ? 0.9 : 1.2)));
-      const len = p.distanceTo(q);
-      segs.push({ a: p, b: q, da: d, db: d + len, w: width * (1 - (0.45 * i) / n), depth });
+      d += p.distanceTo(q);
+      chain.pts.push(q);
+      chain.dist.push(d);
+      chain.width.push(width * (1 - (0.45 * (i + 1)) / n));
       if (depth < 2 && i > 0 && i < n - 1 && rand() < (depth === 0 ? 0.75 : 0.5)) {
         const side = wander().setY(0).normalize().multiplyScalar(depth === 0 ? 1.8 : 1.4);
-        grow(q, dir.clone().add(side).normalize(), length * (depth === 0 ? 0.3 : 0.55), width * 0.6, d + len, depth + 1);
+        grow(q, dir.clone().add(side).normalize(), length * (depth === 0 ? 0.3 : 0.55), width * 0.6, d, depth + 1);
       }
       p = q;
-      d += len;
       // (it has reached the bottom of the glass: it grounds there)
       if (q.y < -0.85) break;
     }
   };
   grow(new THREE.Vector3((rand() - 0.5) * 0.1, 0.84, (rand() - 0.5) * 0.1), new THREE.Vector3(0, -1, 0), 1.62, 0.045, 0, 0);
-  const most = Math.max(...segs.map((s) => s.db));
-  for (const s of segs) {
-    s.da /= most;
-    s.db /= most;
-  }
-  return segs;
+  const most = Math.max(...chains.flatMap((c) => c.dist));
+  for (const c of chains) c.dist = c.dist.map((d) => d / most);
+  return { chains, length: most };
 }
 
 /**
- * Each piece of the bolt a ribbon facing you, as wide as its glow: its core white, its glow pale
- * violet, fading to nothing round its ends so the pieces join. Light added to what is under it, so
- * it blooms. Only as far down as the leader has reached, brightest at its tip; its branches dimmer
- * than its trunk as it fades; and every end jumps a little with the crackle (the same jump for the
- * two pieces an end joins, so they stay joined).
+ * Each piece of the bolt a ribbon facing you, as wide as its glow and round past its ends: its core
+ * white, its glow pale violet. Where a run bends, the line that halves the bend splits the pixels
+ * between its two pieces (each as bright as the other along it), so their light meets once and
+ * never doubles. A branch fades in from where it forks, so it does not double its parent's light
+ * there either. Light added to what is under it, so it blooms. Only as far down as the leader has
+ * reached, round and brightest at its front; its branches dimmer than its trunk as it fades; and
+ * every point but where it struck jumps a little with the crackle.
  */
 const boltVertex = /* glsl */ `
 attribute vec3 aA;
 attribute vec3 aB;
+attribute vec3 aPrev;
+attribute vec3 aNext;
+attribute vec2 aJoin;
 attribute float aEnd;
 attribute float aSide;
 attribute vec2 aDist;
-attribute float aWidth;
+attribute vec2 aWidth;
+attribute vec2 aFrom;
 attribute float aDepth;
 uniform float uGlow;
 uniform float uCrackle;
 uniform float uJitter;
+uniform vec3 uRoot;
+uniform vec4 uViewport;
 varying vec2 vUV;
 varying float vLen;
 varying float vDist;
+varying float vFrom;
+varying float vWide;
 varying float vDepth;
+flat varying vec4 vCutA;
+flat varying vec4 vCutB;
+flat varying vec2 vJoin;
 vec2 jump(vec3 p) {
   vec3 q = fract(p * vec3(12.9898, 78.233, 37.719) + uCrackle * 0.6180339);
   q += dot(q, q.yzx + 19.19);
-  return fract(vec2(q.x * q.y, q.y * q.z)) * 2.0 - 1.0;
+  return (fract(vec2(q.x * q.y, q.y * q.z)) * 2.0 - 1.0) * step(1e-5, distance(p, uRoot));
+}
+vec4 view(vec3 p) {
+  vec4 v = modelViewMatrix * vec4(p, 1.0);
+  v.xy += jump(p) * uJitter * length(modelViewMatrix[0].xyz);
+  return v;
+}
+vec2 onScreen(vec3 p) {
+  vec4 c = projectionMatrix * view(p);
+  return (c.xy / c.w * 0.5 + 0.5) * uViewport.zw + uViewport.xy;
+}
+// where a run bends at 'at', on its way from 'from' to 'to': the line that halves the bend, as a
+// point on it (drawing buffer px) and the way across it into the later piece. (Both pieces work it
+// out from the same three points the same way, so they agree on it to the bit.)
+vec4 cut(vec3 from, vec3 at, vec3 to) {
+  vec2 a = onScreen(from), b = onScreen(at), c = onScreen(to);
+  vec2 u = b - a, v = c - b;
+  u = length(u) > 1e-4 ? normalize(u) : vec2(0.0);
+  v = length(v) > 1e-4 ? normalize(v) : vec2(0.0);
+  vec2 n = u + v;
+  return vec4(b, length(n) > 1e-4 ? normalize(n) : vec2(1.0, 0.0));
 }
 void main() {
-  vec4 A = modelViewMatrix * vec4(aA, 1.0), B = modelViewMatrix * vec4(aB, 1.0);
-  float scale = length(modelViewMatrix[0].xyz), w = aWidth * uGlow * scale;
-  // (where it struck from holds still; every other end jumps)
-  A.xy += jump(aA) * uJitter * scale * step(0.001, aDist.x);
-  B.xy += jump(aB) * uJitter * scale;
+  float scale = length(modelViewMatrix[0].xyz);
+  vec4 A = view(aA), B = view(aB);
   vec2 d = B.xy - A.xy;
-  float len = length(d);
+  float len = length(d), wA = aWidth.x * uGlow * scale, wB = aWidth.y * uGlow * scale, w = mix(wA, wB, aEnd), mid = 0.5 * (wA + wB);
   vec2 dir = len > 1e-6 ? d / len : vec2(1.0, 0.0), across = vec2(-dir.y, dir.x);
   vec4 P = mix(A, B, aEnd);
   P.xy += across * aSide * w + dir * (aEnd * 2.0 - 1.0) * w;
-  vLen = len / w;
+  vLen = len / mid;
   vUV = vec2(aEnd * (vLen + 2.0) - 1.0, aSide);
   vDist = mix(aDist.x, aDist.y, aEnd);
+  vWide = mix(aWidth.x, aWidth.y, aEnd) * uGlow;
+  vFrom = mix(aFrom.x, aFrom.y, aEnd) / vWide;
   vDepth = aDepth;
+  vJoin = aJoin;
+  vCutA = aJoin.x > 0.5 ? cut(aPrev, aA, aB) : vec4(0.0);
+  vCutB = aJoin.y > 0.5 ? cut(aA, aB, aNext) : vec4(0.0);
   gl_Position = projectionMatrix * P;
 }`;
 const boltFragment = /* glsl */ `
@@ -134,48 +171,72 @@ uniform float uGlow;
 uniform float uReveal;
 uniform float uBright;
 uniform float uBranch;
+uniform float uLength;
 varying vec2 vUV;
 varying float vLen;
 varying float vDist;
+varying float vFrom;
+varying float vWide;
 varying float vDepth;
+flat varying vec4 vCutA;
+flat varying vec4 vCutB;
+flat varying vec2 vJoin;
 void main() {
-  if (vDist > uReveal) discard;
-  // how far from the piece's own line, in its glow's widths (round at its ends)
-  float r = length(vec2(max(0.0, max(-vUV.x, vUV.x - vLen)), vUV.y));
+  // (before the bend at its start is the piece before's; past the bend at its end, the next one's)
+  if (vJoin.x > 0.5 && dot(gl_FragCoord.xy - vCutA.xy, vCutA.zw) <= 0.0) discard;
+  if (vJoin.y > 0.5 && dot(gl_FragCoord.xy - vCutB.xy, vCutB.zw) > 0.0) discard;
+  // how far past where the leader has reached, and how far from its line, in its glow's widths
+  // (round past its ends, and round at the leader's front)
+  float ahead = max(0.0, vDist - uReveal) * uLength / vWide;
+  if (ahead >= 1.0) discard;
+  float r = length(vec2(max(max(0.0, max(-vUV.x, vUV.x - vLen)), ahead), vUV.y));
   float core = exp(-r * r * uGlow * uGlow * 3.5), glow = exp(-r * r * 3.0) * (1.0 - smoothstep(0.7, 1.0, r));
-  // the leader's tip burns brightest; branches go before the trunk as it fades
+  // the leader's front burns brightest; branches fade in from their forks, and go before the trunk as it fades
   float x = (uReveal - vDist) / 0.05;
   float tip = 1.0 + 2.0 * exp(-x * x) * step(uReveal, 1.0);
-  float bright = uBright * tip * (vDepth > 0.5 ? uBranch : 1.0);
-  gl_FragColor = vec4((uCore * core + uGlowColour * glow * 0.4) * bright, 1.0);
+  float branch = vDepth > 0.5 ? uBranch * smoothstep(0.2, 1.2, vFrom) : 1.0;
+  gl_FragColor = vec4((uCore * core + uGlowColour * glow * 0.4) * uBright * tip * branch, 1.0);
 }`;
 
-function boltGeometry(segs: Seg[]) {
-  const n = segs.length, A = new Float32Array(n * 12), B = new Float32Array(n * 12), end = new Float32Array(n * 4), side = new Float32Array(n * 4);
-  const dist = new Float32Array(n * 8), width = new Float32Array(n * 4), depth = new Float32Array(n * 4), index: number[] = [];
-  segs.forEach((s, i) => {
-    for (let k = 0; k < 4; k++) {
-      const v = i * 4 + k;
-      A.set([s.a.x, s.a.y, s.a.z], v * 3);
-      B.set([s.b.x, s.b.y, s.b.z], v * 3);
-      end[v] = k >> 1;
-      side[v] = k & 1 ? 1 : -1;
-      dist.set([s.da, s.db], v * 2);
-      width[v] = s.w;
-      depth[v] = s.depth;
+/** The bolt's pieces, four corners each, each knowing the points either side of it along its run (where it has them), for the bends. */
+function boltGeometry(chains: Chain[]) {
+  const a: number[] = [], b: number[] = [], prev: number[] = [], next: number[] = [], join: number[] = [], end: number[] = [], side: number[] = [];
+  const dist: number[] = [], width: number[] = [], from: number[] = [], depth: number[] = [], index: number[] = [];
+  for (const c of chains) {
+    const m = c.pts.length, along = [0];
+    for (let i = 1; i < m; i++) along.push(along[i - 1] + c.pts[i].distanceTo(c.pts[i - 1]));
+    for (let i = 0; i < m - 1; i++) {
+      const A = c.pts[i], B = c.pts[i + 1], P = c.pts[Math.max(0, i - 1)], N = c.pts[Math.min(m - 1, i + 2)], o = a.length / 3;
+      for (let k = 0; k < 4; k++) {
+        a.push(A.x, A.y, A.z);
+        b.push(B.x, B.y, B.z);
+        prev.push(P.x, P.y, P.z);
+        next.push(N.x, N.y, N.z);
+        join.push(i > 0 ? 1 : 0, i + 2 < m ? 1 : 0);
+        end.push(k >> 1);
+        side.push(k & 1 ? 1 : -1);
+        dist.push(c.dist[i], c.dist[i + 1]);
+        width.push(c.width[i], c.width[i + 1]);
+        from.push(along[i], along[i + 1]);
+        depth.push(c.depth);
+      }
+      index.push(o, o + 1, o + 2, o + 2, o + 1, o + 3);
     }
-    const o = i * 4;
-    index.push(o, o + 1, o + 2, o + 2, o + 1, o + 3);
-  });
+  }
   const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(A, 3));
-  g.setAttribute("aA", new THREE.BufferAttribute(A, 3));
-  g.setAttribute("aB", new THREE.BufferAttribute(B, 3));
-  g.setAttribute("aEnd", new THREE.BufferAttribute(end, 1));
-  g.setAttribute("aSide", new THREE.BufferAttribute(side, 1));
-  g.setAttribute("aDist", new THREE.BufferAttribute(dist, 2));
-  g.setAttribute("aWidth", new THREE.BufferAttribute(width, 1));
-  g.setAttribute("aDepth", new THREE.BufferAttribute(depth, 1));
+  const f = (v: number[], n: number) => new THREE.Float32BufferAttribute(v, n);
+  g.setAttribute("position", f(a, 3));
+  g.setAttribute("aA", f(a, 3));
+  g.setAttribute("aB", f(b, 3));
+  g.setAttribute("aPrev", f(prev, 3));
+  g.setAttribute("aNext", f(next, 3));
+  g.setAttribute("aJoin", f(join, 2));
+  g.setAttribute("aEnd", f(end, 1));
+  g.setAttribute("aSide", f(side, 1));
+  g.setAttribute("aDist", f(dist, 2));
+  g.setAttribute("aWidth", f(width, 2));
+  g.setAttribute("aFrom", f(from, 2));
+  g.setAttribute("aDepth", f(depth, 1));
   g.setIndex(index);
   return g;
 }
@@ -190,12 +251,17 @@ function boltMesh() {
     uReveal: { value: 0 },
     uBright: { value: 0 },
     uBranch: { value: 1 },
+    uRoot: { value: new THREE.Vector3() },
+    uLength: { value: 1 },
+    uViewport: { value: new THREE.Vector4() },
   };
   // (a ribbon's winding goes either way as it faces you: both sides are drawn)
   const material = new THREE.ShaderMaterial({ vertexShader: boltVertex, fragmentShader: boltFragment, uniforms, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
   mesh.frustumCulled = false;
   mesh.renderOrder = 1;
+  // (where on the drawing buffer it is being drawn, for the bends' lines, which are in its pixels)
+  mesh.onBeforeRender = (renderer) => renderer.getCurrentViewport(uniforms.uViewport.value);
   return { mesh, uniforms };
 }
 
@@ -285,7 +351,10 @@ export function makeLightning(): Item {
       if (n !== shown) {
         shown = n;
         light.mesh.geometry.dispose();
-        light.mesh.geometry = boltGeometry(bolt(seeded(9001 + n * 7919)));
+        const { chains, length } = bolt(seeded(9001 + n * 7919));
+        light.mesh.geometry = boltGeometry(chains);
+        light.uniforms.uRoot.value.copy(chains[0].pts[0]);
+        light.uniforms.uLength.value = length;
       }
       const l = n < 0 ? dark : look(s);
       const u = light.uniforms;
