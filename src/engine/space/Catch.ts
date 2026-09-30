@@ -29,15 +29,15 @@ import type { FoundSky } from "./sky/Found";
 const GLINT = { first: [9, 14] as [number, number], every: [20, 40] as [number, number], in: 1.2, out: 1.8, far: [0.18, 0.42] as [number, number], band: 0.3, below: 0.5, speed: [8, 15] as [number, number], life: [16, 22] as [number, number], size: 40, colour: "#ffe9bf", twinkle: 0.35, pulse: 1.7, turn: 0.35, halo: 0.22, notice: 0.5, hit: 30, hitTouch: 44, stop: 0.35, ready: 0.35, after: 4 };
 /**
  * The catch, in seconds: the glint flares as the hand closes on it and is gone over `flare`; what
- * was caught grows out of the hand over `grow` to `size` of the floating figure's height across
- * (never under `min` or over `max` CSS px, zoomed as Urchi is), held out past the glove, away
- * from its body (`out` of its own size beyond the hand), so it is seen against the sky, turning; Urchi looks at it for `hold` (by how rare it is, or what it is)
+ * was caught grows between its hands over `grow`, held in both of them in front of it, as wide as
+ * they are apart (`between` times that: a mitten either side of it), never under `min` or over `max`
+ * CSS px (zoomed as Urchi is), turning; Urchi looks at it for `hold` (by how rare it is, or what it is)
  * while the caption says what it is; then it goes up into the sky over `toSky`, or, one it has
  * already, it lets it go: it drifts off at `drift` of Urchi's height a second, fading over `fade`.
  * Under reduced motion nothing swims: the glint goes, and what it was is there in front of Urchi at
  * once.
  */
-const CATCH = { flare: 0.3, grow: 0.5, size: 0.34, min: 64, max: 150, out: 0.42, toSky: 2.6, drift: 0.28, fade: 2.6 };
+const CATCH = { flare: 0.3, grow: 0.5, size: 0.34, between: 1.15, min: 64, max: 150, toSky: 2.6, drift: 0.28, fade: 2.6 };
 const HOLD: Record<ItemTier | "again" | "forged", number> = { common: 2.4, uncommon: 3, rare: 3.6, top: 4.4, again: 2.4, forged: 3.8 };
 /** How rare each tier is, as the sky's own variants are (by weight): only tiers with something made in them are drawn. */
 const ODDS: Record<ItemTier, number> = { common: 70, uncommon: 20, rare: 8, top: 2 };
@@ -140,7 +140,7 @@ export type CatchOptions = {
 };
 
 type Out = { x: number; y: number; vx: number; vy: number; born: number; life: number; gone: number; t: number; ready: number; noticed: boolean };
-type Held = { id: string; text: ItemText & { tier: ItemTier }; kind: "new" | "again" | "forged"; sprite: ItemSprite; t0: number; shown: boolean; side: 1 | -1 };
+type Held = { id: string; text: ItemText & { tier: ItemTier }; kind: "new" | "again" | "forged"; sprite: ItemSprite; t0: number; shown: boolean };
 type Loose = { sprite: ItemSprite; vx: number; vy: number; t: number; fade: number };
 
 /**
@@ -255,8 +255,7 @@ export class Catch {
     const sprite = new ItemSprite();
     sprite.mesh.renderOrder = 0.5; // in its hand, in front of it
     o.room.scene.add(sprite.mesh);
-    const hand = o.float.handAt(), p = o.room.float;
-    this.held = { id: g.id, text, kind, sprite, t0: this.t, shown: false, side: hand && p && hand.x < p.x ? -1 : 1 };
+    this.held = { id: g.id, text, kind, sprite, t0: this.t, shown: false };
     g.maker.then(
       (maker) => {
         const h = this.held;
@@ -434,14 +433,14 @@ export class Catch {
     const h = this.held;
     if (h) {
       const p = room.float, tall = room.figureTall * zoom;
-      const hand = o.float.handAt() ?? (p ? room.onFigure(h.side * 330, 600) : { x: 0, y: 0 });
-      const size = Math.min(CATCH.max * Math.max(zoom, 0.4), Math.max(CATCH.min * Math.min(1, zoom), CATCH.size * tall));
+      // between its hands (under reduced motion, which has no hands to move, in front of its middle)
+      const hand: Point & { apart?: number } = o.float.handAt() ?? (p ? room.onFigure(0, 780) : { x: 0, y: 0 });
+      const wide = hand.apart ? hand.apart * CATCH.between : CATCH.size * tall;
+      const size = Math.min(CATCH.max * Math.max(zoom, 0.4), Math.max(CATCH.min * Math.min(1, zoom), wide));
       const grow = h.shown ? (o.reducedMotion ? 1 : smooth((this.t - h.t0) / CATCH.grow)) : 0;
       const s = size * (0.25 + 0.75 * grow);
       const forged = h.kind === "forged", c = forged ? Math.max(cell, Math.round((s * grid.x) / FORGED_CELLS)) : Math.max(1, cell);
-      // out past the glove, away from its middle
-      const mx = p?.x ?? 0, my = p?.y ?? 0, dx = hand.x - mx, dy = hand.y - my, dl = Math.hypot(dx, dy) || 1;
-      const pose: SpritePose = { x: hand.x + (dx / dl) * CATCH.out * s, y: hand.y + (dy / dl) * CATCH.out * s, size: s, cell: c, fade: grow, wrong: forged ? 1 : 0 };
+      const pose: SpritePose = { x: hand.x, y: hand.y, size: s, cell: c, fade: grow, wrong: forged ? 1 : 0 };
       h.sprite.place(pose);
       h.sprite.frame(dt, o.reducedMotion);
       h.sprite.draw(room.renderer, stage);

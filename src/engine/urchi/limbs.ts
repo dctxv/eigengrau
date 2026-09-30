@@ -529,7 +529,7 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
    * Reaching for something (reachFor): which side's arm, the point (the body's space, the `.R`
    * side's terms), and how far the reach has come in (eased toward 1 while on, 0 once let go).
    */
-  const reaching = { on: false, side: 0 as Side, x: 0, y: 0, z: 0, w: 0, grip: 0, gripTo: 0 };
+  const reaching = { on: false, side: 0 as Side, both: false, x: 0, y: 0, z: 0, w: 0, grip: 0, gripTo: 0 };
   /** Swimming: whether it strokes, where it is in the stroke (0..1), and how far the stroke has come in (0..1). */
   const swimming = { on: false, phase: 0, w: 0 };
   const strokeNow: Pose = {};
@@ -611,17 +611,21 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
   /** The reach, over the rest (see reachFor): the arm's angles for the point, its hand turned palm out. */
   function aimReach() {
     if (reaching.w <= 0) return;
-    for (const d of DOFS) delete reachPose[d];
-    reach(data, Math.max(reaching.x, safeX(reaching.y)), reaching.y, reaching.z, REACH_POLE, reachPose);
-    // the hand open, palm out; closed on something (grip), bent in over it
-    const g = smooth(reaching.grip);
-    reachPose.wrTwist = 35 + (GRIP.twist - 35) * g; reachPose.wrBend = -12 + (GRIP.bend + 12) * g;
-    const w = smooth(reaching.w);
-    for (let k = 0; k < 6; k++) {
-      const v = reachPose[DOFS[k]];
-      if (v === undefined) continue;
-      const i = reaching.side * N + k;
-      target[i] += (v * D2R - target[i]) * w;
+    const g = smooth(reaching.grip), w = smooth(reaching.w);
+    // one arm, or both (each to the point in its own side's terms: a point across the body is
+    // reached for out on its own side, so two hands never cross)
+    for (const side of reaching.both ? ([0, 1] as Side[]) : [reaching.side]) {
+      for (const d of DOFS) delete reachPose[d];
+      const x = reaching.both ? (side ? -reaching.x : reaching.x) : reaching.x;
+      reach(data, Math.max(x, safeX(reaching.y)), reaching.y, reaching.z, REACH_POLE, reachPose);
+      // the hand open, palm out; closed on something (grip), bent in over it
+      reachPose.wrTwist = 35 + (GRIP.twist - 35) * g; reachPose.wrBend = -12 + (GRIP.bend + 12) * g;
+      for (let k = 0; k < 6; k++) {
+        const v = reachPose[DOFS[k]];
+        if (v === undefined) continue;
+        const i = side * N + k;
+        target[i] += (v * D2R - target[i]) * w;
+      }
     }
   }
 
@@ -763,16 +767,17 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
     play,
     /**
      * Reach for a point (the body's space at rest: head space, mesh units, y down), with the arm on
-     * `side` (0 the `.R`, on the viewer's right); the arm points at it if it is out of reach. It
-     * comes in over a moment and holds the point as it moves; null lets it go. Nothing of itself
-     * starts while it reaches.
+     * `side` (0 the `.R`, on the viewer's right), or with `both` (each out on its own side of it,
+     * never across the body: a point in front of it has a hand either side); the arm points at it
+     * if it is out of reach. It comes in over a moment and holds the point as it moves; null lets
+     * it go. Nothing of itself starts while it reaches.
      */
-    reachFor(p: [number, number, number] | null, side: Side = 0) {
+    reachFor(p: [number, number, number] | null, side: Side = 0, both = false) {
       if (o.reducedMotion) return;
       if (!p) { reaching.on = false; return; }
-      if (reaching.w > 0 && side !== reaching.side) return;   // the other arm is still coming down
-      reaching.on = true; reaching.side = side;
-      reaching.x = side ? -p[0] : p[0]; reaching.y = p[1]; reaching.z = p[2];
+      if (reaching.w > 0 && !both && !reaching.both && side !== reaching.side) return;   // the other arm is still coming down
+      reaching.on = true; reaching.side = side; reaching.both = both;
+      reaching.x = both ? p[0] : side ? -p[0] : p[0]; reaching.y = p[1]; reaching.z = p[2];
     },
     /** Reaching for something (or coming back from it). */
     get reaching() { return reaching.w > 0; },
@@ -791,6 +796,8 @@ export function createLimbs(data: RigData, o: { reducedMotion: boolean; onQuirk?
     },
     /** The side reaching now (0 the `.R`), or null. */
     get reachSide(): Side | null { return reaching.w > 0 ? reaching.side : null; },
+    /** Reaching with both arms. */
+    get reachBoth() { return reaching.w > 0 && reaching.both; },
     /**
      * Swimming: the breaststroke at `phase` (0..1 of a stroke, see STROKE), coming in over a moment;
      * null lets it go. It starts nothing of its own accord while it swims.
