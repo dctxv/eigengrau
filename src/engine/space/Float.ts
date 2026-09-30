@@ -3,6 +3,7 @@ import { sfx } from "@/audio/sfx";
 import { held, homecoming, jolt, shutEyes, swimTo } from "@/engine/urchi/acts";
 import type { Attention, Point } from "@/engine/urchi/attention";
 import { warmSuitIdle } from "@/engine/urchi/character";
+import type { QuirkName } from "@/engine/urchi/limbs";
 import { setAlong } from "@/lib/along";
 import { FIGURE_MIDDLE, URCHI_FIGURE, type RoomScene } from "./RoomScene";
 import { Tether } from "./Tether";
@@ -261,7 +262,7 @@ export class Float {
    * it first reaches), since when (its clock), whether its hand has closed on it, and what the page
    * is told: caught, or lost (held, flung, asleep, gone home, or too long).
    */
-  private fetch: { to: () => Point | null; side: 0 | 1 | null; t0: number; caught: boolean; raised?: boolean; on: { caught(): void; lost(): void } } | null = null;
+  private fetch: { to: () => Point | null; side: 0 | 1 | null; t0: number; caught: boolean; raised?: [number, number, number] | null; on: { caught(): void; lost(): void } } | null = null;
   /** Pointing at something (see pointAt): where it is now (room px), and until when (its clock). */
   private pointing: { to: () => Point | null; until: number } | null = null;
   private tl: gsap.core.Timeline | null = null;
@@ -274,7 +275,7 @@ export class Float {
     this.att = o.att;
     this.reduced = o.reducedMotion;
     this.tether = new Tether(o.room, {
-      root: () => this.root(),
+      root: () => this.seen(this.root()),
       clip: () => (this.room.float ? this.room.onFigure(PACK.x, PACK.y) : null),
       length: () => this.length,
       reducedMotion: o.reducedMotion,
@@ -322,9 +323,23 @@ export class Float {
     return this.room.width <= 640;
   }
 
-  /** The line's root, room px. */
+  /**
+   * The view's pan (RoomScene's PAN): its body is in the world the view pans over, so it is drawn
+   * that much the other way; what is fixed to the page (the line's root, the walls, where it likes
+   * to float) is moved with the view, so a pan pulls it along on its line, late, as a body would be.
+   */
+  private get pan() {
+    return this.room.pan;
+  }
+
+  /** The line's root, room px at its depth: just past the page's left edge, wherever the view has panned. */
   private root(): Point {
-    return { x: -this.room.width / 2 - ROOT.out, y: this.room.height / 2 - ROOT.down * this.room.height };
+    return { x: -this.room.width / 2 - ROOT.out + this.pan.x, y: this.room.height / 2 - ROOT.down * this.room.height + this.pan.y };
+  }
+
+  /** A point at its depth where the page shows it (room px). */
+  private seen(p: Point): Point {
+    return { x: p.x - this.pan.x, y: p.y - this.pan.y };
   }
 
   /** The clip from its middle, px, as it floats upright (y up). */
@@ -350,15 +365,20 @@ export class Float {
     return this.at(s.x, s.y);
   }
 
-  /** A place given as shares of the room (from the left, from the top), room px. */
+  /** A place given as shares of the page (from the left, from the top), room px at its depth. */
   private at(fx: number, fy: number): Point {
-    return { x: (fx - 0.5) * this.room.width, y: (0.5 - fy) * this.room.height };
+    return { x: (fx - 0.5) * this.room.width + this.pan.x, y: (0.5 - fy) * this.room.height + this.pan.y };
   }
 
-  /** The walls, room px. */
+  /** A place at its depth as shares of the page (from the left, from the top): what `at` takes. */
+  private share(p: Point): Point {
+    return { x: (p.x - this.pan.x) / this.room.width + 0.5, y: 0.5 - (p.y - this.pan.y) / this.room.height };
+  }
+
+  /** The walls, room px at its depth: the page's edges, wherever the view has panned. */
   private walls() {
-    const W = this.room.width / 2, H = this.room.height / 2;
-    return { left: -W + WALL.side, right: W - WALL.side, top: H - WALL.top, bottom: -H + (this.phone ? WALL.phoneBottom : WALL.bottom) };
+    const W = this.room.width / 2, H = this.room.height / 2, x = this.pan.x, y = this.pan.y;
+    return { left: -W + WALL.side + x, right: W - WALL.side + x, top: H - WALL.top + y, bottom: -H + (this.phone ? WALL.phoneBottom : WALL.bottom) + y };
   }
 
   /** How far its box reaches from its middle, across and up, turned as it is. */
@@ -383,7 +403,7 @@ export class Float {
     if (!p) return false;
     this.fetch = { to, side: null, t0: this.t, caught: false, on };
     // it floats there once it has it, rather than drifting back to where it was
-    this.stay = { x: p.x / this.room.width + 0.5, y: 0.5 - p.y / this.room.height };
+    this.stay = this.share(p);
     this.calmAt = Math.min(this.calmAt, this.t);
     this.limbs.calm();
     return true;
@@ -401,16 +421,53 @@ export class Float {
   }
 
   /**
-   * Holding what it caught in both hands: it holds it up high in one (see FETCH.raise), the arm on the
-   * side toward the room's middle, where there is room to hold it up (either hand has it).
+   * Holding what it caught in both hands: it holds it up high in one (see FETCH.raise), or wherever
+   * `at` says (head space, the `.R` side's terms: as far as the arm goes), the arm on the side toward
+   * the page's middle, where there is room to hold it up (either hand has it).
    */
-  raise() {
+  raise(at: [number, number, number] = FETCH.raise) {
     const f = this.fetch, p = this.room.float;
     if (!f?.caught || !p) return;
-    f.raised = true;
-    // (in its own frame: which way the room's middle is from it, turned as it is)
+    f.raised = at;
+    // (in its own frame: which way the page's middle is from it, turned as it is)
     const bx = -p.x * Math.cos(p.angle) - p.y * Math.sin(p.angle);
     f.side = bx >= 0 ? 0 : 1;
+  }
+
+  /** Held up in one hand: back in both. */
+  lower() {
+    if (this.fetch) this.fetch.raised = null;
+  }
+
+  /**
+   * Given something (Space's items, handed back): it takes it in both hands where they are, and holds
+   * it in front of it (see FETCH.hold) until openHand. `lost` is told if it cannot hold on to it (held,
+   * flung, asleep, gone home). Only floating, awake, not held, not going for anything, and not under
+   * reduced motion, where nothing of it moves: returns whether it takes it.
+   */
+  receive(lost: () => void) {
+    if (this.state !== "floating" || this.hold || this.fetch || this.att.asleep || this.reduced || !this.limbs) return false;
+    this.pointing = null;
+    this.fetch = { to: () => null, side: null, t0: this.t, caught: true, on: { caught: () => {}, lost } };
+    this.limbs.calm();
+    this.limbs.grip(true);
+    return true;
+  }
+
+  /**
+   * Drawn toward something (the magnet stone, near it): toward `at` (room px at its depth), at most
+   * `strength` of its height per second squared, less as it comes within half its height of it; null
+   * lets it go. Not while it is held, flying off or under reduced motion.
+   */
+  attract(at: Point | null, strength = 0) {
+    this.pull = at && strength > 0 ? { x: at.x, y: at.y, k: strength } : null;
+  }
+  private pull: { x: number; y: number; k: number } | null = null;
+
+  /** One of its limbs' quirks (limbs.ts QUIRKS: a wave back, a brace), now, if it is free to: floating, awake, not held and holding nothing. */
+  gesture(name: QuirkName) {
+    if (this.state !== "floating" || this.hold || this.fetch || this.att.asleep) return false;
+    return !!this.limbs?.play(name);
   }
 
   /** Whatever is in its hand let go: the hand opens and the arm comes back to it. */
@@ -530,7 +587,7 @@ export class Float {
   grab(clientX: number, clientY: number, t: number) {
     if (!this.afloat || !this.room.urchiHit(clientX, clientY)) return false;
     if (this.state === "arriving") this.settle();
-    const p = this.room.toRoom(clientX, clientY), b = this.b, u = this.unit, c = Math.cos(b.a), s = Math.sin(b.a);
+    const p = this.room.toWorld(clientX, clientY), b = this.b, u = this.unit, c = Math.cos(b.a), s = Math.sin(b.a);
     // the point under the pointer, into the figure's own frame
     const dx = p.x - b.x, dy = p.y - b.y;
     this.hold = { gx: (dx * c + dy * s) / u, gy: (-dx * s + dy * c) / u, x: p.x, y: p.y, vx: 0, vy: 0 };
@@ -545,7 +602,7 @@ export class Float {
   drag(clientX: number, clientY: number, t: number) {
     const h = this.hold;
     if (!h) return;
-    const p = this.room.toRoom(clientX, clientY), last = this.samples[this.samples.length - 1];
+    const p = this.room.toWorld(clientX, clientY), last = this.samples[this.samples.length - 1];
     const dt = last ? (t - last.t) / 1000 : 0;
     if (dt > 0.001) {
       // the pointer's own velocity, smoothed a little: what the hold's damping follows
@@ -725,6 +782,7 @@ export class Float {
     this.limbs?.swim(null);
     room.float = null;
     room.resetZoom(); // (zoomed or not, it comes home as it was)
+    room.panHome(); // (and seen from where the room is)
     this.hello?.kill();
     room.urchi.character.limbs?.setMode("rest");
     room.urchi.setSuit(0);
@@ -794,7 +852,7 @@ export class Float {
   private show() {
     const b = this.b;
     this.prev = { x: b.x, y: b.y, a: b.a };
-    this.room.float = { x: b.x, y: b.y, angle: b.a };
+    this.room.float = { x: b.x - this.pan.x, y: b.y - this.pan.y, angle: b.a };
   }
 
   // ---------------------------------------------------------------- the physics
@@ -818,7 +876,7 @@ export class Float {
     if (n === STEPS_MOST) this.acc = 0;
     if (!this.room.float) return;
     const k = this.acc / STEP, b = this.b, p = this.prev;
-    this.room.float = { x: p.x + (b.x - p.x) * k, y: p.y + (b.y - p.y) * k, angle: p.a + (b.a - p.a) * k };
+    this.room.float = { x: p.x + (b.x - p.x) * k - this.pan.x, y: p.y + (b.y - p.y) * k - this.pan.y, angle: p.a + (b.a - p.a) * k };
     this.feel(dt);
     if (this.state === "flying") {
       this.flightFor += dt;
@@ -867,8 +925,8 @@ export class Float {
     const f = this.fetch!, p = this.room.float;
     if (!p) return;
     if (f.caught) {
-      const s = f.side ?? 0, r = FETCH.raise;
-      if (f.raised) L.reachFor([s ? -r[0] : r[0], r[1], r[2]], s);
+      const s = f.side ?? 0, r = f.raised;
+      if (r) L.reachFor([s ? -r[0] : r[0], r[1], r[2]], s);
       else L.reachFor(FETCH.hold, s, true);
       return;
     }
@@ -878,7 +936,8 @@ export class Float {
       return;
     }
     // into its own frame: mesh units from the head's centre, y down
-    const u = this.unit, c = Math.cos(p.angle), s = Math.sin(p.angle), dx = to.x - p.x, dy = to.y - p.y;
+    // (it is where the view shows it; what it goes for is at its depth)
+    const u = this.unit, c = Math.cos(p.angle), s = Math.sin(p.angle), dx = to.x - this.pan.x - p.x, dy = to.y - this.pan.y - p.y;
     const bx = (dx * c + dy * s) / u, by = (-dx * s + dy * c) / u;
     if (Math.hypot(dx, dy) > FETCH.reach * this.tall) {
       if (f.side !== null) L.reachFor(null);
@@ -888,7 +947,7 @@ export class Float {
     L.reachFor([bx, FIGURE_MIDDLE - by, REACH_FOR.z], f.side, true);
     const hand = this.handAt();
     if (!hand || L.reached < 0.5) return;
-    const gap = Math.hypot(hand.x - to.x, hand.y - to.y) / this.tall;
+    const gap = Math.hypot(hand.x + this.pan.x - to.x, hand.y + this.pan.y - to.y) / this.tall;
     if (gap < FETCH.touch || (L.reached > 0.98 && gap < FETCH.stretch)) {
       f.caught = true;
       L.grip(true);
@@ -912,7 +971,7 @@ export class Float {
     }
     const near = Math.hypot(to.x - b.x, to.y - b.y) < FETCH.arrive * this.tall;
     if (!near) {
-      const x = to.x / this.room.width + 0.5, y = 0.5 - to.y / this.room.height;
+      const { x, y } = this.share(to);
       if (this.swim) Object.assign(this.swim, { x, y });
       else this.swim = { x, y, t0: this.t };
     } else if (this.swim) this.endSwim();
@@ -934,7 +993,7 @@ export class Float {
         return;
       }
       // into its own frame, and the arm on that side out toward it (pointing, if it is beyond reach)
-      const u = this.unit, c = Math.cos(fp.angle), s = Math.sin(fp.angle), dx = to.x - fp.x, dy = to.y - fp.y;
+      const u = this.unit, c = Math.cos(fp.angle), s = Math.sin(fp.angle), dx = to.x - this.pan.x - fp.x, dy = to.y - this.pan.y - fp.y;
       const bx = (dx * c + dy * s) / u, by = (-dx * s + dy * c) / u;
       L.reachFor([bx, FIGURE_MIDDLE - by, REACH_FOR.z], bx >= 0 ? 0 : 1);
       return;
@@ -989,7 +1048,7 @@ export class Float {
   private endSwim() {
     const b = this.b;
     this.swim = null;
-    this.stay = { x: b.x / this.room.width + 0.5, y: 0.5 - b.y / this.room.height };
+    this.stay = this.share(b);
     this.swimAt = this.t + rand(...SWIM.every);
     this.limbs?.swim(null);
   }
@@ -1033,7 +1092,7 @@ export class Float {
 
   /** Flying: its box is past an edge of the page, all of it. */
   private offPage() {
-    const b = this.b, e = this.extent(), W = this.room.width / 2 + 16, H = this.room.height / 2 + 16;
+    const b = this.seen(this.b), e = this.extent(), W = this.room.width / 2 + 16, H = this.room.height / 2 + 16;
     return b.x - e.x > W || b.x + e.x < -W || b.y - e.y > H || b.y + e.y < -H;
   }
 
@@ -1069,7 +1128,7 @@ export class Float {
     if (life > 0 && !sw) {
       const f = this.att.focus;
       if (f && this.t >= this.calmAt && (f.kind === "mote" || f.kind === "glint" || (f.kind === "pointer" && this.att.stillFor > 0.8))) {
-        const at = this.room.toRoom(f.at.x, f.at.y), dx = at.x - b.x, dy = at.y - b.y, d = Math.hypot(dx, dy), near = DRIFT.near * tall;
+        const at = this.room.toWorld(f.at.x, f.at.y), dx = at.x - b.x, dy = at.y - b.y, d = Math.hypot(dx, dy), near = DRIFT.near * tall;
         if (d > near) {
           const pull = life * DRIFT.pull * tall * Math.min(1, (d - near) / tall);
           ax += (dx / d) * pull;
@@ -1101,6 +1160,14 @@ export class Float {
         ax += f * (-Math.sin(b.a) + (SWIM.steer * dx) / d);
         ay += f * (Math.cos(b.a) + (SWIM.steer * dy) / d);
       }
+    }
+
+    // drawn toward the magnet stone (see attract)
+    const pl = this.pull;
+    if (pl && !flying && !this.hold && !this.reduced) {
+      const dx = pl.x - b.x, dy = pl.y - b.y, d = Math.hypot(dx, dy) || 1, k = pl.k * tall * Math.min(1, d / (0.5 * tall));
+      ax += (dx / d) * k;
+      ay += (dy / d) * k;
     }
 
     // going for something: drawn straight at it, as well as swimming there (see FETCH)

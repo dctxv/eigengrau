@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { Item } from "./look";
 
 /** Where a sprite is drawn this frame: its middle (room CSS px from the middle, y up), how big across (CSS px), its cell (device px), how much of it is there and how wrong its signal is (0 .. 1, a forgery's). */
-export type SpritePose = { x: number; y: number; size: number; cell: number; fade: number; wrong?: number; most?: number };
+export type SpritePose = { x: number; y: number; size: number; cell: number; fade: number; wrong?: number; most?: number; turn?: number };
 
 /** The room it is drawn in: its size in CSS px, and its drawing buffer's device px per CSS px across and up. */
 export type SpriteStage = { width: number; height: number; grid: { x: number; y: number } };
@@ -140,6 +140,8 @@ export class ItemSprite {
       item.point(a && half > 0 ? { x: ((a.x - p.x) / half) * SPAN, y: ((a.y - p.y) / half) * SPAN } : null);
     }
     item.update(still ? 0 : dt, this.t, still);
+    // (turned as a whole in the picture's plane, over its own turning: a glove waving, a school scattering)
+    item.object.rotation.z = this.pose.turn ?? 0;
   }
 
   /**

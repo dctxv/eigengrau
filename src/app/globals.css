@@ -1649,3 +1649,15 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+.found-give {
+  display: block;
+  margin: 16px auto 0;
+  font: 500 12px/140% var(--font-grotesk);
+  color: var(--ink);
+  opacity: 0.7;
+  transition: opacity 150ms var(--ease-ui);
+}
+.found-give:hover,
+.found-give:focus-visible {
+  opacity: 1;
+}

@@ -34,7 +34,7 @@ export type SkyState = "off" | "arriving" | "afloat" | "leaving";
  * into from its bottom left, on which what pixelates snaps (as Urchi does, see RoomScene's ZOOM);
  * and `figure`, the floating figure's height at zoom 1 (CSS px), for what is sized against Urchi.
  */
-export type SkyView = { width: number; height: number; ratio: number; zoom: { min: number; max: number }; grid: { x: number; y: number }; figure: number };
+export type SkyView = { width: number; height: number; ratio: number; zoom: { min: number; max: number }; grid: { x: number; y: number }; figure: number; panMost: number };
 
 /** What the manager gives each layer every frame. */
 export type SkyFrame = {
@@ -45,6 +45,11 @@ export type SkyFrame = {
   zoom: number;
   /** The pointer from the room's middle, -1 .. 1 each way (y up), eased; 0 with no pointer. */
   pointer: { x: number; y: number };
+  /**
+   * Where the view looks, room px at Urchi's depth (see RoomScene's PAN): each depth moves by it
+   * times its zoom response, so what is far moves least as the view pans.
+   */
+  pan: { x: number; y: number };
   state: SkyState;
   /** How much of the sky is there, 0 .. 1: it comes in with the float, and goes with the flight home and for a tab's slide. */
   presence: number;

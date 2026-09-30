@@ -12,6 +12,8 @@ import { onShown } from "@/lib/where";
 const ORDER: (ItemText & { tier: ItemTier })[] = (Object.entries(ITEMS) as [ItemTier, ItemText[]][]).flatMap(([tier, list]) => list.map((i) => ({ ...i, tier })));
 /** The window event the case says it is open or shut on (`detail.open`): Space holds its room still behind it. */
 export const CASE_EVENT = "eigengrau:case";
+/** The window event the case asks Space to give Urchi a thing on (`detail.id`), the keyboard's way to hand it over. */
+export const GIVE_EVENT = "eigengrau:give";
 /** The case comes and goes over this long (s). */
 const FADE = 0.35;
 
@@ -144,6 +146,17 @@ export function FoundCase() {
                 <h3>{forged ? fillLine(CATCH_LINES.forgedTitle, { name: text.name.toLowerCase() }) : text.name}</h3>
                 <p>{forged ? CATCH_LINES.forged : text.caption}</p>
                 <span className="found-when">Caught {dayText(have.items.get(text.id) ?? 0)}</span>
+              {/* the keyboard's way to do what dragging it onto Urchi does */}
+              <button
+                type="button"
+                className="found-give"
+                onClick={() => {
+                  setOpen(false);
+                  window.dispatchEvent(new CustomEvent(GIVE_EVENT, { detail: { id: text.id } }));
+                }}
+              >
+                Hand it to Urchi
+              </button>
               </div>
             </section>
           )}

@@ -104,6 +104,17 @@ const DITHER_CELL = 2.5;
  */
 export const ZOOM = { min: 0.1, max: 2, ease: 0.12, farCells: 7.5, pixelFrom: 0.4 } as const;
 
+/**
+ * Afloat, the view pans over the sky (a press held on empty space, dragged): where the page's middle
+ * looks, room CSS px at Urchi's depth (the world the float, the glint and what is let go in are in;
+ * the sky's depths move less, by their own depths). Never further than `most` times the room's
+ * larger side from where it started. Let go moving, it glides on, slowing at `drag` a second (its
+ * velocity falls by e each 1/drag s), and never faster than `fastest` px/s. Eased somewhere (the
+ * camera centring something, or home), it closes `rate` of the way a second (an exponential ease).
+ * Home again, it is put back at once.
+ */
+export const PAN = { most: 2.2, drag: 3.2, fastest: 5000, rate: 2.5 };
+
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 /**
@@ -174,6 +185,10 @@ export class RoomScene {
   private lens = { v: 1, to: 1 };
   /** The pixelation's cell this frame, device px, 0 for none: afloat and zoomed out (what follows the figure takes it up too). */
   pixelCell = 0;
+  /** Where the view looks (see PAN): the page's middle, room px at Urchi's depth; 0, 0 at home. */
+  readonly pan = { x: 0, y: 0 };
+  private panV = { x: 0, y: 0 };
+  private panGoal: { x: number; y: number; rate: number } | null = null;
   private opts: RoomOptions;
   private hooks = new Set<(dt: number) => void>();
   private afterHooks = new Set<(dt: number) => void>();
@@ -265,6 +280,71 @@ export class RoomScene {
   toRoom(clientX: number, clientY: number) {
     const r = this.canvas.getBoundingClientRect();
     return { x: clientX - r.left - r.width / 2, y: r.height / 2 - (clientY - r.top) };
+  }
+
+  /** A client point where it is at Urchi's depth (see PAN): the room point, panned. */
+  toWorld(clientX: number, clientY: number) {
+    const p = this.toRoom(clientX, clientY);
+    return { x: p.x + this.pan.x, y: p.y + this.pan.y };
+  }
+
+  /** How far the view may pan from where it started, px either way. */
+  get panMost() {
+    return PAN.most * Math.max(this.width, this.height);
+  }
+
+  /** The view dragged by a hand: `dx`, `dy` room px the page moved (the view goes the other way); any glide or ease is over. */
+  panBy(dx: number, dy: number) {
+    this.panGoal = null;
+    this.panV.x = this.panV.y = 0;
+    this.setPan(this.pan.x - dx, this.pan.y - dy);
+  }
+
+  /** Let go: the view glides on at `vx`, `vy` (room px/s the page was moving), slowing (see PAN). Not under reduced motion. */
+  panFling(vx: number, vy: number) {
+    if (this.opts.reducedMotion) return;
+    const v = Math.hypot(vx, vy), k = v > PAN.fastest ? PAN.fastest / v : 1;
+    this.panV.x = -vx * k;
+    this.panV.y = -vy * k;
+  }
+
+  /** The view eased toward looking at `x`, `y` (room px at Urchi's depth), `rate` of the way a second; null lets it be. */
+  panToward(x: number | null, y = 0, rate = PAN.rate) {
+    this.panGoal = x === null ? null : { x, y, rate };
+    if (x !== null) this.panV.x = this.panV.y = 0;
+  }
+
+  /** Home: the view back where it started, at once. */
+  panHome() {
+    this.panGoal = null;
+    this.panV.x = this.panV.y = 0;
+    this.setPan(0, 0);
+  }
+
+  /** Being eased somewhere (see panToward). */
+  get panning() {
+    return this.panGoal !== null || Math.hypot(this.panV.x, this.panV.y) > 1;
+  }
+
+  private setPan(x: number, y: number) {
+    const m = this.panMost;
+    this.pan.x = clamp(x, -m, m);
+    this.pan.y = clamp(y, -m, m);
+  }
+
+  /** The view's glide and ease, a frame's worth. */
+  private movePan(dt: number) {
+    const g = this.panGoal, v = this.panV;
+    if (g) {
+      const k = 1 - Math.exp(-dt * g.rate);
+      this.setPan(this.pan.x + (g.x - this.pan.x) * k, this.pan.y + (g.y - this.pan.y) * k);
+    } else if (v.x || v.y) {
+      this.setPan(this.pan.x + v.x * dt, this.pan.y + v.y * dt);
+      const k = Math.exp(-dt * PAN.drag);
+      v.x *= k;
+      v.y *= k;
+      if (Math.hypot(v.x, v.y) < 2) v.x = v.y = 0;
+    }
   }
 
   // ---------------------------------------------------------------- Urchi
@@ -486,8 +566,9 @@ export class RoomScene {
 
   private frame(dt: number) {
     if (this.disposed) return;
-    // (the zoom first: the float's physics this frame goes by the size it is drawn at)
+    // (the zoom and the view first: the float's physics this frame goes by the size it is drawn at, and where it is seen from)
     this.easeZoom(dt);
+    this.movePan(dt);
     this.hooks.forEach((fn) => fn(dt));
     const m = this.urchi.mesh;
     if (this.float) {

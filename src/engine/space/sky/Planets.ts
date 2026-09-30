@@ -340,8 +340,8 @@ export class Planets implements SkyLayer<PlanetsConfig> {
       const k = z ** s.response, share = Math.abs(s.response) / nearest;
       b.pose(
         {
-          x: s.x * k - f.pointer.x * lean * share,
-          y: s.y * k - f.pointer.y * lean * share,
+          x: s.x * k - f.pointer.x * lean * share - f.pan.x * Math.abs(s.response),
+          y: s.y * k - f.pointer.y * lean * share - f.pan.y * Math.abs(s.response),
           radius: s.radius * k,
           cell: pixelCellAt(f.zoom, s.from, s.most, this.least),
           fade: fade * s.appear,

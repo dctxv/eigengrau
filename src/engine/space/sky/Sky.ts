@@ -209,6 +209,7 @@ export class Sky {
       zoom: { min: ZOOM.min, max: ZOOM.max },
       grid: { x: buffer.width / Math.max(1, this.room.width), y: buffer.height / Math.max(1, this.room.height) },
       figure: this.room.figureTall,
+      panMost: this.room.panMost,
     });
     for (const e of this.entries) {
       const name = e.layer.name as keyof SkyLayers, seed = subSeed(h, name);
@@ -262,7 +263,7 @@ export class Sky {
     const to = this.pointerTo ?? { x: 0, y: 0 }, p = this.pointerNow, k = 1 - Math.exp(-dt / LEAN_EASE);
     p.x += (to.x - p.x) * k;
     p.y += (to.y - p.y) * k;
-    const frame: SkyFrame = { dt, time: this.time, zoom: room.zoom, pointer: p, state: this.state, presence: this.presence, reducedMotion: this.reduced };
+    const frame: SkyFrame = { dt, time: this.time, zoom: room.zoom, pointer: p, pan: room.pan, state: this.state, presence: this.presence, reducedMotion: this.reduced };
     let backdrop: string | null = null;
     for (const e of this.entries) {
       const on = this.presence > 0 && !!e.resolved?.enabled;

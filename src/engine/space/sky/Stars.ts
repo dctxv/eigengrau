@@ -98,6 +98,8 @@ uniform float uField;    // CSS px per field unit (FIELD)
 uniform vec4 uScale;     // each band's scale this frame: the zoom to its response
 uniform vec4 uDepth;     // each band's share of the lean
 uniform vec2 uLean;      // the lean against the pointer, CSS px
+uniform vec2 uPan;       // where the view looks, CSS px at Urchi's depth
+uniform vec4 uPanK;      // how much of the pan each band moves by (its zoom response)
 uniform float uPx;       // CSS px per device px
 uniform float uTime;
 uniform vec2 uTwinkle;   // speed (rad/s), amount
@@ -136,7 +138,7 @@ void main() {
   }
   int band = int(iPlace.z + 0.5);
   float scale = uScale[band], cell = uCell[band];
-  vec2 centre = iPlace.xy * uField * scale + uLean * uDepth[band];
+  vec2 centre = iPlace.xy * uField * scale + uLean * uDepth[band] - uPan * uPanK[band];
   float light = iLook.y * uOpacity;
   float reach;
   vPix.x = cell;
@@ -283,6 +285,8 @@ export class Stars implements SkyLayer<StarsConfig> {
     uScale: { value: new THREE.Vector4(1, 1, 1, 1) },
     uDepth: { value: new THREE.Vector4(0, 0, 0, 0) },
     uLean: { value: new THREE.Vector2() },
+    uPan: { value: new THREE.Vector2() },
+    uPanK: { value: new THREE.Vector4() },
     uPx: { value: 1 },
     uTime: { value: 0 },
     uTwinkle: { value: new THREE.Vector2() },
@@ -372,6 +376,7 @@ export class Stars implements SkyLayer<StarsConfig> {
     const bands = this.bands(config), most = Math.max(...bands.map((b) => Math.abs(b.zoomResponse)));
     u.uDepth.value.fromArray([0, 1, 2, 3].map((k) => (k < bands.length ? (most > 0 ? Math.abs(bands[k].zoomResponse) / most : (k + 1) / bands.length) : 0)));
     for (let k = 0; k < MOST_BANDS; k++) this.powers[k] = k < bands.length ? config.zoomResponse * bands[k].zoomResponse : 0;
+    u.uPanK.value.fromArray(this.powers.map((p) => Math.abs(p)));
     this.pixel = bands.map((b) => ({ from: b.pixelFrom, most: Math.max(1, b.pixelMost * view.ratio) }));
     this.least = levelCell(PIXEL_LEAST, view.ratio);
     u.uGrid.value.set(view.width / 2, view.height / 2, view.grid.x, view.grid.y);
@@ -397,6 +402,7 @@ export class Stars implements SkyLayer<StarsConfig> {
     // leaning away from the pointer, as what is nearer does when you move your head
     const lean = f.reducedMotion ? 0 : c.parallax;
     u.uLean.value.set(-f.pointer.x * lean, -f.pointer.y * lean);
+    u.uPan.value.set(f.pan.x, f.pan.y);
     this.shoot(f, c);
   }
 
@@ -429,9 +435,10 @@ export class Stars implements SkyLayer<StarsConfig> {
     const { min: rMin, max: rMax, bias } = c.size, bMin = c.brightness.min, bMax = c.brightness.max, follow = Math.min(1, Math.max(0, c.brightness.follow));
     const halfW = view.width / (2 * FIELD), halfH = view.height / (2 * FIELD), lean = Math.abs(c.parallax) / FIELD;
     // how far out each depth can be seen: zoomed all the way out (or in, for one that runs backwards), leaning all the way
+    // (and panned as far as the view goes, which moves each depth by its response)
     const reach = bands.map((band) => {
-      const resp = c.zoomResponse * band.zoomResponse, least = Math.min(1, view.zoom.min ** resp, view.zoom.max ** resp);
-      return [Math.min(FIELD_MOST / 2, (halfW + lean) / least + 0.01), Math.min(FIELD_MOST / 2, (halfH + lean) / least + 0.01)];
+      const resp = c.zoomResponse * band.zoomResponse, least = Math.min(1, view.zoom.min ** resp, view.zoom.max ** resp), pan = (view.panMost * Math.abs(resp)) / FIELD;
+      return [Math.min(FIELD_MOST / 2, (halfW + lean + pan) / least + 0.01), Math.min(FIELD_MOST / 2, (halfH + lean + pan) / least + 0.01)];
     });
     const out: Star[] = [];
     const star = (x: number, y: number, k: number, uSize: number, uBright: number, uColour: number, uPhase: number, uSpeed: number, uTurn: number) => {
@@ -493,7 +500,7 @@ export class Stars implements SkyLayer<StarsConfig> {
       width: Math.max(0.001, mw.width),
       bright: Math.max(0, mw.haze),
       heading,
-      half: (Math.hypot(view.width, view.height) / (2 * FIELD) + lean) / least + Math.abs(mw.offset) + 0.1,
+      half: (Math.hypot(view.width, view.height) / (2 * FIELD) + lean + (view.panMost * Math.abs(c.zoomResponse * this.bands(c)[0].zoomResponse)) / FIELD) / least + Math.abs(mw.offset) + 0.1,
       colour: rgb(mw.hazeColour),
       patchy: Math.min(1, Math.max(0, mw.patchy)),
       cloud: rng(subSeed(seed, "haze"))() * 100,

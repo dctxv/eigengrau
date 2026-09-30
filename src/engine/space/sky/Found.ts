@@ -54,6 +54,10 @@ type Slot = {
   appear: number;
   /** Flown up from Urchi's hand: from where, since when (the layer's clock) and over how long. */
   flight: { from: SpritePose; t0: number; dur: number } | null;
+  /** Taken down out of the sky (lend): its place empty until it comes back (adopt). */
+  lent: boolean;
+  /** Drawn toward the magnet stone: how far from its place it has been pulled (room px), and how fast that changes. */
+  off: { x: number; y: number; vx: number; vy: number };
 };
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -146,6 +150,8 @@ export class FoundSky {
         sprite: was?.sprite ?? null,
         appear: was?.appear ?? 0,
         flight: was?.flight ?? null,
+        lent: was?.lent ?? false,
+        off: was?.off ?? { x: 0, y: 0, vx: 0, vy: 0 },
       };
       old.delete(id);
       placed.push(slot);
@@ -158,7 +164,7 @@ export class FoundSky {
   /** Every thing laid out with no sprite gets one, its item's code loaded (its own chunk) and made. */
   private make() {
     for (const s of this.slots.values()) {
-      if (s.sprite) continue;
+      if (s.sprite || s.lent) continue;
       const sprite = (s.sprite = new ItemSprite());
       sprite.t = Math.random() * 60; // (each at its own moment, not all turning alike)
       sprite.mesh.renderOrder = FOUND.order;
@@ -188,7 +194,9 @@ export class FoundSky {
   private at(s: Slot): SpritePose {
     const k = Math.max(this.zoom, 1e-3) ** s.response, size = s.size * k, device = this.room.renderer.domElement.width / Math.max(1, this.room.width);
     const cell = s.forged ? Math.max(this.least, Math.round((size * device) / FOUND.forged.cells)) : pixelCellAt(this.zoom, s.from, s.most, this.least);
-    return { x: s.x * k, y: s.y * k, size, cell, fade: this.presence * s.appear, wrong: s.forged ? 1 : 0 };
+    // (the view panned: it moves by its depth's share of it, as the planets do)
+    const pan = this.room.pan, r = Math.abs(s.response);
+    return { x: s.x * k - pan.x * r, y: s.y * k - pan.y * r, size, cell, fade: this.presence * s.appear, wrong: s.forged ? 1 : 0 };
   }
 
   /**
@@ -204,10 +212,35 @@ export class FoundSky {
     }
     if (s.sprite && s.sprite !== sprite) s.sprite.dispose();
     s.sprite = sprite;
-    s.appear = 1;
-    s.flight = { from, t0: this.time, dur: this.reduced ? 0 : seconds };
+    s.lent = false;
+    s.appear = seconds < 0 ? 0 : 1;
+    // (no flight at all: it comes up in its place)
+    s.flight = seconds < 0 ? null : { from, t0: this.time, dur: this.reduced ? 0 : seconds };
     sprite.mesh.renderOrder = 0.5;
   }
+
+  /**
+   * Taken down out of the sky (Space's items, handled): its sprite and where it is drawn now, handed
+   * over; its place is empty until it comes back (adopt). Null when it is not there to take.
+   */
+  lend(id: string): { sprite: ItemSprite; pose: SpritePose; forged: boolean } | null {
+    const s = this.slots.get(id);
+    if (!s?.sprite?.item || s.flight || s.lent) return null;
+    const sprite = s.sprite, pose = { ...sprite.placed };
+    s.sprite = null;
+    s.lent = true;
+    return { sprite, pose, forged: s.forged };
+  }
+
+  /**
+   * The magnet stone out, and where it is (room px, as the page shows it; null: not out): what hangs
+   * within `reach` px of it is drawn toward it, a spring toward it (`pull`, per second squared, damped
+   * `damp`), as far as touching it, and springs back to its place when it goes.
+   */
+  magnet(at: { x: number; y: number } | null, reach = 360) {
+    this.drawnTo = at && { ...at, reach };
+  }
+  private drawnTo: { x: number; y: number; reach: number } | null = null;
 
   /** The pointer, client px (null: gone), for the things that answer it (the magnet stone). */
   pointer(clientX: number | null, clientY = 0) {
@@ -219,7 +252,7 @@ export class FoundSky {
     if (this.presence < 0.5) return null;
     const p = this.room.toRoom(clientX, clientY);
     let best: Slot | null = null;
-    for (const s of this.slots.values()) if (s.sprite?.item && !s.flight && s.sprite.hit(p.x, p.y, 6) && (!best || s.response > best.response)) best = s;
+    for (const s of this.slots.values()) if (s.sprite?.item && !s.flight && !s.lent && s.sprite.hit(p.x, p.y, 6) && (!best || s.response > best.response)) best = s;
     const text = best && TEXT.get(best.id);
     return best && text ? { id: best.id, text, forged: best.forged } : null;
   }
@@ -237,6 +270,26 @@ export class FoundSky {
       if (!sp) continue;
       if (!s.flight) s.appear = f.reducedMotion ? 1 : Math.min(1, s.appear + f.dt / FOUND.appear);
       let pose = this.at(s);
+      // drawn toward the magnet stone, near it (a spring toward touching it), or back to its place
+      const m = this.drawnTo, o = s.off;
+      let gx = 0, gy = 0;
+      if (m) {
+        const dx = m.x - pose.x, dy = m.y - pose.y, d = Math.hypot(dx, dy);
+        if (d < m.reach) {
+          const touch = Math.max(0, d - pose.size * 0.55), k = (1 - d / m.reach) ** 0.5;
+          gx = (dx / (d || 1)) * touch * k;
+          gy = (dy / (d || 1)) * touch * k;
+        }
+      }
+      const dt = f.reducedMotion ? 0 : f.dt;
+      if (f.reducedMotion) Object.assign(o, { x: gx, y: gy, vx: 0, vy: 0 });
+      else {
+        o.vx += ((gx - o.x) * 40 - o.vx * 7) * dt;
+        o.vy += ((gy - o.y) * 40 - o.vy * 7) * dt;
+        o.x += o.vx * dt;
+        o.y += o.vy * dt;
+      }
+      pose = { ...pose, x: pose.x + o.x, y: pose.y + o.y };
       if (s.flight) {
         const fl = s.flight, u = fl.dur > 0 ? Math.min(1, (this.time - fl.t0) / fl.dur) : 1, e = ease(u), a = fl.from;
         // the whole way there in view, whatever the sky is doing: it is what Urchi is watching

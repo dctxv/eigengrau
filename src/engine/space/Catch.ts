@@ -39,6 +39,12 @@ const GLINT = { first: [9, 14] as [number, number], firstNew: [3, 5] as [number,
  */
 const RAISE = { wait: 0.15, for: 0.65, burst: 0.7, out: 0.45 };
 /**
+ * Held up, what it caught is brought to the middle of the page: the view pans to it, closing `rate`
+ * of the way a second, for as long as it is held up (so it keeps it there as Urchi drifts), and
+ * stays where it came to. Urchi's line, fixed to the page's edge, is pulled with the view.
+ */
+const CENTRE = { rate: 2.2 };
+/**
  * The star behind something new held up: a lens flare, white, as bright as anything on the page. Its
  * core comes up over `grow` seconds (overshooting a little) with a flash (`flash` over its strength,
  * falling away over `flashFor`); then its arms shoot out over `rays`, starting `raysAt` in: four very
@@ -253,7 +259,8 @@ type Out = { x: number; y: number; vx: number; vy: number; born: number; life: n
 type Held = { id: string; text: ItemText & { tier: ItemTier }; kind: "new" | "again" | "forged"; sprite: ItemSprite; t0: number; shown: boolean; caughtAt: number; from: Point; raisedAt: number; raiseFrom: Point };
 /** The star behind something new: since when (its clock), how big what it is behind was, how far it has turned, what it is behind, and since when it has been going (-1 not). */
 type Star = { t0: number; size: number; angle: number; sprite: ItemSprite; out: number };
-type Loose = { sprite: ItemSprite; vx: number; vy: number; t: number; fade: number };
+/** Something let go, drifting off: its sprite, where it is (room px at Urchi's depth) and how fast it goes, since when, and how much is left of it. */
+type Loose = { sprite: ItemSprite; x: number; y: number; vx: number; vy: number; t: number; fade: number };
 
 /**
  * Something drifting by, afloat (Space, tab 1). While Urchi floats awake on its line, now and then a
@@ -311,7 +318,7 @@ export class Catch {
   hit(clientX: number, clientY: number, touch = false) {
     const g = this.out;
     if (!g || !this.catchable) return false;
-    const p = this.o.room.toRoom(clientX, clientY), reach = (touch ? GLINT.hitTouch : GLINT.hit) * Math.max(0.6, Math.min(1.5, this.o.room.zoom));
+    const p = this.o.room.toWorld(clientX, clientY), reach = (touch ? GLINT.hitTouch : GLINT.hit) * Math.max(0.6, Math.min(1.5, this.o.room.zoom));
     return Math.hypot(p.x - g.x, p.y - g.y) <= reach;
   }
 
@@ -353,7 +360,7 @@ export class Catch {
     if (!went) return false;
     this.going = going;
     o.att.cancel("notice");
-    o.att.play("goFor", 4, () => goFor(o.att, () => this.clientOf(this.out), () => !this.going || !!this.held));
+    o.att.play("goFor", 4, () => goFor(o.att, () => this.clientOfWorld(this.out), () => !this.going || !!this.held));
     o.onChange();
     return true;
   }
@@ -369,7 +376,9 @@ export class Catch {
     const sprite = new ItemSprite();
     sprite.mesh.renderOrder = 0.5; // in its hand, in front of it
     o.room.scene.add(sprite.mesh);
-    const at = this.out ? { x: this.out.x, y: this.out.y } : (o.float.handAt() ?? { x: 0, y: 0 });
+    // (where it was caught, at Urchi's depth: the view may pan while it is carried in)
+    const hand = o.float.handAt(), pan = o.room.pan;
+    const at = this.out ? { x: this.out.x, y: this.out.y } : hand ? { x: hand.x + pan.x, y: hand.y + pan.y } : { x: pan.x, y: pan.y };
     this.held = { id: g.id, text, kind, sprite, t0: this.t, shown: false, caughtAt: this.t, from: at, raisedAt: -1, raiseFrom: at };
     g.maker.then(
       (maker) => {
@@ -428,6 +437,8 @@ export class Catch {
     if (!h) return;
     this.held = null;
     o.float.openHand();
+    // (the view stays where the catch was shown; it is the visitor's to move again)
+    o.room.panToward(null);
     // the star goes up with it, fading; with Urchi gone, at once
     if (this.star) {
       if (now) {
@@ -441,7 +452,7 @@ export class Catch {
     if (now || !h.sprite.item) h.sprite.dispose();
     else if (h.kind === "again") {
       const p = o.room.float, dx = from.x - (p?.x ?? 0), dy = from.y - (p?.y ?? 0), d = Math.hypot(dx, dy) || 1, v = CATCH.drift * o.room.figureTall * o.room.zoom;
-      this.loose.push({ sprite: h.sprite, vx: (dx / d) * v, vy: (dy / d) * v + v * 0.3, t: 0, fade: 1 });
+      this.loose.push({ sprite: h.sprite, x: from.x + o.room.pan.x, y: from.y + o.room.pan.y, vx: (dx / d) * v, vy: (dy / d) * v + v * 0.3, t: 0, fade: 1 });
       o.att.play("watchGo", 3, () => watchGo(o.att, () => this.clientOf(h.sprite.placed), 1.4));
     } else {
       o.sky.adopt(h.id, h.sprite, { ...from }, CATCH.toSky);
@@ -463,14 +474,16 @@ export class Catch {
 
   /** A glint comes up: somewhere Urchi could get to, far enough from it, on a line it could get to all along. */
   private spawn() {
-    const o = this.o, room = o.room, p = room.float;
-    if (!p) return false;
+    const o = this.o, room = o.room, seen = room.float, pan = room.pan;
+    if (!seen) return false;
+    // (all at Urchi's depth, round where the view looks)
+    const p = { x: seen.x + pan.x, y: seen.y + pan.y };
     const W = room.width, H = room.height;
     for (let k = 0; k < 60; k++) {
-      const x = rand(-W / 2, W / 2), y = rand(-H / 2, H / 2), life = rand(...GLINT.life), a = Math.random() * Math.PI * 2, v = rand(...GLINT.speed);
+      const x = pan.x + rand(-W / 2, W / 2), y = pan.y + rand(-H / 2, H / 2), life = rand(...GLINT.life), a = Math.random() * Math.PI * 2, v = rand(...GLINT.speed);
       const vx = Math.cos(a) * v, vy = Math.sin(a) * v, end = { x: x + vx * life, y: y + vy * life };
       const d = Math.hypot(x - p.x, y - p.y), under = Math.atan2(p.y - y, Math.abs(x - p.x));
-      if (d < GLINT.far[0] * W || d > GLINT.far[1] * W || Math.abs(y) > GLINT.band * H || Math.abs(end.y) > GLINT.band * H || under > GLINT.below) continue;
+      if (d < GLINT.far[0] * W || d > GLINT.far[1] * W || Math.abs(y - pan.y) > GLINT.band * H || Math.abs(end.y - pan.y) > GLINT.band * H || under > GLINT.below) continue;
       if (!o.float.canReach({ x, y }) || !o.float.canReach(end)) continue;
       this.out = { x, y, vx, vy, born: this.t, life, gone: -1, t: Math.random() * 10, ready: 0, noticed: false };
       if (!this.told) {
@@ -510,8 +523,8 @@ export class Catch {
       // Urchi notices it once it has come up a little, and keeps going back to it
       if (!g.noticed && g.gone < 0 && this.t - g.born > GLINT.notice && !o.att.asleep) {
         g.noticed = true;
-        o.att.add({ id: "glint", kind: "glint", weight: 1, at: () => this.clientOf(this.out) }, 1);
-        o.att.play("notice", 3, () => notice(o.att, () => this.clientOf(this.out)));
+        o.att.add({ id: "glint", kind: "glint", weight: 1, at: () => this.clientOfWorld(this.out) }, 1);
+        o.att.play("notice", 3, () => notice(o.att, () => this.clientOfWorld(this.out)));
         o.float.pointAt(() => (this.out && this.out.gone < 0 ? { x: this.out.x, y: this.out.y } : null), GLINT.point);
         // someone who has never caught anything is told what it is, once a page
         if (!hinted && !found().items.size) {
@@ -541,6 +554,11 @@ export class Catch {
       h.raiseFrom = { x: h.sprite.placed.x, y: h.sprite.placed.y };
       fl.raise();
     }
+    // held up, the view comes round to it: the camera eases until it is in the middle of the page (and stays there after)
+    if (h && h.raisedAt >= 0) {
+      const at = h.sprite.placed;
+      o.room.panToward(at.x + o.room.pan.x, at.y + o.room.pan.y, CENTRE.rate);
+    }
     if (h && h.raisedAt >= 0 && !this.star && this.t >= h.raisedAt + RAISE.for * RAISE.burst) this.star = { t0: this.t, size: h.sprite.placed.size, angle: Math.random() * Math.PI, sprite: h.sprite, out: -1 };
     const done = h && h.shown && (h.kind === "new" ? h.raisedAt >= 0 && this.t - h.raisedAt >= RAISE.for + HOLD[h.text.tier] : this.t - h.t0 >= HOLD[h.kind]);
     if (done) this.finish();
@@ -560,7 +578,7 @@ export class Catch {
         fade = this.held ? (1 - smooth(u)) * (1 + 1.5 * Math.sin(Math.PI * Math.min(1, u * 2))) : inU * (1 - smooth(u));
       }
       const twinkle = o.reducedMotion ? 1 : 1 - GLINT.twinkle + GLINT.twinkle * Math.sin((Math.PI * g.t) / GLINT.pulse) ** 2;
-      const at = g;
+      const at = { x: g.x - room.pan.x, y: g.y - room.pan.y };
       // (in the sky, it goes with it for a tab's slide)
       const strength = Math.max(0, fade) * twinkle * (0.75 + GLINT.ready * g.ready) * o.sky.skyPresence;
       // (no ping once it is gone for, or going)
@@ -580,7 +598,8 @@ export class Catch {
       const shown = h.shown ? (o.reducedMotion ? 1 : smooth((this.t - h.t0) / CATCH.grow)) : 0;
       const s = size * (0.3 + 0.7 * carry);
       const forged = h.kind === "forged", c = forged ? Math.max(cell, Math.round((s * grid.x) / FORGED_CELLS)) : Math.max(1, cell);
-      let x = h.from.x + (hand.x - h.from.x) * carry, y = h.from.y + (hand.y - h.from.y) * carry;
+      const fx = h.from.x - room.pan.x, fy = h.from.y - room.pan.y;
+      let x = fx + (hand.x - fx) * carry, y = fy + (hand.y - fy) * carry;
       if (h.raisedAt >= 0) {
         // held up: over the raised glove, a little out from it (away from its middle)
         const up = o.reducedMotion ? 1 : smooth((this.t - h.raisedAt) / RAISE.for), mx = p?.x ?? 0, my = p?.y ?? 0, dx = hand.x - mx, dy = hand.y - my, dl = Math.hypot(dx, dy) || 1;
@@ -612,7 +631,9 @@ export class Catch {
       const l = this.loose[i], p = l.sprite.placed;
       l.t += dt;
       const fade = 1 - smooth(l.t / CATCH.fade);
-      l.sprite.place({ ...p, x: p.x + l.vx * dt, y: p.y + l.vy * dt, fade });
+      l.x += l.vx * dt;
+      l.y += l.vy * dt;
+      l.sprite.place({ ...p, x: l.x - room.pan.x, y: l.y - room.pan.y, fade });
       l.sprite.frame(dt, o.reducedMotion);
       l.sprite.draw(room.renderer, stage);
       if (fade <= 0) {
@@ -620,6 +641,12 @@ export class Catch {
         this.loose.splice(i, 1);
       }
     }
+  }
+
+  /** A point at Urchi's depth (the glint's) as a client point, where the view shows it (null for none). */
+  private clientOfWorld(p: Point | null): Point | null {
+    const pan = this.o.room.pan;
+    return p && this.clientOf({ x: p.x - pan.x, y: p.y - pan.y });
   }
 
   /** A room point as a client point (null for none). */

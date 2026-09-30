@@ -5,6 +5,7 @@ import gsap from "gsap";
 import { CATCH_LINES, MONOGRAM, NAME, ROLE, URCHI_LINES, URCHI_STATES, fillLine } from "@/content/site";
 import { Call } from "@/engine/space/Call";
 import { Catch } from "@/engine/space/Catch";
+import { Handling } from "@/engine/space/Handling";
 import { Faces } from "@/engine/space/Faces";
 import { FLOAT_IN, Float, type FloatState } from "@/engine/space/Float";
 import { Motes } from "@/engine/space/Motes";
@@ -17,7 +18,7 @@ import { caught, comeBack, glanceAt, glanceDown, read, tug, type Caught } from "
 import { Attention, pillAt, type Point } from "@/engine/urchi/attention";
 import { clock } from "@/engine/urchi/hours";
 import { CursorLabel } from "@/components/CursorLabel";
-import { CASE_EVENT, FoundCase } from "@/components/FoundCase";
+import { CASE_EVENT, FoundCase, GIVE_EVENT } from "@/components/FoundCase";
 import { MaskedChars, MaskedWords } from "@/components/Mask";
 import { alongOn } from "@/lib/along";
 import { getFlags, onFlags, setFlag } from "@/lib/flags";
@@ -230,6 +231,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     let overFound: string | null = null;
     // (made once the float is: see below)
     let catcher: Catch | null = null;
+    let hands: Handling | null = null;
+    /** A thing in the sky to give Urchi once it has floated out (the case's button, pressed at home). */
+    let pendingGive: string | null = null;
     /** Where a mouse (or pen) pointer last was over the panel, client px; null for a finger, or gone. */
     let resting: Point | null = null;
     /**
@@ -248,7 +252,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       controlEl.toggleAttribute("data-afloat", fl.afloat);
       // afloat, a pinch on the room zooms it, not the page (globals.css: the canvas's touch-action)
       panelEl.toggleAttribute("data-afloat", fl.afloat);
-      const hand = fl.holding ? "grabbing" : overUrchi && fl.afloat && !att.asleep ? "grab" : "";
+      // (afloat, empty sky can be dragged: the view pans)
+      const hand = fl.holding || down.panning || hands?.holding ? "grabbing" : fl.afloat && !att.asleep && (overUrchi || (!overGlint && !overFound)) ? "grab" : "";
       if ((panelEl.dataset.cursor ?? "") !== hand) panelEl.dataset.cursor = hand;
     };
     let flew = false;
@@ -283,6 +288,13 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       sky.setFloat(state);
       // something drifts by only while it floats (Catch.ts)
       catcher?.floatChanged(state === "floating");
+      hands?.floatChanged(state === "floating");
+      // the case's "Hand it to Urchi", pressed at home: given once it is out
+      if (state === "floating" && pendingGive) {
+        const id = pendingGive;
+        pendingGive = null;
+        window.setTimeout(() => hands?.giveFromSky(id), 1200);
+      }
       // the slider comes in with the float-in, goes as it flies home, and is back at the middle for next time
       if (state === "arriving") slider(true, FLOAT_IN);
       else if (state === "floating") slider(true);
@@ -310,9 +322,23 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     };
     catcher = new Catch({ room, att, float: fl, sky: foundSky, reducedMotion, phone, say: (title, line, dwell) => say("catch", title, line, { dwell }), tell: tellLive, onChange: () => labelUrchi() });
     const catches = catcher;
+    // what hangs in the sky, taken down: held, thrown, given back (Handling.ts)
+    hands = new Handling({ room, att, float: fl, sky: foundSky, reducedMotion, say: (title, line, dwell) => say("catch", title, line, { dwell }), tell: tellLive });
+    const handled = hands;
+    const onGive = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      if (!id) return;
+      if (fl.afloat) handled.giveFromSky(id);
+      else if (fl.state === "home" && begun >= 0) {
+        pendingGive = id;
+        wake();
+        fl.take();
+      }
+    };
+    window.addEventListener(GIVE_EVENT, onGive);
     // (whoever opens the console gets a word about where Urchi keeps what it catches)
     hintFound();
-    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __float: fl, __faces: faces, __sky: sky, __catch: catches, __found: foundSky }); // handy for debugging and headless QA
+    Object.assign(stageEl, { __room: room, __att: att, __motes: motes, __call: call, __float: fl, __faces: faces, __sky: sky, __catch: catches, __found: foundSky, __hands: handled }); // handy for debugging and headless QA
     let stopIntro: (() => void) | null = null;
     let stopArrive: (() => void) | null = null;
 
@@ -620,7 +646,15 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
     // it, and letting go flings it); a tap on the empty room lets a mote go, and a rhythm of them
     // gets an answer. The whole panel listens, the control over Urchi included, so what a press
     // does is decided by where Urchi is drawn, not by the control's box.
-    let down = { x: 0, y: 0, t: 0, id: -1, held: false, woke: false };
+    let down = { x: 0, y: 0, t: 0, id: -1, held: false, woke: false, pan: false, panning: false, item: false };
+    /**
+     * Afloat, a press on empty sky held and dragged pans the view (RoomScene's PAN): where the
+     * pointer last was (client px), and its last few places and times, for the glide it is let go into.
+     */
+    let panLast = { x: 0, y: 0 };
+    let panSamples: { t: number; x: number; y: number }[] = [];
+    /** How far back (ms) the pan's samples count toward the glide it is let go into. */
+    const PAN_FLING_MS = 90;
     /** The fingers on the panel (client px), and afloat, a pinch between the first two: their distance and the zoom when it began. */
     const touches = new Map<number, Point>();
     let pinch: { d: number; zoom: number } | null = null;
@@ -653,6 +687,31 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         fl.drag(e.clientX, e.clientY, eventTime(e));
         return;
       }
+      if (e.pointerType !== "touch" || down.item) handled.point(e.clientX, e.clientY);
+      // the thing taken down, on the hand: over Urchi, let go gives it
+      if (down.item && e.pointerId === down.id) {
+        handled.drag(e.clientX, e.clientY, eventTime(e));
+        cursor.set(handled.overUrchi ? "Give" : "Hold");
+        return;
+      }
+      // a press on empty sky, dragged past a click's slop: the view pans with it
+      if (down.pan && e.pointerId === down.id) {
+        if (!down.panning && Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK.slop) {
+          down.panning = true;
+          panLast = { x: down.x, y: down.y };
+          panSamples = [];
+          call.abort();
+          labelUrchi();
+        }
+        if (down.panning) {
+          room.panBy(e.clientX - panLast.x, -(e.clientY - panLast.y));
+          panLast = { x: e.clientX, y: e.clientY };
+          const t = eventTime(e);
+          panSamples.push({ t, x: e.clientX, y: e.clientY });
+          while (panSamples.length > 2 && t - panSamples[0].t > PAN_FLING_MS) panSamples.shift();
+          return;
+        }
+      }
       resting = e.pointerType === "touch" ? null : { x: e.clientX, y: e.clientY };
       if (resting) {
         sky.pointer(resting.x, resting.y);
@@ -663,7 +722,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       const touch = e.pointerType === "touch";
       overGlint = !overUrchi && fl.afloat && catches.hit(e.clientX, e.clientY, touch);
       if (!touch) overSky(!overUrchi && !overGlint && fl.afloat ? foundSky.hit(e.clientX, e.clientY) : null);
-      if (!overUrchi) cursor.set(overGlint ? "Catch it" : null);
+      const overHeld = !overUrchi && !overGlint && fl.afloat && handled.hit(e.clientX, e.clientY);
+      if (!overUrchi) cursor.set(overGlint ? "Catch it" : overHeld ? "Hold" : overFound ? "Take it" : null);
       labelUrchi();
       // a mouse shaken over its face at home, awake: it glares
       faces.pointer(e.clientX, overUrchi && e.pointerType !== "touch" && fl.state === "home" && !att.asleep && begun >= 0);
@@ -672,6 +732,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       resting = null;
       sky.pointer(null);
       foundSky.pointer(null);
+      if (!down.item) handled.point(null);
       overSky(null);
       overGlint = false;
       if (down.held) return;
@@ -684,6 +745,7 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       if (pinch) return;
       // afloat, a second finger makes it a pinch: a hold, or a tap on the way, ends without a fling
       if (touches.size === 2 && fl.afloat) {
+        down.pan = down.panning = false;
         if (down.held) {
           down.held = false;
           fl.release(eventTime(e), false);
@@ -694,7 +756,24 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         labelUrchi();
         return;
       }
-      down = { x: e.clientX, y: e.clientY, t: eventTime(e), id: e.pointerId, held: false, woke: false };
+      down = { x: e.clientX, y: e.clientY, t: eventTime(e), id: e.pointerId, held: false, woke: false, pan: false, panning: false, item: false };
+      // afloat, a press on the thing taken down (in front of Urchi) holds it; on one in the sky, takes it down
+      if (fl.afloat && !att.asleep) {
+        const sky = handled.hit(e.clientX, e.clientY) ? null : !room.urchiHit(e.clientX, e.clientY) && !catches.hit(e.clientX, e.clientY, e.pointerType === "touch") ? foundSky.hit(e.clientX, e.clientY) : null;
+        if (handled.hit(e.clientX, e.clientY) ? handled.grab(e.clientX, e.clientY, down.t) : sky && handled.take(sky.id, e.clientX, e.clientY, down.t)) {
+          down.item = true;
+          call.abort();
+          overSky(null);
+          try {
+            (e.target as Element).setPointerCapture(e.pointerId);
+          } catch {
+            /* a pointer already gone */
+          }
+          cursor.set("Hold");
+          labelUrchi();
+          return;
+        }
+      }
       // Afloat, a press on it holds it (asleep, the press only wakes it, as a click at home does).
       if (fl.afloat && room.urchiHit(e.clientX, e.clientY)) {
         call.abort();
@@ -712,6 +791,15 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
           labelUrchi();
         }
         return;
+      }
+      // afloat, a press anywhere else may be the start of a pan (or stays a tap, if it does not move)
+      if (fl.afloat && !catches.hit(e.clientX, e.clientY, e.pointerType === "touch")) {
+        down.pan = true;
+        try {
+          (e.target as Element).setPointerCapture(e.pointerId);
+        } catch {
+          /* a pointer already gone */
+        }
       }
       call.press(down.t);
     };
@@ -738,6 +826,25 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         return;
       }
       if (down.woke) return;
+      if (down.item) {
+        down.item = false;
+        handled.release(t);
+        cursor.set(null);
+        labelUrchi();
+        return;
+      }
+      if (down.panning) {
+        // let go moving: the view glides on (room px/s, y up)
+        down.panning = down.pan = false;
+        const last = panSamples[panSamples.length - 1], first = panSamples[0];
+        if (last && first && t - last.t < PAN_FLING_MS && last.t - first.t > 8) {
+          const s = (last.t - first.t) / 1000;
+          room.panFling((last.x - first.x) / s, -(last.y - first.y) / s);
+        }
+        labelUrchi();
+        return;
+      }
+      down.pan = false;
       if (!click) {
         call.abort();
         return;
@@ -761,6 +868,9 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
         const f = foundSky.hit(e.clientX, e.clientY)!;
         const [title, line] = skyWords(f);
         say("sky", title, line, { dwell: SKY_TAP });
+      } else if (fl.afloat && handled.press(e.clientX, e.clientY)) {
+        // the minnows out after the pointer: a tap scatters them
+        call.abort();
       } else if (room.interactive) {
         if (begun >= 0) call.tap(e.clientX, e.clientY, down.t);
         else motes.release(e.clientX, e.clientY);
@@ -771,7 +881,8 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       lift(e);
       if (e.pointerId !== down.id) return;
       if (down.held) fl.release(eventTime(e), false);
-      down.held = false;
+      if (down.item) handled.release(eventTime(e));
+      down.held = down.pan = down.panning = down.item = false;
       call.abort();
       labelUrchi();
     };
@@ -914,9 +1025,11 @@ export function CreativeSpacePanel({ intro }: { intro: boolean }) {
       gsap.killTweensOf(zoomEl);
       window.removeEventListener("resize", onResize);
       window.removeEventListener(CASE_EVENT, onCase);
+      window.removeEventListener(GIVE_EVENT, onGive);
       document.removeEventListener("visibilitychange", onVisibility);
       cursor.destroy();
       catches.dispose();
+      handled.dispose();
       foundSky.dispose();
       call.dispose();
       faces.dispose();
