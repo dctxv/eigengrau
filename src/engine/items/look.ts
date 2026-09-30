@@ -8,6 +8,11 @@ import { rawColor } from "@/engine/common/color";
  * lines along its hard edges, like the rocks in the references. Two or three main colours and one
  * accent; bright and saturated. Colours are as they land on screen (the site writes raw colour).
  *
+ * Everything is a real 3D model in real 3D space, and uses it: it tumbles or turns through depth,
+ * and what moves about moves toward and away from you as much as across (a creature swims all
+ * through a ball of space round the item's middle, never round a flat ring), nearer things bigger
+ * and in front of farther ones.
+ *
  * An item is a unit of this: a root the host places and scales (it fits a sphere of radius 1), and
  * each frame's update. No ground shadow (it is space): a bright item has a faint haze beneath it.
  */
