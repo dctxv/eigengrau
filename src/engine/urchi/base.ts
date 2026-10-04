@@ -38,27 +38,30 @@ export type BaseParams = {
   footSize: number;
   /** From the middle to each foot's. */
   footSpacing: number;
+  /** How far forward of the body's middle each foot's middle sits (negative: behind it). */
+  footForward: number;
 };
 
 export const BASE_DEFAULTS: BaseParams = {
   headScale: 1,
-  headSink: 90,
-  bodyTop: 0.6,
-  bodyBottom: 0.74,
-  bodyHeight: 420,
-  bodyFacets: 9,
-  ruff: true,
+  headSink: 92,
+  bodyTop: 0.56,
+  bodyBottom: 0.55,
+  bodyHeight: 497,
+  bodyFacets: 12,
+  ruff: false,
   ruffTufts: 14,
   ruffLength: 175,
-  bib: true,
+  bib: false,
   bibColour: "#ece4d4",
-  tail: true,
+  tail: false,
   tailLength: 260,
-  handSize: 64,
+  handSize: 108,
   handGap: -6,
   handHeight: 0.4,
-  footSize: 96,
+  footSize: 138,
   footSpacing: 128,
+  footForward: 45,
 };
 
 /** Each tunable number's range and step, in the order /dev/base lists them. */
@@ -77,6 +80,7 @@ export const BASE_RANGES: { [K in keyof BaseParams]?: [number, number, number] }
   handHeight: [0, 1, 0.01],
   footSize: [40, 160, 1],
   footSpacing: [40, 240, 1],
+  footForward: [-80, 200, 1],
 };
 
 /** Reads params from anything (a pasted preset): known keys of the right type, clamped; the rest the defaults'. */
@@ -351,7 +355,7 @@ export function buildBase(p: BaseParams): Part[] {
   // the feet on the ground, the body on them
   const footH = p.footSize * 0.55, bottom = footH * 1.15;
   for (const [name, side] of [["foot_L", 1], ["foot_R", -1]] as const) {
-    const F = new Facets(), c: Vec3 = [side * p.footSpacing, footH, p.footSize * 0.75];
+    const F = new Facets(), c: Vec3 = [side * p.footSpacing, footH, p.footForward];
     foot(F, c, p.footSize);
     add(name, null, c, F);
   }

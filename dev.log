@@ -1,20 +1,9 @@
 ▲ Next.js 16.3.6 (Turbopack)
 - Local:         http://localhost:3000
 - Network:       http://192.0.2.2:3000
-✓ Ready in 398ms
-✓ Running next.config.ts took 113ms
+✓ Ready in 391ms
+✓ Running next.config.ts took 93ms
 
- GET / 200 in 1504ms (next.js: 1297ms, application-code: 207ms)
- GET /dev/base 200 in 2.5s (next.js: 2.3s, application-code: 235ms)
- GET /dev/base?p=%7B%22ruff%22%3Atrue%2C%22headSink%22%3A90%7D 200 in 85ms (next.js: 33ms, application-code: 52ms)
- GET /dev/base?p=%7B%22ruff%22%3Atrue%2C%22headSink%22%3A90%2C%22ruffLength%22%3A140%7D 200 in 38ms (next.js: 7ms, application-code: 30ms)
- GET /dev/base?p=%7B%22ruff%22%3Atrue%2C%22headSink%22%3A90%2C%22ruffLength%22%3A140%7D 200 in 152ms (next.js: 35ms, application-code: 117ms)
- GET /dev/base?p=%7B%22ruff%22%3Atrue%2C%22headSink%22%3A90%7D 200 in 43ms (next.js: 13ms, application-code: 30ms)
- GET /dev/base?p=%7B%22ruff%22%3Atrue%2C%22headSink%22%3A90%2C%22bib%22%3Atrue%7D 200 in 159ms (next.js: 70ms, application-code: 89ms)
- GET /dev/base?p=%7B%22ruff%22%3Atrue%2C%22headSink%22%3A90%2C%22bib%22%3Atrue%2C%22tail%22%3Atrue%7D 200 in 35ms (next.js: 6ms, application-code: 29ms)
- GET /dev/base?p=%7B%7D 200 in 35ms (next.js: 5ms, application-code: 30ms)
- GET /dev/base?p=%7B%7D 200 in 37ms (next.js: 5ms, application-code: 32ms)
- GET /dev/base?p=%7B%7D 200 in 120ms (next.js: 28ms, application-code: 92ms)
- GET /dev/base?p=%7B%7D 200 in 44ms (next.js: 7ms, application-code: 37ms)
- GET /dev/base?p=%7B%7D 200 in 32ms (next.js: 5ms, application-code: 28ms)
- GET /dev/base?p=%7B%7D 200 in 113ms (next.js: 36ms, application-code: 77ms)
+ GET / 200 in 1698ms (next.js: 1496ms, application-code: 202ms)
+ GET /dev/base?p=%7B%22footForward%22%3A104%7D 200 in 175ms (next.js: 15ms, application-code: 160ms)
+ GET /dev/base?p=%7B%22footForward%22%3A45%7D 200 in 79ms (next.js: 3ms, application-code: 77ms)

@@ -28,12 +28,12 @@ const GROUPS: { title: string; keys: (keyof BaseParams)[] }[] = [
   { title: "Bib", keys: ["bib", "bibColour"] },
   { title: "Tail", keys: ["tail", "tailLength"] },
   { title: "Hands", keys: ["handSize", "handGap", "handHeight"] },
-  { title: "Feet", keys: ["footSize", "footSpacing"] },
+  { title: "Feet", keys: ["footSize", "footSpacing", "footForward"] },
 ];
 const LABELS: Record<keyof BaseParams, string> = {
   headScale: "head scale", headSink: "head sink", bodyTop: "top width", bodyBottom: "bottom width", bodyHeight: "height",
   bodyFacets: "facets", ruff: "ruff", ruffTufts: "tufts", ruffLength: "tuft length", bib: "bib", bibColour: "colour",
-  tail: "tail", tailLength: "length", handSize: "size", handGap: "distance from body", handHeight: "height", footSize: "size", footSpacing: "spacing",
+  tail: "tail", tailLength: "length", handSize: "size", handGap: "distance from body", handHeight: "height", footSize: "size", footSpacing: "spacing", footForward: "forward",
 };
 
 /** Where the figure reaches: its top (the ground is y 0) and its farthest from the turning axis, in mesh units. */
