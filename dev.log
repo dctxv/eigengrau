@@ -11,3 +11,5 @@
  GET /dev/base?p=%7B%22ruff%22%3Atrue%2C%22headSink%22%3A90%2C%22ruffLength%22%3A140%7D 200 in 152ms (next.js: 35ms, application-code: 117ms)
  GET /dev/base?p=%7B%22ruff%22%3Atrue%2C%22headSink%22%3A90%7D 200 in 43ms (next.js: 13ms, application-code: 30ms)
  GET /dev/base?p=%7B%22ruff%22%3Atrue%2C%22headSink%22%3A90%2C%22bib%22%3Atrue%7D 200 in 159ms (next.js: 70ms, application-code: 89ms)
+ GET /dev/base?p=%7B%22ruff%22%3Atrue%2C%22headSink%22%3A90%2C%22bib%22%3Atrue%2C%22tail%22%3Atrue%7D 200 in 35ms (next.js: 6ms, application-code: 29ms)
+ GET /dev/base?p=%7B%7D 200 in 35ms (next.js: 5ms, application-code: 30ms)

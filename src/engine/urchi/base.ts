@@ -42,23 +42,23 @@ export type BaseParams = {
 
 export const BASE_DEFAULTS: BaseParams = {
   headScale: 1,
-  headSink: 0,
+  headSink: 90,
   bodyTop: 0.6,
   bodyBottom: 0.74,
   bodyHeight: 420,
   bodyFacets: 9,
-  ruff: false,
+  ruff: true,
   ruffTufts: 14,
   ruffLength: 175,
-  bib: false,
+  bib: true,
   bibColour: "#ece4d4",
-  tail: false,
+  tail: true,
   tailLength: 260,
-  handSize: 100,
-  handGap: 30,
-  handHeight: 0.2,
-  footSize: 92,
-  footSpacing: 110,
+  handSize: 64,
+  handGap: -6,
+  handHeight: 0.4,
+  footSize: 96,
+  footSpacing: 128,
 };
 
 /** Each tunable number's range and step, in the order /dev/base lists them. */
@@ -297,6 +297,35 @@ function bib(p: BaseParams, rings: Ring[], around: number, F: Facets) {
   }
 }
 
+/**
+ * The tail: short and angular, from low on the back out and up in a hook, curling a little to its
+ * left (so it shows from behind, not hidden by the body it is in line with), a four-sided spike (a
+ * diamond across, as the head's spikes are thin blades) tapering in a few straight segments to a
+ * point. Its root is buried in the body; its pivot there, to wag from.
+ */
+function tail(p: BaseParams, root: Vec3, F: Facets) {
+  const L = p.tailLength, r0 = Math.max(26, L * 0.2), segs = 4;
+  // its spine: back, then curling up (a cubic from the root)
+  const P = [root, [root[0], root[1] + L * 0.05, root[2] - L * 0.6], [root[0] + L * 0.2, root[1] + L * 0.5, root[2] - L * 0.95], [root[0] + L * 0.42, root[1] + L * 0.95, root[2] - L * 0.82]] as Vec3[];
+  const at = (t: number): Vec3 => [0, 1, 2].map((c) => (1 - t) ** 3 * P[0][c] + 3 * (1 - t) ** 2 * t * P[1][c] + 3 * (1 - t) * t * t * P[2][c] + t ** 3 * P[3][c]) as Vec3;
+  const ringAt = (t: number, r: number): Vec3[] => {
+    const a = at(Math.max(0, t - 0.01)), b = at(Math.min(1, t + 0.01)), T = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l = Math.hypot(...T) || 1;
+    // across: square to the tangent and level (as near as it can be); up from the spine: across x the tangent
+    const t3: Vec3 = [T[0] / l, T[1] / l, T[2] / l], X0: Vec3 = [-t3[2], 0, t3[0]], xl = Math.hypot(X0[0], X0[2]) || 1, X: Vec3 = xl > 0.2 ? [X0[0] / xl, 0, X0[2] / xl] : [1, 0, 0];
+    const N: Vec3 = [X[1] * t3[2] - X[2] * t3[1], X[2] * t3[0] - X[0] * t3[2], X[0] * t3[1] - X[1] * t3[0]], c = at(t);
+    // a diamond: taller than it is wide, a blade on its edge
+    return [[r * 0.62, 0], [0, r], [-r * 0.62, 0], [0, -r]].map(([u, v]) => [c[0] + X[0] * u + N[0] * v, c[1] + X[1] * u + N[1] * v, c[2] + X[2] * u + N[2] * v]);
+  };
+  const rings = Array.from({ length: segs }, (_, i) => ringAt(i / segs, r0 * (1 - i / segs) ** 0.8));
+  const tip = at(1);
+  for (let i = 0; i + 1 < segs; i++) {
+    const A = rings[i], B = rings[i + 1], mid = at((i + 0.5) / segs);
+    for (let k = 0; k < 4; k++) F.poly([A[k], A[(k + 1) % 4], B[(k + 1) % 4], B[k]], mid);
+  }
+  const last = rings[segs - 1], mid = at((segs - 0.5) / segs);
+  for (let k = 0; k < 4; k++) F.poly([last[k], last[(k + 1) % 4], tip], mid);
+}
+
 /** A faceted gem of a ball: a hand. */
 function hand(F: Facets, c: Vec3, s: number) {
   const ring = (dy: number, r: number): Ring => ({ y: c[1] + dy * s, rx: r * s, rz: r * s });
@@ -322,7 +351,7 @@ export function buildBase(p: BaseParams): Part[] {
   // the feet on the ground, the body on them
   const footH = p.footSize * 0.55, bottom = footH * 1.15;
   for (const [name, side] of [["foot_L", 1], ["foot_R", -1]] as const) {
-    const F = new Facets(), c: Vec3 = [side * p.footSpacing, footH, p.footSize * 0.3];
+    const F = new Facets(), c: Vec3 = [side * p.footSpacing, footH, p.footSize * 0.75];
     foot(F, c, p.footSize);
     add(name, null, c, F);
   }
@@ -335,6 +364,13 @@ export function buildBase(p: BaseParams): Part[] {
     const F = new Facets();
     bib(p, rings, Math.round(p.bodyFacets), F);
     add("bib", "body", [0, bottom, 0], F, "bib");
+  }
+
+  // the tail, from low on the back, its root inside the body
+  if (p.tail) {
+    const y = bottom + p.bodyHeight * 0.26, root: Vec3 = [0, y, -bodyRadius(rings, y) * DEPTH * 0.8], F = new Facets();
+    tail(p, root, F);
+    add("tail", "body", root, F);
   }
 
   // the head: its chin headSink below the body's top, its pivot at the neck inside it
@@ -355,7 +391,7 @@ export function buildBase(p: BaseParams): Part[] {
 
   // the hands at its sides
   for (const [name, side] of [["hand_L", 1], ["hand_R", -1]] as const) {
-    const y = bottom + p.handHeight * p.bodyHeight, c: Vec3 = [side * (bodyRadius(rings, y) + p.handGap + p.handSize * 0.9), y, p.handSize * 0.5];
+    const y = bottom + p.handHeight * p.bodyHeight, c: Vec3 = [side * (bodyRadius(rings, y) + p.handGap + p.handSize * 0.75), y, bodyRadius(rings, y) * DEPTH * 0.35];
     const F = new Facets();
     hand(F, c, p.handSize);
     add(name, "body", c, F);
