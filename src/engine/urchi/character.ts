@@ -1,4 +1,5 @@
 import { createLimbs, type Limbs, type QuirkName, type RigData, type Side } from "./limbs";
+import { bareBody } from "./bare";
 import MESH_DATA from "./mesh.json";
 import SUIT_FRAME from "./suit-frame.json";
 
@@ -138,15 +139,6 @@ const SUIT_COLOUR: Record<string, { dark: Vec3; lit: Vec3 }> = {
  * before it starts: never while any of it is there to be poked through.
  */
 const SUIT_BUILD = { helmet: 0.5, over: 1.12, tuck: 0.16 };
-/**
- * The body without the suit (UrchiDevOptions.bare): the suit's own figure with none of what makes
- * it a spacesuit (`gear`, by part name; the helmet goes too), every part of it in `skin`, the head's
- * own near-black (its planes run from #040404 to about #1C1C1C on the same curve).
- */
-const BARE = {
-  gear: /^(backpack|pack |chest panel|slot\.|button\.|light\.|connector\.|hose )/,
-  skin: { dark: [4, 4, 4] as Vec3, lit: [28, 28, 28] as Vec3, under: "rgb(16,16,16)" },
-};
 /**
  * A part's planes, its vertices (first and count), its middle; `decal`: it lies on the shell, drawn
  * as a whole (1, a disc) or plane by plane (2, the rim); `convex`: its outline on screen is the hull
@@ -544,8 +536,8 @@ export type UrchiDevOptions = {
   /** The close-ups: "helmet" paints the suited figure's helmet alone, without the body. */
   suitPart?: "helmet";
   /**
-   * The body without the suit (/dev/body): with the suit on, no helmet and none of the suit's gear,
-   * the body in the head's own colour (see BARE), and the bare head, ears and spikes out, over it.
+   * The body without the suit (/dev/body): with the suit on, instead of it Urchi's own body (see
+   * bare.ts) in the head's own near-black, and the bare head, ears and spikes out, over it.
    */
   bare?: boolean;
   /**
@@ -1292,6 +1284,10 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     //    planes and eyes far-to-near, then snap the edge to whole pixels and add the rim.
     //    During a reveal the eyes also go into a mask, and planes nearer than an eye cut it.
     const toCanvas: CanvasTransform6 = [1 / CELL, 0, 0, 1 / CELL, (shift - VBX) / CELL, (rise - VBY) / CELL];
+    if (suited() && dev.bare) {
+      renderBare(yaw, roll, head, items, toCanvas);
+      return;
+    }
     if (suited()) {
       renderSuit(yaw, pitch, roll, head, HV !== V ? untuckedOutline(project) : head, items, toCanvas);
       return;
@@ -1641,7 +1637,6 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     const hub = R.hub;
     R.parts.forEach((P, pi) => {
       if (dev.suitPart === "helmet" && !P.rigid) return;
-      if (dev.bare && (P.rigid || BARE.gear.test(D.parts[pi].name))) return;
       // a disc goes after the glass while it faces the eye, and before the shell while it does not;
       // a plane of the rim, while it is in the eye's clear view (see rimClear)
       const [mx, my, mz] = P.mid;
@@ -1693,7 +1688,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     const late = R.late;
     late.fill(0);
     let lateAny = false;
-    if (T && !dev.suitPart && !dev.bare) {
+    if (T && !dev.suitPart) {
       const P = R.parts[R.shell];
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, zs = 0;
       for (let v = P.v0; v < P.v0 + P.vn; v++) { const x = POST[v * 3], y = POST[v * 3 + 1]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; zs += POST[v * 3 + 2]; }
@@ -1713,7 +1708,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     // each plane traced straight into the context's path, filled and stroked (a canvas pixel in
     // its own colour closes the anti-aliasing gap to its neighbours), in its material's shade
     const fillPlane = (g: number) => {
-      const m = dev.bare ? BARE.skin : R.mats[R.planeMat[g]], i = light(g);
+      const m = R.mats[R.planeMat[g]], i = light(g);
       const r = Math.round(m.dark[0] + (m.lit[0] - m.dark[0]) * i), gr = Math.round(m.dark[1] + (m.lit[1] - m.dark[1]) * i), b = Math.round(m.dark[2] + (m.lit[2] - m.dark[2]) * i);
       const key = (r << 16) | (gr << 8) | b;
       let col = R.colours.get(key);
@@ -1726,7 +1721,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     const underlay = (pi: number, planes: number[]) => {
       const P = R.parts[pi];
       if (!whole || !planes.length) return;
-      ctx.fillStyle = dev.bare ? BARE.skin.under : R.mats[P.material].under;
+      ctx.fillStyle = R.mats[P.material].under;
       ctx.beginPath();
       if (P.convex) hullInto(R, P); else for (const g of planes) planeInto(R, ctx, g, POST);
       ctx.fill();
@@ -1811,7 +1806,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     if (SMOOTH) {
       ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * (RIM + BASE);
       strokeOutline(true);
-      if (!whole || dev.bare) ctx.stroke(head);
+      if (!whole) ctx.stroke(head);
     }
     // the bare head under a suit still building itself (its own rim, drawn with the suit's)
     const headItems = () => {
@@ -1827,12 +1822,6 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     strokeOutline(false);
     ctx.lineWidth = CELL;
     for (const pi of order) { if (late[pi]) continue; underlay(pi, front[pi]); for (const g of front[pi]) fillPlane(g); }
-    // without the suit: the bare head over the body, and nothing else
-    if (dev.bare) {
-      headItems();
-      if (!SMOOTH) pixelFinish(null);
-      return;
-    }
     // the helmet, as far as it has risen
     ctx.save();
     if (rising) belowLevel();
@@ -1854,6 +1843,85 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     ctx.restore();
     if (lateAny) for (const pi of order) { if (!late[pi]) continue; underlay(pi, front[pi]); for (const g of front[pi]) fillPlane(g); }
     if (!SMOOTH) pixelFinish(null);
+  }
+
+  /**
+   * One frame of Urchi without the suit (dev.bare): its own body (bare.ts), hung from the neck and
+   * turned as the suit's body is (by part of the head's yaw and roll, never its pitch), its planes
+   * shaded as the head's are and painted far to near; then the bare head over it, ears and spikes
+   * out. The rim and the dark base go round the body and the head together.
+   */
+  let bareScratch: { post: Float64Array; z: Float64Array; order: number[] } | null = null;
+  function renderBare(yaw: number, roll: number, head: Path2D, items: Item[], toCanvas: CanvasTransform6) {
+    const B = bareBody(), nv = B.v.length / 3, RP = TILT.pivot, [NX, NY, NZ] = SUIT!.neck;
+    bareScratch ??= { post: new Float64Array(nv * 3), z: new Float64Array(B.planes.length), order: [] };
+    const { post: POST, z: PZ, order } = bareScratch;
+    const cr = Math.cos(roll), sr = Math.sin(roll), ny0 = NY - PIVOT_Y;
+    const ax = -(ny0 - RP) * sr, ay = (ny0 - RP) * cr + RP + PIVOT_Y;
+    const bYaw = SUIT!.body.yaw * (yaw - turn) + turn + drift.yaw, bRoll = SUIT!.body.roll * roll + drift.roll;
+    const cby = Math.cos(bYaw), sby = Math.sin(bYaw), cbr = Math.cos(bRoll), sbr = Math.sin(bRoll);
+    const lift = (SUIT_BODY.rise - 1) * rise - drift.lift;
+    for (let i = 0; i < nv; i++) {
+      const x = B.v[i * 3] - NX, y = B.v[i * 3 + 1] - NY, z = B.v[i * 3 + 2] - NZ;
+      const x1 = x * cby + z * sby, Z = -x * sby + z * cby;
+      const X = ax + x1 * cbr - y * sbr, Y = ay + x1 * sbr + y * cbr;
+      const s = PERSPECTIVE === Infinity ? 1 : PERSPECTIVE / (PERSPECTIVE - Z);
+      POST[i * 3] = X * s; POST[i * 3 + 1] = Y * s + lift; POST[i * 3 + 2] = Z;
+    }
+    // the planes facing the eye, far to near, each its shade as the head's planes take theirs
+    order.length = 0;
+    const colour: string[] = [];
+    const body = new Path2D();
+    B.planes.forEach((f, g) => {
+      let area = 0, nx = 0, ny = 0, nz = 0, z = 0;
+      for (let k = 0; k < f.length; k++) {
+        const a = f[k] * 3, b = f[(k + 1) % f.length] * 3;
+        const px = POST[a], py = -POST[a + 1], pz = POST[a + 2], qx = POST[b], qy = -POST[b + 1], qz = POST[b + 2];
+        area += POST[a] * POST[b + 1] - POST[b] * POST[a + 1];
+        nx += (py - qy) * (pz + qz); ny += (pz - qz) * (px + qx); nz += (px - qx) * (py + qy);
+        z += pz;
+      }
+      if (!(area > 0)) return;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+      const c = Math.round(4 + 24 * Math.pow(Math.max(0, (nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2]) / l), 1.2));
+      colour[g] = `rgb(${c},${c},${c})`;
+      PZ[g] = z / f.length;
+      order.push(g);
+      planeOf(body, f);
+    });
+    order.sort((a, b) => PZ[a] - PZ[b]);
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(...toCanvas);
+    ctx.lineJoin = "round";
+    suitHit = null;
+    lastHead = null;
+    lastToCanvas = toCanvas;
+    if (SMOOTH) {
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * (rimWidth() + BASE);
+      ctx.stroke(body); ctx.stroke(head);
+    }
+    ctx.fillStyle = ctx.strokeStyle = COLOR.base; ctx.lineWidth = 2 * BASE;
+    ctx.fill(body); ctx.stroke(body);
+    ctx.lineWidth = CELL;
+    for (const g of order) {
+      ctx.fillStyle = ctx.strokeStyle = colour[g];
+      ctx.beginPath(); planeOf(ctx, B.planes[g]); ctx.fill(); ctx.stroke();
+    }
+    ctx.fillStyle = ctx.strokeStyle = COLOR.base; ctx.lineWidth = 2 * BASE; ctx.fill(head); ctx.stroke(head);
+    ctx.lineWidth = CELL;
+    for (const it of items) {
+      if (it.plane) { ctx.fillStyle = ctx.strokeStyle = it.plane.color; ctx.fill(it.plane.path); ctx.stroke(it.plane.path); }
+      else paintEye(it.eye!, head);
+    }
+    if (!SMOOTH) pixelFinish(null);
+
+    function planeOf(path: Tracer, f: Int32Array) {
+      for (let k = 0; k < f.length; k++) { const v = f[k] * 3; if (k) path.lineTo(POST[v], POST[v + 1]); else path.moveTo(POST[v], POST[v + 1]); }
+      path.closePath();
+    }
   }
 
   /**
