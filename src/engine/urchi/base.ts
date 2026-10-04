@@ -253,6 +253,50 @@ function ruff(p: BaseParams, y: number, r: number, F: Facets) {
   }
 }
 
+/**
+ * The bib: a cat's pale chest, its own part (a marking, to be swapped for others), a rounded V from
+ * under the chin down the belly. Drawn in the body's own (angle, height) terms, cut along the body's
+ * facets, each piece laid on its facet and lifted off it a little (the same way out at every
+ * shared corner, so no seam opens), so it takes the body's facets as its own.
+ */
+const BIB = { top: 0.1, bottom: 0.78, half: 0.72, lift: 5 };
+function bib(p: BaseParams, rings: Ring[], around: number, F: Facets) {
+  const top = rings[1].y, h = p.bodyHeight, yT = top - BIB.top * h, H = (BIB.bottom - BIB.top) * h, w = BIB.half;
+  // its outline (angle, height), round from its top left: a straight top, sides curving in to a point
+  const shape: [number, number][] = [[-w, yT], [w, yT], [0.92 * w, yT - 0.3 * H], [0.6 * w, yT - 0.65 * H], [0.25 * w, yT - 0.92 * H], [0, yT - H], [-0.25 * w, yT - 0.92 * H], [-0.6 * w, yT - 0.65 * H], [-0.92 * w, yT - 0.3 * H]];
+  const step = (2 * Math.PI) / around, angle = (a: number) => (a + 0.5) * step;
+  const vert = (r: Ring, a: number): Vec3 => [r.rx * Math.sin(angle(a)), r.y, r.rz * Math.cos(angle(a))];
+  const inside: Vec3 = [0, rings[0].y - h / 2, 0];
+  for (let k = 1; k + 2 < rings.length; k++) {
+    const R0 = rings[k], R1 = rings[k + 1];
+    for (let a = Math.floor(-w / step - 1); a <= Math.ceil(w / step); a++) {
+      const t0 = angle(a), t1 = angle(a + 1);
+      // the outline cut to this facet's span of angle and height
+      let poly = shape;
+      const cut = (keep: (q: [number, number]) => number) => {
+        const out: [number, number][] = [];
+        poly.forEach((q, i) => {
+          const r = poly[(i + 1) % poly.length], dq = keep(q), dr = keep(r);
+          if (dq >= 0) out.push(q);
+          if (dq >= 0 !== dr >= 0) { const t = dq / (dq - dr); out.push([q[0] + (r[0] - q[0]) * t, q[1] + (r[1] - q[1]) * t]); }
+        });
+        poly = out;
+      };
+      cut((q) => q[0] - t0); cut((q) => t1 - q[0]); cut((q) => R0.y - q[1]); cut((q) => q[1] - R1.y);
+      if (poly.length < 3) continue;
+      // onto the facet (its corners' blend, so on its plane), and out from the body's axis a little
+      const pts = poly.map(([th, y]): Vec3 => {
+        const u = (th - t0) / step, v = (R0.y - y) / (R0.y - R1.y || 1);
+        const A = vert(R0, a), B = vert(R0, a + 1), C = vert(R1, a), D = vert(R1, a + 1);
+        const P: Vec3 = [0, 1, 2].map((c) => (A[c] + (B[c] - A[c]) * u) * (1 - v) + (C[c] + (D[c] - C[c]) * u) * v) as Vec3;
+        const l = Math.hypot(P[0], P[2]) || 1;
+        return [P[0] + (P[0] / l) * BIB.lift, P[1], P[2] + (P[2] / l) * BIB.lift];
+      });
+      F.poly(pts, inside);
+    }
+  }
+}
+
 /** A faceted gem of a ball: a hand. */
 function hand(F: Facets, c: Vec3, s: number) {
   const ring = (dy: number, r: number): Ring => ({ y: c[1] + dy * s, rx: r * s, rz: r * s });
@@ -286,6 +330,12 @@ export function buildBase(p: BaseParams): Part[] {
   const body = new Facets();
   turned(body, rings, Math.round(p.bodyFacets), [0, 0, 0]);
   add("body", null, [0, bottom, 0], body);
+  if (p.bib) {
+    // the bib turns and bobs with the body: its pivot the body's
+    const F = new Facets();
+    bib(p, rings, Math.round(p.bodyFacets), F);
+    add("bib", "body", [0, bottom, 0], F, "bib");
+  }
 
   // the head: its chin headSink below the body's top, its pivot at the neck inside it
   const s = p.headScale, chin = top - p.headSink, o: Vec3 = [0, chin + HEAD.chin * s, 0];
