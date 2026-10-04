@@ -139,6 +139,15 @@ const SUIT_COLOUR: Record<string, { dark: Vec3; lit: Vec3 }> = {
  */
 const SUIT_BUILD = { helmet: 0.5, over: 1.12, tuck: 0.16 };
 /**
+ * The body without the suit (UrchiDevOptions.bare): the suit's own figure with none of what makes
+ * it a spacesuit (`gear`, by part name; the helmet goes too), every part of it in `skin`, the head's
+ * own near-black (its planes run from #040404 to about #1C1C1C on the same curve).
+ */
+const BARE = {
+  gear: /^(backpack|pack |chest panel|slot\.|button\.|light\.|connector\.|hose )/,
+  skin: { dark: [4, 4, 4] as Vec3, lit: [28, 28, 28] as Vec3, under: "rgb(16,16,16)" },
+};
+/**
  * A part's planes, its vertices (first and count), its middle; `decal`: it lies on the shell, drawn
  * as a whole (1, a disc) or plane by plane (2, the rim); `convex`: its outline on screen is the hull
  * of its points.
@@ -534,6 +543,11 @@ export type UrchiDevOptions = {
   suitLayer?: "head" | "helmet" | "tucked" | "eyes" | "glass";
   /** The close-ups: "helmet" paints the suited figure's helmet alone, without the body. */
   suitPart?: "helmet";
+  /**
+   * The body without the suit (/dev/body): with the suit on, no helmet and none of the suit's gear,
+   * the body in the head's own colour (see BARE), and the bare head, ears and spikes out, over it.
+   */
+  bare?: boolean;
   /**
    * The whole figure turned about its vertical axis, in degrees (90 shows its left side, 180 its
    * back): a view, not a look, so the head's own turn still comes on top. The sheet's 3/4, side and back views.
@@ -1627,6 +1641,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     const hub = R.hub;
     R.parts.forEach((P, pi) => {
       if (dev.suitPart === "helmet" && !P.rigid) return;
+      if (dev.bare && (P.rigid || BARE.gear.test(D.parts[pi].name))) return;
       // a disc goes after the glass while it faces the eye, and before the shell while it does not;
       // a plane of the rim, while it is in the eye's clear view (see rimClear)
       const [mx, my, mz] = P.mid;
@@ -1678,7 +1693,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     const late = R.late;
     late.fill(0);
     let lateAny = false;
-    if (T && !dev.suitPart) {
+    if (T && !dev.suitPart && !dev.bare) {
       const P = R.parts[R.shell];
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, zs = 0;
       for (let v = P.v0; v < P.v0 + P.vn; v++) { const x = POST[v * 3], y = POST[v * 3 + 1]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; zs += POST[v * 3 + 2]; }
@@ -1698,7 +1713,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     // each plane traced straight into the context's path, filled and stroked (a canvas pixel in
     // its own colour closes the anti-aliasing gap to its neighbours), in its material's shade
     const fillPlane = (g: number) => {
-      const m = R.mats[R.planeMat[g]], i = light(g);
+      const m = dev.bare ? BARE.skin : R.mats[R.planeMat[g]], i = light(g);
       const r = Math.round(m.dark[0] + (m.lit[0] - m.dark[0]) * i), gr = Math.round(m.dark[1] + (m.lit[1] - m.dark[1]) * i), b = Math.round(m.dark[2] + (m.lit[2] - m.dark[2]) * i);
       const key = (r << 16) | (gr << 8) | b;
       let col = R.colours.get(key);
@@ -1711,7 +1726,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     const underlay = (pi: number, planes: number[]) => {
       const P = R.parts[pi];
       if (!whole || !planes.length) return;
-      ctx.fillStyle = R.mats[P.material].under;
+      ctx.fillStyle = dev.bare ? BARE.skin.under : R.mats[P.material].under;
       ctx.beginPath();
       if (P.convex) hullInto(R, P); else for (const g of planes) planeInto(R, ctx, g, POST);
       ctx.fill();
@@ -1796,7 +1811,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     if (SMOOTH) {
       ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * (RIM + BASE);
       strokeOutline(true);
-      if (!whole) ctx.stroke(head);
+      if (!whole || dev.bare) ctx.stroke(head);
     }
     // the bare head under a suit still building itself (its own rim, drawn with the suit's)
     const headItems = () => {
@@ -1812,6 +1827,12 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
     strokeOutline(false);
     ctx.lineWidth = CELL;
     for (const pi of order) { if (late[pi]) continue; underlay(pi, front[pi]); for (const g of front[pi]) fillPlane(g); }
+    // without the suit: the bare head over the body, and nothing else
+    if (dev.bare) {
+      headItems();
+      if (!SMOOTH) pixelFinish(null);
+      return;
+    }
     // the helmet, as far as it has risen
     ctx.save();
     if (rising) belowLevel();
@@ -2073,7 +2094,7 @@ export function createUrchi(o: UrchiOptions = {}, dev: UrchiDevOptions = {}): Ur
   }
   /** The head's vertices for a suit this far on: the ears and spikes fold in, all the way before the helmet starts to rise. */
   function headFor(amount: number): Vec3[] {
-    if (amount <= 0 || !SUIT) return V;
+    if (amount <= 0 || !SUIT || dev.bare) return V;
     const end = SUIT_BUILD.helmet / SUIT_BUILD.over - 0.005;
     const t = smooth01(end - SUIT_BUILD.tuck, end, amount), T = suitRig().tucked;
     if (t >= 1) return T;
