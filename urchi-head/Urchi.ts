@@ -134,7 +134,7 @@ export class Urchi {
   width = 1;
   /** 0 hidden .. 1 full size. */
   appear = 0;
-  /** A size for a moment, on top of `appear`: sleep settles it, and leaning in brings it closer. */
+  /** A size for a moment, on top of `appear`: a host can ease it in or out, or lean it closer. */
   zoom = 1;
   /** Device pixels per host unit, which a smooth Urchi paints its canvas to match. */
   pixelRatio = 1;
@@ -328,14 +328,6 @@ export class Urchi {
       u.value = to;
       done?.();
     } else gsap.to(u, { value: to, duration: seconds, ease: "none", onComplete: done });
-  }
-
-  closeEyes() {
-    this.character.closeEyes();
-  }
-
-  openEyes(seconds: number) {
-    this.character.openEyes(seconds);
   }
 
   dispose() {

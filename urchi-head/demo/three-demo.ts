@@ -14,7 +14,6 @@ const cam = new THREE.OrthographicCamera(-innerWidth / 2, innerWidth / 2, innerH
 const urchi = new Urchi();
 urchi.width = Math.min(innerWidth, innerHeight) * 0.7;   // the mascot's box width in scene units
 urchi.pixelRatio = devicePixelRatio;                      // smooth: canvas follows the size it is shown at
-urchi.character.openEyes(0.6);
 urchi.scaleIn(1.2);                                       // or fadeIn(), or leave appear = 1
 scene.add(urchi.mesh);                                    // origin = the head's centre
 
