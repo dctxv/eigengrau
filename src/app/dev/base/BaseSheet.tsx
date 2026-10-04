@@ -72,12 +72,14 @@ function original(turn: number, boxPx: number): Original {
   const was = location.search, q = new URLSearchParams(was);
   for (const k of ["yaw", "pitch", "roll", "blink"]) q.set(k, "0");
   q.set("col", "terrarium");
-  history.replaceState(history.state, "", `?${q}`);
+  // (a host that will not have its address changed still gets a figure: only not held still)
+  const go = (to: string) => { try { history.replaceState(history.state, "", to); } catch { /* refused */ } };
+  go(`?${q}`);
   let ch: UrchiCharacter;
   try {
     ch = createUrchi({ smooth: true, input: false }, { bare: true, turn });
   } finally {
-    history.replaceState(history.state, "", was || location.pathname);
+    go(was || location.pathname);
   }
   ch.setSuit(1);
   ch.setResolution(boxPx);
@@ -238,7 +240,12 @@ class BaseView {
 
 const noSubscribe = () => () => {};
 
-export function BaseSheet() {
+/**
+ * `onExport`, for a host that saves files itself (a page that may not start a download of its
+ * own): it is handed the .glb and the params, and answers with the note to show; without it the
+ * sheet downloads urchi.glb.
+ */
+export function BaseSheet({ onExport }: { onExport?: (glb: ArrayBuffer, params: BaseParams) => Promise<string> } = {}) {
   const host = useSyncExternalStore(noSubscribe, () => document.body, () => null);
   const [params, setParams] = useState<BaseParams>(initialParams);
   const [compare, setCompare] = useState(false);
@@ -271,7 +278,12 @@ export function BaseSheet() {
     try { setParams(readParams(JSON.parse(preset))); flash("Loaded"); } catch { flash("That isn't JSON"); }
   };
   const download = async () => {
-    const glb = await exportGlb(params), url = URL.createObjectURL(new Blob([glb], { type: "model/gltf-binary" }));
+    const glb = await exportGlb(params);
+    if (onExport) {
+      try { flash(await onExport(glb, params)); } catch (e) { flash(e instanceof Error ? e.message : "The file wasn't saved"); }
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([glb], { type: "model/gltf-binary" }));
     const a = document.createElement("a");
     a.href = url; a.download = "urchi.glb"; a.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
