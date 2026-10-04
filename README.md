@@ -109,7 +109,15 @@ fetching the model the first time, so a visit that never sees the suit never dow
 fetches it as Urchi dissolves, and builds its rig a few milliseconds at a time in idle moments); in development `/dev/suit` shows it from all sides (a production build leaves
 the sheet out altogether), and `/dev/body` shows Urchi without it, standing still on a white page: its own plush
 body (`src/engine/urchi/bare.ts`: a round torso under the chin, stubby legs, a ball of a hand each side, no arms), faceted
-and near-black as the head is, the bare head on top (`?turn=` turns it; `?view=sides` shows it from all sides). As it goes on, the body grows from the neck ring along its surface, a
+and near-black as the head is, the bare head on top (`?turn=` turns it; `?view=sides` shows it from all sides). As it goes on, the body grows from the neck ring along its surface, a In development `/dev/base` tunes Urchi as a game's
+base body (`src/engine/urchi/base.ts`, painted and exported by `base3d.ts`): the head as it is on a faceted pear body with a
+ruff of blade tufts round the neck, a bib (its own mesh, a marking to swap), a short angular tail, small floating hands and
+feet, every size a slider, over the 8-view turnaround, beside the original (Compare) and 64px tall on a warm ground as a
+game strip shows it; Copy JSON and a box to paste one back keep presets (the last is kept in the browser, and `?p=` starts
+from one), and Export GLB downloads it for Godot: `head`, `body`, `ruff`, `bib`, `tail`, `hand_L`, `hand_R`, `foot_L`,
+`foot_R`, `eye_L` and `eye_R` as named meshes in metres, the ground at 0 and facing +z, each at its pivot (the head at the
+neck, the tail at its root, the hands, feet and eyes at their middles) under its parent (the feet and the body under the
+root, the rest under the body, the eyes under the head), the eyes unlit, its params in the root's extras.
 small part (a glove, a boot) coming on whole, and the helmet rises over a head whose ears are
 already folded in.
 

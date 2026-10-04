@@ -197,7 +197,8 @@ class BaseView {
       if (before) {
         const key = `${turn}|${Math.round(ppu * dpr * 1000)}`;
         let o = this.originals.get(key);
-        if (!o) { o = original(turn, URCHI_BOX.w * ppu * dpr); this.originals.set(key, o); }
+        // the 2D painter turns the other way round: its turn -90 shows the figure's left side, as 90 does here
+        if (!o) { o = original(-turn, URCHI_BOX.w * ppu * dpr); this.originals.set(key, o); }
         const cx = x0 + figW / 2;
         g.drawImage(o.image, cx + o.frame.x * ppu, y0 + groundPx - (feet - o.frame.y) * ppu, o.frame.w * ppu, o.frame.h * ppu);
         g.fillStyle = "#8a8a86";
@@ -282,7 +283,10 @@ export function BaseSheet() {
     <div data-base-sheet="" className="bs">
       <style>{CSS}</style>
       <aside className="bs-panel">
-        <h1>Urchi, base body</h1>
+        <div className="bs-head">
+          <h1>Urchi, base body</h1>
+          <div className="bs-buttons"><button onClick={download} title="The parts as separate named meshes at their pivots, in metres, for Godot">Export GLB</button></div>
+        </div>
         {GROUPS.map((grp) => (
           <section key={grp.title}>
             <h2>{grp.title}</h2>
@@ -318,10 +322,6 @@ export function BaseSheet() {
           </div>
           <textarea value={preset} onChange={(e) => setPreset(e.target.value)} placeholder="Paste a preset's JSON here" spellCheck={false} />
         </section>
-        <section>
-          <h2>Godot</h2>
-          <div className="bs-buttons"><button onClick={download}>Export GLB</button></div>
-        </section>
         <p className="bs-note" aria-live="polite">{note}</p>
       </aside>
       <main className="bs-main">
@@ -341,8 +341,9 @@ export function BaseSheet() {
 
 const CSS = `
 .bs { position: fixed; inset: 0; z-index: 2147483000; display: flex; background: ${PAGE}; color: ${INK}; font: 500 12px/1.35 Grotesk, ui-sans-serif, system-ui, sans-serif; }
-.bs-panel { width: 290px; flex: none; overflow-y: auto; padding: 16px 16px 40px; background: #f3f2ee; border-right: 1px solid #e2e0da; }
-.bs-panel h1 { font-size: 15px; margin: 0 0 8px; }
+.bs-panel { width: 290px; flex: none; overflow-y: auto; padding: 16px 16px 96px; background: #f3f2ee; border-right: 1px solid #e2e0da; }
+.bs-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bs-panel h1 { font-size: 15px; margin: 0; }
 .bs-panel h2 { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #6d6c68; margin: 14px 0 4px; }
 .bs-row { display: grid; grid-template-columns: 96px 1fr 40px; align-items: center; gap: 6px; min-height: 24px; }
 .bs-row output { text-align: right; font-variant-numeric: tabular-nums; color: #55544f; }

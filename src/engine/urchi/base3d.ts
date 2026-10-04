@@ -69,7 +69,8 @@ function tree(parts: Part[], material: (p: Part) => THREE.Material | THREE.Mater
   root.name = "urchi";
   const byName = new Map<PartName, { part: Part; mesh: THREE.Mesh }>();
   for (const part of parts) {
-    const g = new THREE.BufferGeometry(), [px, py, pz] = part.pivot;
+    const g = new THREE.BufferGeometry();
+    g.name = part.name;
     const pos = Float32Array.from(part.position, (v, i) => (v - part.pivot[i % 3]) * scale);
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     g.setAttribute("normal", new THREE.BufferAttribute(Float32Array.from(part.normal), 3));
@@ -77,7 +78,6 @@ function tree(parts: Part[], material: (p: Part) => THREE.Material | THREE.Mater
     g.computeBoundingSphere();
     const mesh = new THREE.Mesh(g, material(part));
     mesh.name = part.name;
-    mesh.userData.pivot = [px, py, pz];
     byName.set(part.name, { part, mesh });
   }
   for (const { part, mesh } of byName.values()) {
@@ -114,7 +114,7 @@ export async function exportGlb(p: BaseParams): Promise<ArrayBuffer> {
   root.userData = { params: p };
   const scene = new THREE.Scene();
   scene.add(root);
-  const out = await new GLTFExporter().parseAsync(scene, { binary: true });
+  const out = await new GLTFExporter().parseAsync(scene, { binary: true, trs: true });
   disposeTree(root);
   for (const m of [skin, bib, iris, pupil]) m.dispose();
   return out as ArrayBuffer;
