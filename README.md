@@ -109,7 +109,7 @@ fetching the model the first time, so a visit that never sees the suit never dow
 fetches it as Urchi dissolves, and builds its rig a few milliseconds at a time in idle moments); in development `/dev/suit` shows it from all sides (a production build leaves
 the sheet out altogether), and `/dev/body` shows Urchi without it, standing still on a white page: its own plush
 body (`src/engine/urchi/bare.ts`: a round torso under the chin, stubby legs, a ball of a hand each side, no arms), faceted
-and near-black as the head is, the bare head on top (`?turn=` turns it). As it goes on, the body grows from the neck ring along its surface, a
+and near-black as the head is, the bare head on top (`?turn=` turns it; `?view=sides` shows it from all sides). As it goes on, the body grows from the neck ring along its surface, a
 small part (a glove, a boot) coming on whole, and the helmet rises over a head whose ears are
 already folded in.
 

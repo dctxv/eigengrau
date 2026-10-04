@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { URCHI_BOX, createUrchi, preloadSuit, type UrchiCharacter } from "@/engine/urchi/character";
 
 const BG = "#ffffff";
+const INK = "#16161d";
 
 /**
  * Urchi without the suit, held still: the head's angles and lids through the query knobs every
@@ -57,6 +58,36 @@ function draw(g: CanvasRenderingContext2D, W: number, H: number) {
   ch.dispose();
 }
 
+/** The turnaround (?view=sides): every 45 degrees of the whole figure's turn, labelled. */
+const SIDES: [string, number][] = [
+  ["FRONT", 0], ["FRONT 3/4", 45], ["LEFT SIDE", 90], ["BACK 3/4", 135],
+  ["BACK", 180], ["BACK 3/4", 225], ["RIGHT SIDE", 270], ["FRONT 3/4", 315],
+];
+
+/**
+ * The figure from all sides, at one scale (so they compare), four across on a wide screen and two
+ * on a tall one, each centred in its cell over its label, standing on one ground line per row.
+ */
+function drawSides(g: CanvasRenderingContext2D, W: number, H: number, dpr: number) {
+  g.fillStyle = BG;
+  g.fillRect(0, 0, W, H);
+  const at = (turn: number) => { const q = new URLSearchParams(location.search); q.set("turn", String(turn)); return q; };
+  // each view's reach, and the largest of them, from a probe of each
+  const reach = SIDES.map(([, turn]) => { const p = still(at(turn), 400, true), b = bounds(p); p.dispose(); return b; });
+  const wide = Math.max(...reach.map(([l, , r]) => r - l)), top = Math.min(...reach.map((b) => b[1])), bottom = Math.max(...reach.map((b) => b[3]));
+  const cols = W < H ? 2 : 4, rows = SIDES.length / cols, cw = W / cols, rh = H / rows, labelPx = Math.round(13 * dpr);
+  const unit = Math.min((rh - labelPx * 3) * 0.9 / (bottom - top), (cw * 0.9) / wide);
+  SIDES.forEach(([name, turn], i) => {
+    const [l, , r] = reach[i], cx = cw * (i % cols + 0.5), y0 = rh * Math.floor(i / cols) + (rh - labelPx * 3 - (bottom - top) * unit) / 2;
+    const ch = still(at(turn), URCHI_BOX.w * unit, true), f = ch.frame;
+    g.drawImage(ch.canvas, cx - ((l + r) / 2 - f.x) * unit, y0 - (top - f.y) * unit, f.w * unit, f.h * unit);
+    ch.dispose();
+    g.font = `500 ${labelPx}px Grotesk, ui-sans-serif, system-ui, sans-serif`;
+    g.fillStyle = INK; g.textAlign = "center"; g.textBaseline = "top";
+    g.fillText(`${name}  ${turn}°`, cx, y0 + (bottom - top) * unit + labelPx * 0.8);
+  });
+}
+
 const noSubscribe = () => () => {};
 
 export function BodySheet() {
@@ -72,10 +103,13 @@ export function BodySheet() {
       const dpr = window.devicePixelRatio || 1;
       c.width = Math.round(innerWidth * dpr);
       c.height = Math.round(innerHeight * dpr);
-      draw(c.getContext("2d")!, c.width, c.height);
+      const g = c.getContext("2d")!;
+      if (new URLSearchParams(location.search).get("view") === "sides") drawSides(g, c.width, c.height, dpr);
+      else draw(g, c.width, c.height);
       document.documentElement.dataset.sheet = "ready";
     };
-    preloadSuit().then(() => { ready = true; paint(); });
+    // after the fonts (the labels are set in the site's own) and the suit's model (the body hangs from its neck)
+    Promise.all([document.fonts.ready, preloadSuit()]).then(() => { ready = true; paint(); });
     addEventListener("resize", paint);
     return () => { alive = false; removeEventListener("resize", paint); };
   }, [host]);
